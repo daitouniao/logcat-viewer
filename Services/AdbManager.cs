@@ -1,0 +1,261 @@
+using System.Drawing;
+using System.Drawing.Imaging;
+using System.Text;
+using AdvancedSharpAdbClient;
+using AdvancedSharpAdbClient.Models;
+using AdvancedSharpAdbClient.Receivers;
+using logcat.Models;
+using Microsoft.Extensions.Logging;
+
+namespace logcat.Services;
+
+/// <summary>
+/// ADB 设备管理：枚举、Shell、截图、文件传输。
+/// 基于 AdvancedSharpAdbClient 封装。
+/// </summary>
+public sealed class AdbManager : IDisposable
+{
+    readonly AdbClient _client;
+    readonly ILogger _logger;
+    DeviceMonitor? _monitor;
+    CancellationTokenSource? _monitorCts;
+
+    public event EventHandler<List<DeviceInfo>>? DevicesChanged;
+    public event EventHandler<string>? Error;
+
+    public AdbManager(ILogger logger)
+    {
+        _logger = logger;
+        _client = new AdbClient();
+        try
+        {
+            AdbServer.Instance.StartServer("adb", false);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning("启动 ADB server 失败: {0}", ex.Message);
+        }
+    }
+
+    // ── 设备枚举 ──
+
+    public List<DeviceInfo> ListDevices()
+    {
+        var result = new List<DeviceInfo>();
+        try
+        {
+            var devices = _client.GetDevices();
+            foreach (var d in devices)
+            {
+                if (d.State != DeviceState.Online) continue;
+                var info = new DeviceInfo
+                {
+                    Serial = d.Serial ?? "",
+                    Model = GetModel(d),
+                    State = d.State.ToString(),
+                    IsRoot = DetectRoot(d),
+                };
+                result.Add(info);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning("枚举设备失败: {0}", ex.Message);
+        }
+        return result;
+    }
+
+    public Task<List<DeviceInfo>> ListDevicesAsync() =>
+        Task.Run(ListDevices);
+
+    // ── Shell ──
+
+    public string Shell(string serial, string cmd, int timeoutSec = 30)
+    {
+        var device = FindDevice(serial);
+        var receiver = new ConsoleOutputReceiver();
+        _client.ExecuteRemoteCommand(cmd, device, receiver, Encoding.UTF8);
+        return receiver.ToString();
+    }
+
+    public Task<string> ShellAsync(string serial, string cmd, int timeoutSec = 30) =>
+        Task.Run(() => Shell(serial, cmd, timeoutSec));
+
+    public string ShellRoot(string serial, string cmd, int timeoutSec = 30) =>
+        Shell(serial, $"su -c '{cmd}'", timeoutSec);
+
+    // ── 截图 ──
+
+    public Image? Screenshot(string serial)
+    {
+        var device = FindDevice(serial);
+        var fb = _client.GetFrameBuffer(device);
+        fb.Refresh();
+        return FramebufferToImage(fb);
+    }
+
+    public Task<Image?> ScreenshotAsync(string serial) =>
+        Task.Run(() => Screenshot(serial));
+
+    static Bitmap? FramebufferToImage(Framebuffer fb)
+    {
+        var header = fb.Header;
+        var data = fb.Data;
+        if (data == null || data.Length == 0) return null;
+
+        int w = (int)(int)header.Width;
+        int h = (int)(int)header.Height;
+        if (w <= 0 || h <= 0) return null;
+
+        var bmp = new Bitmap(w, h, PixelFormat.Format32bppArgb);
+        var bmpData = bmp.LockBits(new Rectangle(0, 0, w, h), ImageLockMode.WriteOnly, PixelFormat.Format32bppArgb);
+        try
+        {
+            int srcStride = w * 4;
+            int dstStride = bmpData.Stride;
+            int copyLen = Math.Min(srcStride, dstStride);
+
+            // Android framebuffer 为 RGBA 字节序，GDI+ 32bppArgb 内存布局为 BGRA，
+            // 需交换每像素的 R/B 字节，否则红蓝通道互换（黄色会显示成偏蓝的青色）
+            for (int y = 0; y < h; y++)
+            {
+                int rowOff = y * srcStride;
+                for (int x = 0; x < w && rowOff + x * 4 + 3 < data.Length; x++)
+                {
+                    int i = rowOff + x * 4;
+                    (data[i], data[i + 2]) = (data[i + 2], data[i]);
+                }
+            }
+
+            for (int y = 0; y < h; y++)
+            {
+                int srcOff = y * srcStride;
+                long dstOff = bmpData.Scan0.ToInt64() + (long)y * dstStride;
+                if (srcOff + copyLen <= data.Length)
+                    System.Runtime.InteropServices.Marshal.Copy(data, srcOff, new IntPtr(dstOff), copyLen);
+            }
+        }
+        finally
+        {
+            bmp.UnlockBits(bmpData);
+        }
+        return bmp;
+    }
+
+    // ── 文件传输 ──
+
+    public void Pull(string serial, string remotePath, Stream stream)
+    {
+        var device = FindDevice(serial);
+        using var sync = new SyncService(new AdbSocket(), device);
+        sync.Pull(remotePath, stream);
+    }
+
+    public Task PullAsync(string serial, string remotePath, Stream stream) =>
+        Task.Run(() => Pull(serial, remotePath, stream));
+
+    /// <summary>
+    /// 上传时赋予设备端文件的权限模式：普通文件 + 0644。
+    /// 必须显式指定——传 default(0) 会让文件权限变成 000，导致文件无法读取、也无法再下载回来。
+    /// </summary>
+    static readonly UnixFileStatus PushFileMode =
+        UnixFileStatus.Regular
+        | UnixFileStatus.UserRead | UnixFileStatus.UserWrite
+        | UnixFileStatus.GroupRead
+        | UnixFileStatus.OtherRead;
+
+    public void Push(string serial, string localPath, string remotePath)
+    {
+        var device = FindDevice(serial);
+        using var sync = new SyncService(new AdbSocket(), device);
+        using var fs = File.OpenRead(localPath);
+        sync.Push(fs, remotePath, PushFileMode, DateTimeOffset.Now);
+    }
+
+    public Task PushAsync(string serial, string localPath, string remotePath) =>
+        Task.Run(() => Push(serial, localPath, remotePath));
+
+    // ── 设备监控 ──
+
+    public void StartMonitor()
+    {
+        if (_monitor != null) return;
+        try
+        {
+            _monitorCts = new CancellationTokenSource();
+            _monitor = new DeviceMonitor(new AdbSocket());
+            _monitor.DeviceConnected += OnDeviceEvent;
+            _monitor.DeviceDisconnected += OnDeviceEvent;
+            _monitor.DeviceChanged += OnDeviceEvent;
+            _ = _monitor.StartAsync(_monitorCts.Token);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning("启动设备监控失败: {0}", ex.Message);
+            _monitor = null;
+        }
+    }
+
+    public void StopMonitor()
+    {
+        _monitorCts?.Cancel();
+        if (_monitor != null)
+        {
+            _monitor.DeviceConnected -= OnDeviceEvent;
+            _monitor.DeviceDisconnected -= OnDeviceEvent;
+            _monitor.DeviceChanged -= OnDeviceEvent;
+            _monitor.Dispose();
+            _monitor = null;
+        }
+    }
+
+    void OnDeviceEvent(object? sender, DeviceDataEventArgs e)
+    {
+        try
+        {
+            var devices = ListDevices();
+            DevicesChanged?.Invoke(this, devices);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning("设备变更通知处理失败: {0}", ex.Message);
+        }
+    }
+
+    // ── 辅助 ──
+
+    DeviceData FindDevice(string serial)
+    {
+        var devices = _client.GetDevices();
+        var device = devices.FirstOrDefault(d => d.Serial == serial);
+        if (device == null)
+            throw new InvalidOperationException($"设备 {serial} 未连接");
+        return device;
+    }
+
+    static string GetModel(DeviceData d)
+    {
+        if (!string.IsNullOrEmpty(d.Model))
+            return d.Model.Replace("_", " ");
+        return d.Serial ?? "";
+    }
+
+    bool DetectRoot(DeviceData device)
+    {
+        try
+        {
+            var receiver = new ConsoleOutputReceiver();
+            _client.ExecuteRemoteCommand("su -c id", device, receiver, Encoding.UTF8);
+            return receiver.ToString().Contains("uid=0");
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    public void Dispose()
+    {
+        StopMonitor();
+    }
+}
