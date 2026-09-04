@@ -20,6 +20,9 @@ public sealed class AdbManager : IDisposable
     DeviceMonitor? _monitor;
     CancellationTokenSource? _monitorCts;
 
+    /// <summary>root 支持检测结果缓存（序列号 → 是否支持）。</summary>
+    readonly Dictionary<string, bool> _rootCache = new();
+
     public event EventHandler<List<DeviceInfo>>? DevicesChanged;
     public event EventHandler<string>? Error;
 
@@ -53,7 +56,7 @@ public sealed class AdbManager : IDisposable
                     Serial = d.Serial ?? "",
                     Model = GetModel(d),
                     State = d.State.ToString(),
-                    IsRoot = DetectRoot(d),
+                    IsRoot = DetectRootCached(d),
                 };
                 result.Add(info);
             }
@@ -238,6 +241,23 @@ public sealed class AdbManager : IDisposable
         if (!string.IsNullOrEmpty(d.Model))
             return d.Model.Replace("_", " ");
         return d.Serial ?? "";
+    }
+
+    /// <summary>
+    /// root 支持检测结果按序列号缓存。
+    /// su -c 每执行一次手机上就会弹一次 root 授权，设备列表每次刷新都重测
+    /// 会让授权请求反复出现，因此每台设备只在首次遇到时检测一次。
+    /// </summary>
+    bool DetectRootCached(DeviceData device)
+    {
+        var serial = device.Serial ?? "";
+        lock (_rootCache)
+        {
+            if (_rootCache.TryGetValue(serial, out var cached)) return cached;
+        }
+        var supported = DetectRoot(device);
+        lock (_rootCache) _rootCache[serial] = supported;
+        return supported;
     }
 
     bool DetectRoot(DeviceData device)

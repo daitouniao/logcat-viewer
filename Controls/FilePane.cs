@@ -171,6 +171,7 @@ public abstract class FilePane : UserControl
         List.ItemDrag += OnItemDrag;
         List.DragEnter += OnDragEnter;
         List.DragDrop += OnDragDrop;
+        List.MouseUp += OnListMouseUp;
         BuildContextMenu();
         grid.Controls.Add(List, 0, 2);
 
@@ -362,9 +363,22 @@ public abstract class FilePane : UserControl
 
     // ── 右键菜单 ──
 
+    /// <summary>右键某个未选中的项目时，让其成为唯一选中项（资源管理器习惯）。</summary>
+    void OnListMouseUp(object? sender, MouseEventArgs e)
+    {
+        if (e.Button != MouseButtons.Right) return;
+        var item = List.GetItemAt(e.X, e.Y);
+        if (item == null || item.Selected) return;
+        foreach (ListViewItem sel in List.SelectedItems) sel.Selected = false;
+        item.Selected = true;
+    }
+
     void BuildContextMenu()
     {
         var menu = new ContextMenuStrip();
+        // 子类在菜单顶部追加功能项（传输、新建、删除等）
+        OnBuildContextMenu(menu);
+        if (menu.Items.Count > 0) menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("复制完整路径", null, (_, _) => CopySelectedPaths());
         menu.Items.Add("复制文件名", null, (_, _) =>
         {
@@ -375,6 +389,9 @@ public abstract class FilePane : UserControl
         menu.Items.Add("刷新", null, (_, _) => _ = RefreshAsync());
         List.ContextMenuStrip = menu;
     }
+
+    /// <summary>子类在文件列表右键菜单的顶部追加功能项。</summary>
+    protected virtual void OnBuildContextMenu(ContextMenuStrip menu) { }
 
     void CopySelectedPaths()
     {

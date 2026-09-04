@@ -133,7 +133,7 @@ public partial class frmMain : Form
         _toolStrip = new ToolStrip { GripStyle = ToolStripGripStyle.Hidden, ShowItemToolTips = false };
         var actStop = new ToolStripButton("停止", null, (_, _) => StopWorker()) { Enabled = false };
         _lblMarks = new ToolStripLabel("标记 0");
-        _comboDevice = new ToolStripComboBox { Enabled = false, Width = 150 };
+        _comboDevice = new ToolStripComboBox { Enabled = false, Width = 230, DropDownWidth = 320 };
         _lblAdbStat = new ToolStripLabel("");
         ToolStripItem[] adbItems =
         {

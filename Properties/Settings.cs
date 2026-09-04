@@ -50,5 +50,10 @@ namespace logcat.Properties
         [global::System.Configuration.UserScopedSetting]
         [global::System.Configuration.DefaultSettingValue("")]
         public string LastLocalPath { get => (string)this["LastLocalPath"]; set => this["LastLocalPath"] = value; }
+
+        /// <summary>run-as 模式上次使用的中转目录。</summary>
+        [global::System.Configuration.UserScopedSetting]
+        [global::System.Configuration.DefaultSettingValue("/sdcard/Download")]
+        public string LastRunAsRelayDir { get => (string)this["LastRunAsRelayDir"]; set => this["LastRunAsRelayDir"] = value; }
     }
 }

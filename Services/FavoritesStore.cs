@@ -15,6 +15,9 @@ public sealed class FavoritesStore
     {
         public List<FavoriteDir> Remote { get; set; } = new();
         public List<FavoriteDir> Local { get; set; } = new();
+
+        /// <summary>访问过的 run-as 包名（最近在前）。</summary>
+        public List<string> RunAsPackages { get; set; } = new();
     }
 
     static readonly JsonSerializerOptions JsonOpts = new()
@@ -52,6 +55,7 @@ public sealed class FavoritesStore
                 {
                     data.Remote ??= new List<FavoriteDir>();
                     data.Local ??= new List<FavoriteDir>();
+                    data.RunAsPackages ??= new List<string>();
                     return new FavoritesStore(data);
                 }
             }
@@ -133,6 +137,25 @@ public sealed class FavoritesStore
     }
 
     public void Clear(bool remote) => Get(remote).Clear();
+
+    // ── run-as 包名收藏 ──
+
+    /// <summary>访问过的 run-as 包名（最近在前）。</summary>
+    public List<string> RunAsPackages => _data.RunAsPackages;
+
+    public bool AddRunAsPackage(string pkg)
+    {
+        pkg = (pkg ?? "").Trim();
+        if (pkg.Length == 0) return false;
+        if (_data.RunAsPackages.Contains(pkg)) return false;
+        _data.RunAsPackages.Insert(0, pkg);
+        while (_data.RunAsPackages.Count > MaxPerList)
+            _data.RunAsPackages.RemoveAt(_data.RunAsPackages.Count - 1);
+        return true;
+    }
+
+    public bool RemoveRunAsPackage(string pkg) =>
+        _data.RunAsPackages.RemoveAll(p => p == pkg) > 0;
 
     int IndexOf(bool remote, string path)
     {

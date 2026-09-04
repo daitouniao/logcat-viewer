@@ -168,6 +168,18 @@ public sealed class LocalFilePane : FilePane
         bar.Controls.Add(btnDel);
     }
 
+    // ── 右键菜单 ──
+
+    protected override void OnBuildContextMenu(ContextMenuStrip menu)
+    {
+        menu.Items.Add("➡ 上传到设备", null, (_, _) => RequestTransferSelection());
+        menu.Items.Add(new ToolStripSeparator());
+        menu.Items.Add("新建文件夹", null, OnNewFolder);
+        menu.Items.Add("在资源管理器打开", null, (_, _) => OpenInExplorer(CurrentPath));
+        menu.Items.Add("删除选中", null, async (_, _) => await DeleteSelectedAsync());
+        menu.Items.Add(new ToolStripSeparator());
+    }
+
     static void OpenInExplorer(string path)
     {
         if (string.IsNullOrEmpty(path)) path = "::{20D04FE0-3AEA-1069-A2D8-08002B30309D}";
