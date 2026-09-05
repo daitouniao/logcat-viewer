@@ -88,7 +88,7 @@ public partial class frmMain : Form
 
     void InitializeComponent2()
     {
-        Text = "logcat viewer";
+        Text = AppInfo.Title;
         Size = new Size(1440, 900);
         StartPosition = FormStartPosition.WindowsDefaultBounds;
         AllowDrop = true;
@@ -118,6 +118,11 @@ public partial class frmMain : Form
         _actSingleExport = new ToolStripMenuItem("导出时单行化（换行转 \\n）") { CheckOnClick = true };
         _actSingleExport.Click += (_, _) => _singleLineExport = _actSingleExport.Checked;
         mSet.DropDownItems.Add(_actSingleExport);
+
+        // ── 帮助菜单 ──
+        var mHelp = new ToolStripMenuItem("帮助");
+        var actAbout = new ToolStripMenuItem("关于…", null, (_, _) => ShowAbout());
+        mHelp!.DropDownItems.Add(actAbout);
 
         // ── 工具菜单 ──
         var mTools = new ToolStripMenuItem("工具");
@@ -172,7 +177,7 @@ public partial class frmMain : Form
         btnRefresh.Tag = "adb-free";
         btnCmd.Tag = "adb-free";
         _toolStrip.Items.AddRange(new ToolStripItem[] {
-            mFile, mView, mSet, mTools,
+            mFile, mView, mSet, mTools, mHelp,
             new ToolStripSeparator(),
             new ToolStripButton("打开…", null, (_, _) => OpenFile()),
             new ToolStripButton("重载", null, (_, _) => Reload()),
@@ -264,6 +269,14 @@ public partial class frmMain : Form
         }
         catch { }
     }
+
+    void ShowAbout() => MessageBox.Show(this,
+        $"{AppInfo.ProductName} {AppInfo.DisplayVersion}\n\n" +
+        "Windows 桌面端 Android 日志（logcat）查看器\n\n" +
+        "许可：Apache License 2.0（详见 LICENSE）\n" +
+        "第三方声明：见程序目录下 THIRD-PARTY-NOTICES.md\n" +
+        "Copyright 2026 logcat viewer contributors",
+        "关于", MessageBoxButtons.OK, MessageBoxIcon.Information);
 
     void BuildFilterPanel()
     {
@@ -416,7 +429,7 @@ public partial class frmMain : Form
         _doc = null;
         _marked.Clear();
         _listView.SetDocument(null);
-        Text = $"logcat viewer — {System.IO.Path.GetFileName(path)}";
+        Text = $"{AppInfo.Title} — {System.IO.Path.GetFileName(path)}";
         _lblFile.Text = path;
         _lblStat.Text = "";
 
