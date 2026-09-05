@@ -65,6 +65,9 @@ public partial class frmMain : Form
     // 菜单项
     ToolStripMenuItem _actJoin = null!, _actSingleExport = null!;
 
+    // 命令窗口（非模态，可与日志列表并行使用）
+    CommandDialog? _cmdDialog;
+
     readonly ILogger _logger;
 
     public frmMain()
@@ -116,6 +119,14 @@ public partial class frmMain : Form
         _actSingleExport.Click += (_, _) => _singleLineExport = _actSingleExport.Checked;
         mSet.DropDownItems.Add(_actSingleExport);
 
+        // ── 工具菜单 ──
+        var mTools = new ToolStripMenuItem("工具");
+        var actCmd = new ToolStripMenuItem("命令窗口…", null, (_, _) => AdbCommandWindow())
+        {
+            ShortcutKeyDisplayString = "Ctrl+Shift+C",
+        };
+        mTools!.DropDownItems.Add(actCmd);
+
         // 字号子菜单
         var mFont = new ToolStripMenuItem("字号");
         var fontGroup = new ToolStripMenuItem[5];
@@ -135,9 +146,11 @@ public partial class frmMain : Form
         _lblMarks = new ToolStripLabel("标记 0");
         _comboDevice = new ToolStripComboBox { Enabled = false, Width = 230, DropDownWidth = 320 };
         _lblAdbStat = new ToolStripLabel("");
+        var btnRefresh = new ToolStripButton("刷新设备", null, (_, _) => AdbRefresh());
+        var btnCmd = new ToolStripButton("命令", null, (_, _) => AdbCommandWindow());
         ToolStripItem[] adbItems =
         {
-            new ToolStripButton("刷新设备", null, (_, _) => AdbRefresh()),
+            btnRefresh,
             new ToolStripSeparator(),
             new ToolStripButton("▶ 开始采集", null, (_, _) => AdbStartCapture()) { Enabled = false },
             new ToolStripButton("■ 停止采集", null, (_, _) => AdbStopCapture()) { Enabled = false },
@@ -147,6 +160,7 @@ public partial class frmMain : Form
             new ToolStripButton("录屏", null, (_, _) => AdbScreenRecord()) { Enabled = false },
             new ToolStripSeparator(),
             new ToolStripButton("文件浏览", null, (_, _) => AdbFileBrowser()) { Enabled = false },
+            btnCmd,
             new ToolStripSeparator(),
             _lblAdbStat,
             new ToolStripSeparator(),
@@ -154,8 +168,11 @@ public partial class frmMain : Form
             _comboDevice
         };
         foreach (var it in adbItems) it.Tag = "adb";
+        // 不依赖具体设备的按钮（刷新列表、开命令窗口）单独标记，无设备时也要能点
+        btnRefresh.Tag = "adb-free";
+        btnCmd.Tag = "adb-free";
         _toolStrip.Items.AddRange(new ToolStripItem[] {
-            mFile, mView, mSet,
+            mFile, mView, mSet, mTools,
             new ToolStripSeparator(),
             new ToolStripButton("打开…", null, (_, _) => OpenFile()),
             new ToolStripButton("重载", null, (_, _) => Reload()),
@@ -877,7 +894,8 @@ public partial class frmMain : Form
     // ── 快捷键 ──
     void OnKeyDown(object? sender, KeyEventArgs e)
     {
-        if (e.Control && e.KeyCode == Keys.Enter) { ApplyFilter(); e.Handled = true; }
+        if (e.Control && e.Shift && e.KeyCode == Keys.C) { AdbCommandWindow(); e.Handled = true; }
+        else if (e.Control && e.KeyCode == Keys.Enter) { ApplyFilter(); e.Handled = true; }
         else if (e.Control && e.KeyCode == Keys.O) { OpenFile(); e.Handled = true; }
         else if (e.Control && e.KeyCode == Keys.E) { ExportRows(false); e.Handled = true; }
         else if (e.Control && e.KeyCode == Keys.F) { _edMsg.Focus(); _edMsg.SelectAll(); e.Handled = true; }
@@ -991,8 +1009,9 @@ public partial class frmMain : Form
         _comboDevice.Enabled = enabled;
         foreach (ToolStripItem item in _toolStrip.Items)
         {
-            if (item.Tag is "adb" && item is ToolStripButton btn && btn.Text != "刷新设备")
-                btn.Enabled = enabled && hasDevice;
+            if (item is not ToolStripButton btn) continue;
+            if (item.Tag is "adb-free") btn.Enabled = enabled;
+            else if (item.Tag is "adb") btn.Enabled = enabled && hasDevice;
         }
     }
 
@@ -1237,6 +1256,37 @@ public partial class frmMain : Form
             : s.LastLocalPath;
 
         new FileBrowserDialog(_adbManager, serial, isRoot, remote, local).ShowDialog(this);
+    }
+
+    // ── 命令窗口 ──
+
+    bool SelectedIsRoot()
+    {
+        var serial = SelectedSerial();
+        return serial != null && (_adbDevices.FirstOrDefault(d => d.Serial == serial)?.IsRoot ?? false);
+    }
+
+    /// <summary>
+    /// 打开（或唤到前台）命令窗口。非模态，所以设备是执行那一刻才取的：
+    /// 窗口开着时换设备，下一条命令就跑在新设备上。
+    /// </summary>
+    void AdbCommandWindow()
+    {
+        if (_adbManager == null)
+        {
+            ShowError("ADB 不可用，无法执行命令");
+            return;
+        }
+        if (_cmdDialog == null || _cmdDialog.IsDisposed)
+        {
+            _cmdDialog = new CommandDialog(_adbManager, SelectedSerial, SelectedIsRoot);
+            _cmdDialog.FormClosed += (_, _) => _cmdDialog = null;
+            _cmdDialog.Show(this);
+            return;
+        }
+        if (_cmdDialog.WindowState == FormWindowState.Minimized) _cmdDialog.WindowState = FormWindowState.Normal;
+        _cmdDialog.BringToFront();
+        _cmdDialog.Activate();
     }
 
     // ── 辅助 ──

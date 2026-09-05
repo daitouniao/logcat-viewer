@@ -158,13 +158,6 @@ public sealed class DeviceFilePane : FilePane
     // ── Shell 包装 ──
 
     /// <summary>
-    /// 用单引号包裹，内部的单引号按 '\'' 规则转义。
-    /// root 模式下内层命令自身也带单引号（路径引用），不转义的话 su -c 只会收到被截断的前半段，
-    /// 路径含空格时直接失效。
-    /// </summary>
-    static string Quote(string value) => "'" + value.Replace("'", @"'\''") + "'";
-
-    /// <summary>
     /// 该路径上的操作是否需要提权（su / run-as）。
     /// sync 通道能直接收发的路径（/sdcard 等）shell 自身就有权限，
     /// 不加提权包裹，避免浏览普通目录时反复触发 root 授权。
@@ -176,7 +169,7 @@ public sealed class DeviceFilePane : FilePane
     {
         if (!elevated) return inner;
         // run-as 直接 exec 命令而非交给 shell，因此不能整体加引号，也不支持 && 串联
-        if (_isRoot) return $"su -c {Quote(inner)}";
+        if (_isRoot) return $"su -c {AdbManager.ShellQuote(inner)}";
         if (RunAsPackage != null) return $"run-as {RunAsPackage} {inner}";
         return inner;
     }

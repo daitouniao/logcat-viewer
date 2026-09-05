@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.Text;
@@ -84,8 +85,100 @@ public sealed class AdbManager : IDisposable
     public Task<string> ShellAsync(string serial, string cmd, int timeoutSec = 30) =>
         Task.Run(() => Shell(serial, cmd, timeoutSec));
 
+    /// <summary>
+    /// 用单引号包裹，内部的单引号按 '\'' 规则转义。
+    /// 内层命令自身常带单引号（路径引用），不转义的话 su -c 只会收到被截断的前半段，
+    /// 路径含空格时直接失效。
+    /// </summary>
+    public static string ShellQuote(string value) => "'" + (value ?? "").Replace("'", @"'\''") + "'";
+
     public string ShellRoot(string serial, string cmd, int timeoutSec = 30) =>
-        Shell(serial, $"su -c '{cmd}'", timeoutSec);
+        Shell(serial, $"su -c {ShellQuote(cmd)}", timeoutSec);
+
+    /// <summary>
+    /// 执行设备端命令并逐行回传输出。logcat、top 这类一直不退出的命令可以边出边看，也能中途取消；
+    /// onLine 请由调用方在 UI 线程构造 Progress&lt;string&gt;，回传会自动回到该线程。
+    /// </summary>
+    public Task<int> ShellLinesAsync(string serial, string cmd, IProgress<string>? onLine, CancellationToken ct) =>
+        Task.Run(async () =>
+        {
+            var device = FindDevice(serial);
+            int count = 0;
+            await foreach (var line in _client.ExecuteRemoteEnumerableAsync(cmd, device, Encoding.UTF8, ct))
+            {
+                ct.ThrowIfCancellationRequested();
+                onLine?.Report((line ?? "").TrimEnd('\r'));
+                count++;
+            }
+            return count;
+        }, ct);
+
+    // ── 本机 adb 进程 ──
+
+    /// <summary>与具体设备无关、不能带 -s 的 adb 子命令。</summary>
+    static readonly HashSet<string> AdbHostCommands = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "devices", "version", "help", "start-server", "kill-server", "connect", "disconnect", "pair",
+    };
+
+    /// <summary>
+    /// 拼 adb 参数：需要设备的子命令自动补 -s，否则多设备时 adb 会报 “more than one device”。
+    /// </summary>
+    public static string AdbArgs(string command, string? serial)
+    {
+        var cmd = (command ?? "").Trim();
+        if (cmd.Length == 0) return cmd;
+        var head = cmd.Split([' ', '\t'], 2)[0];
+        return !string.IsNullOrEmpty(serial) && !AdbHostCommands.Contains(head)
+            ? $"-s {serial} {cmd}"
+            : cmd;
+    }
+
+    /// <summary>
+    /// 调用本机 adb 执行 adb 子命令：install / reboot / forward 这类走不了 shell 通道的命令用这里。
+    /// stdout、stderr 逐行回传，取消（含超时）时结束整个进程树。
+    /// </summary>
+    public static async Task<int> RunAdbAsync(string arguments, IProgress<string>? onLine, CancellationToken ct)
+    {
+        Process p;
+        try
+        {
+            p = Process.Start(new ProcessStartInfo("adb", arguments)
+            {
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                StandardOutputEncoding = Encoding.UTF8,
+                StandardErrorEncoding = Encoding.UTF8,
+            }) ?? throw new InvalidOperationException("adb 启动失败");
+        }
+        catch (Exception ex)
+        {
+            throw new InvalidOperationException($"未能启动 adb 可执行文件（请确认 adb 已加入 PATH）：{ex.Message}");
+        }
+
+        using (p)
+        using (ct.Register(() => { try { p.Kill(entireProcessTree: true); } catch { } }))
+        {
+            p.OutputDataReceived += (_, e) => { if (e.Data != null) onLine?.Report(e.Data); };
+            p.ErrorDataReceived += (_, e) => { if (e.Data != null) onLine?.Report("[stderr] " + e.Data); };
+            p.BeginOutputReadLine();
+            p.BeginErrorReadLine();
+
+            try
+            {
+                await p.WaitForExitAsync(ct);
+            }
+            catch (OperationCanceledException)
+            {
+                // 进程已被结束，再等一次把缓冲中的输出读完，避免最后几行丢失
+                try { await p.WaitForExitAsync(CancellationToken.None); } catch { }
+                throw;
+            }
+            return p.ExitCode;
+        }
+    }
 
     // ── 截图 ──
 
