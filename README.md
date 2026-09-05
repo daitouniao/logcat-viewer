@@ -1,5 +1,7 @@
 # logcat viewer
 
+[![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
+
 Windows 桌面端 Android 日志（logcat）查看器。基于 WinForms，使用内存映射文件 + 列式索引，可直接打开并流畅浏览千万行级别的日志文件，同时支持通过 ADB 实时采集设备日志、截图、录屏、文件互传与分类收藏常用命令。
 
 ## 目录
@@ -18,7 +20,10 @@ Windows 桌面端 Android 日志（logcat）查看器。基于 WinForms，使用
   - [过滤语法](#过滤语法)
   - [目录结构](#目录结构)
   - [数据存储](#数据存储)
-  - [第三方依赖](#第三方依赖)
+  - [许可](#许可)
+    - [许可相容性](#许可相容性)
+    - [明细与合规](#明细与合规)
+    - [贡献即授权](#贡献即授权)
 
 ## 特性
 
@@ -148,6 +153,8 @@ Services/
   LogcatStream.cs       实时 logcat 采集流
   FavoritesStore.cs     目录收藏持久化
   CommandStore.cs       命令分类 / 收藏 / 历史持久化 + 内置命令库
+LICENSE                 Apache-2.0 全文
+THIRD-PARTY-NOTICES.md  第三方库与工具链的许可声明
 ```
 
 ## 数据存储
@@ -157,7 +164,27 @@ Services/
 - 命令窗口的分类、收藏、历史与占位符取值以 JSON 持久化到 `%LOCALAPPDATA%\logcat\commands.json`（首次打开时写入内置命令库）
 - 实时采集的日志写入系统临时目录 `logcat_live_*.log`，关闭窗口时释放
 
-## 第三方依赖
+## 许可
 
-- [AdvancedSharpAdbClient](https://github.com/SharpAdb/AdvancedSharpAdbClient) — ADB 通信
-- Microsoft.Extensions.Logging（Console / Debug）
+本项目采用 [Apache License 2.0](LICENSE)（全文见 `LICENSE`）。选择它的依据是「跟随所使用的三方库与编译工具的许可」：唯一的非微软依赖就是 Apache-2.0 的 ADB 客户端库，其余皆为 MIT，因此 Apache-2.0 可以无冲突地覆盖整棵依赖树，同时额外提供专利授权。可按 Apache-2.0 条款自由使用、修改、分发（含商用）。
+
+> 源码由 AI 辅助生成，不指定自然人作者，版权以 `logcat viewer contributors` 集体名义声明。若需换成自己的署名，改两处即可：`LICENSE` 附录的 `Copyright` 行、`logcat.csproj` 的 `<Copyright>`。
+
+### 许可相容性
+
+| 使用的第三方                             | 许可                                                                | 与本项目的关系                                                                 |
+| ---------------------------------------- | ------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| AdvancedSharpAdbClient 3.6.16            | Apache-2.0                                                          | 唯一的非微软 NuGet 库，DLL 随产物分发 → 本项目同样用 Apache-2.0 最省事 |
+| Microsoft.Extensions.* 10.0.11（Logging 及其依赖，共 13 个包） | MIT                                                       | MIT 代码可无限制并入 Apache-2.0 项目，只需保留其版权声明                    |
+| .NET SDK 10.0.400 / C# 编译器 / WinForms | 源码 MIT，安装的二进制受《Microsoft 软件许可条款 — .NET 库》约束 | 构建工具链与运行框架，条款允许免费构建并分发应用                            |
+| adb.exe（Android platform-tools）        | Apache-2.0                                                          | 只调用用户环境中的外部程序，不打包、不修改；若你一并分发 platform-tools 需保留其 LICENSE/NOTICE |
+
+### 明细与合规
+
+- 完整清单（包名、版本、许可标识、版权行、传递依赖、分发检查项）见 [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md)。
+- `dotnet build` / `dotnet publish` 会把 `LICENSE` 与 `THIRD-PARTY-NOTICES.md` 复制到输出目录，保证二进制发布包自带声明。
+- 程序集版权信息已写入 exe 的「属性 → 详细信息」。
+
+### 贡献即授权
+
+遵循 Apache-2.0 第 5 条：向本仓库提交的贡献默认按 Apache-2.0 授权，无需另附声明。修改源文件时请按第 4(b) 条在改动处注明已修改。
