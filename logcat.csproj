@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
@@ -14,10 +14,11 @@
     <Copyright>Copyright 2026 logcat viewer contributors. Licensed under the Apache License, Version 2.0.</Copyright>
   </PropertyGroup>
 
-  <!-- 构建 / 发布产物中携带许可与第三方声明，满足 Apache-2.0 第 4 条的分发要求 -->
+  <!-- 构建 / 发布产物中携带许可、第三方声明与免责声明，满足 Apache-2.0 第 4 条的分发要求 -->
   <ItemGroup>
     <None Include="LICENSE" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <None Include="THIRD-PARTY-NOTICES.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <None Include="DISCLAIMER.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>
