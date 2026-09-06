@@ -24,6 +24,12 @@ public sealed class FavoritesStore
 
         /// <summary>安装/卸载收藏的应用包名（最近在前）。</summary>
         public List<string> Packages { get; set; } = new();
+
+        /// <summary>收藏的 tag 过滤内容（最近在前）。</summary>
+        public List<string> TagFilters { get; set; } = new();
+
+        /// <summary>收藏的 message 过滤内容（最近在前）。</summary>
+        public List<string> MsgFilters { get; set; } = new();
     }
 
     static readonly JsonSerializerOptions JsonOpts = new()
@@ -64,6 +70,8 @@ public sealed class FavoritesStore
                     data.RunAsPackages ??= new List<string>();
                     data.ApkPaths ??= new List<string>();
                     data.Packages ??= new List<string>();
+                    data.TagFilters ??= new List<string>();
+                    data.MsgFilters ??= new List<string>();
                     return new FavoritesStore(data);
                 }
             }
@@ -180,6 +188,22 @@ public sealed class FavoritesStore
     public bool AddPackage(string pkg) => AddRecent(_data.Packages, pkg);
 
     public bool RemovePackage(string pkg) => _data.Packages.RemoveAll(p => p == pkg) > 0;
+
+    // ── 过滤条件收藏（tag / message，主窗体过滤面板用）──
+
+    /// <summary>收藏的 tag 过滤内容（最近在前）。</summary>
+    public List<string> TagFilters => _data.TagFilters;
+
+    /// <summary>收藏的 message 过滤内容（最近在前）。</summary>
+    public List<string> MsgFilters => _data.MsgFilters;
+
+    public bool AddTagFilter(string text) => AddRecent(_data.TagFilters, text);
+
+    public bool RemoveTagFilter(string text) => _data.TagFilters.RemoveAll(p => p == text) > 0;
+
+    public bool AddMsgFilter(string text) => AddRecent(_data.MsgFilters, text);
+
+    public bool RemoveMsgFilter(string text) => _data.MsgFilters.RemoveAll(p => p == text) > 0;
 
     /// <summary>把值插到列表最前，去重并限制长度。空值或已存在时返回 false。</summary>
     static bool AddRecent(List<string> list, string value)

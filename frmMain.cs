@@ -69,6 +69,9 @@ public partial class frmMain : Form
     // 命令窗口（非模态，可与日志列表并行使用）
     CommandDialog? _cmdDialog;
 
+    // 过滤设置窗口（非模态，悬浮在主窗口之上）
+    FilterDialog? _filterDialog;
+
     readonly ILogger _logger;
 
     public frmMain()
@@ -119,6 +122,8 @@ public partial class frmMain : Form
         _actSingleExport = new ToolStripMenuItem("导出时单行化（换行转 \\n）") { CheckOnClick = true };
         _actSingleExport.Click += (_, _) => _singleLineExport = _actSingleExport.Checked;
         mSet.DropDownItems.Add(_actSingleExport);
+        mSet.DropDownItems.Add(new ToolStripSeparator());
+        mSet.DropDownItems.Add(new ToolStripMenuItem("过滤设置窗口", null, (_, _) => ShowFilterDialog()));
 
         // ── 帮助菜单 ──
         var mHelp = new ToolStripMenuItem("帮助");
@@ -203,6 +208,8 @@ public partial class frmMain : Form
             new ToolStripButton("清除标记", null, (_, _) => ClearMarks()),
             new ToolStripSeparator(),
             _lblMarks,
+            new ToolStripSeparator(),
+            new ToolStripButton("过滤设置", null, (_, _) => ShowFilterDialog()),
         });
         Controls.Add(_toolStrip2);
 
@@ -231,23 +238,12 @@ public partial class frmMain : Form
         Controls.Add(_statusStrip);
 
         // ── 布局 ──
-        // 使用 SplitContainer 让过滤面板可折叠
-        var split = new SplitContainer
-        {
-            Dock = DockStyle.Fill,
-            Orientation = Orientation.Horizontal,
-            FixedPanel = FixedPanel.Panel1,
-        };
-        split.Panel1.Controls.Add(_panel);
-        split.Panel2.Controls.Add(_listView);
-        Controls.Add(split);
-        Load += (_, _) =>
-        {
-            split.Panel2MinSize = 200;
-            try { split.SplitterDistance = 130; } catch { }
-            LayoutDeviceCombo();
-        };
-        split.BringToFront();
+        // 过滤面板移到独立的非模态窗口（FilterDialog），主区域只保留日志列表填满
+        _filterDialog = new FilterDialog(_panel, () => ApplyFilter());
+        Controls.Add(_listView);
+        Load += (_, _) => LayoutDeviceCombo();
+        Shown += (_, _) => ShowFilterDialog();
+        _listView.BringToFront();
         _statusStrip.BringToFront();
         // 让第二行工具栏位于主工具栏下方（同为 Top 停靠，索引越低越靠内/靠下）
         _toolStrip2.BringToFront();
@@ -296,11 +292,11 @@ public partial class frmMain : Form
         {
             Dock = DockStyle.Fill,
             ColumnCount = 1,
-            RowCount = 3,
+            RowCount = 4,
             AutoScroll = false
         };
         mainLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        for (int i = 0; i < 3; i++)
+        for (int i = 0; i < 4; i++)
             mainLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
 
         // 级别行
@@ -345,14 +341,17 @@ public partial class frmMain : Form
         lvlPanel.Controls.Add(_chkFollow);
         mainLayout.Controls.Add(lvlPanel, 0, 0);
 
-        // Tag + Message 行
-        var termPanel = new FlowLayoutPanel { AutoSize = true, WrapContents = false };
-        BuildTermControls(termPanel, "Tag", out _edTag, out _cbTagOp, out _ckTagRe, out _ckTagCase, out _ckTagEx,
-            "多个用空格分隔，短语用双引号包裹", "or");
-        termPanel.Controls.Add(new Label { Text = "    ", AutoSize = true });
-        BuildTermControls(termPanel, "Message", out _edMsg, out _cbMsgOp, out _ckMsgRe, out _ckMsgCase, out _ckMsgEx,
-            "多词用空格分隔，短语用双引号包裹", "and");
-        mainLayout.Controls.Add(termPanel, 0, 1);
+        // Tag 行（含收藏）
+        var tagPanel = new FlowLayoutPanel { AutoSize = true, WrapContents = false };
+        BuildTermControls(tagPanel, "Tag", out _edTag, out _cbTagOp, out _ckTagRe, out _ckTagCase, out _ckTagEx,
+            "多个用空格分隔，短语用双引号包裹", "or", forTag: true);
+        mainLayout.Controls.Add(tagPanel, 0, 1);
+
+        // Message 行（含收藏）
+        var msgPanel = new FlowLayoutPanel { AutoSize = true, WrapContents = false };
+        BuildTermControls(msgPanel, "Message", out _edMsg, out _cbMsgOp, out _ckMsgRe, out _ckMsgCase, out _ckMsgEx,
+            "多词用空格分隔，短语用双引号包裹", "and", forTag: false);
+        mainLayout.Controls.Add(msgPanel, 0, 2);
 
         // PID / TID / 分钟 行（含过滤条件说明）
         var pidTidPanel = new FlowLayoutPanel { AutoSize = true, WrapContents = false };
@@ -379,14 +378,14 @@ public partial class frmMain : Form
         pidTidPanel.Controls.Add(_edMin);
         _lblSpec = new Label { Text = "（无过滤）", AutoSize = true, Padding = new Padding(8, 6, 0, 0), ForeColor = Color.Gray };
         pidTidPanel.Controls.Add(_lblSpec);
-        mainLayout.Controls.Add(pidTidPanel, 0, 2);
+        mainLayout.Controls.Add(pidTidPanel, 0, 3);
 
         _panel.Controls.Add(mainLayout);
     }
 
     void BuildTermControls(FlowLayoutPanel panel, string label, out TextBox ed, out ComboBox cbOp,
         out CheckBox ckRe, out CheckBox ckCase, out CheckBox ckEx,
-        string placeholder, string defaultOp)
+        string placeholder, string defaultOp, bool forTag)
     {
         panel.Controls.Add(new Label { Text = label, AutoSize = true, Width = 62, Padding = new Padding(0, 4, 0, 0) });
         ed = new TextBox { Width = 280 };
@@ -394,6 +393,19 @@ public partial class frmMain : Form
         ed.TextChanged += (_, _) => OnFilterChanged();
         ed.KeyDown += (_, e) => { if (e.KeyCode == Keys.Enter) ApplyFilter(); };
         panel.Controls.Add(ed);
+
+        // 收藏：▾ 从收藏选择，★ 收藏/移除当前内容
+        TextBox box = ed;
+        var favTip = new ToolTip();
+        var btnFavPick = new Button { Text = "▾", Width = 28, Height = 25, Margin = new Padding(2, 0, 0, 0) };
+        favTip.SetToolTip(btnFavPick, "从收藏中选择");
+        btnFavPick.Click += (_, _) => ShowFilterFavMenu(btnFavPick, box, forTag);
+        panel.Controls.Add(btnFavPick);
+        var btnFavToggle = new Button { Text = "★", Width = 28, Height = 25, Margin = new Padding(2, 0, 0, 0) };
+        favTip.SetToolTip(btnFavToggle, "收藏当前内容（已收藏则移除）");
+        btnFavToggle.Click += (_, _) => ToggleFilterFav(box, forTag);
+        panel.Controls.Add(btnFavToggle);
+
         cbOp = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 55 };
         cbOp.Items.AddRange(new[] { "or", "and" });
         cbOp.SelectedItem = defaultOp;
@@ -408,6 +420,62 @@ public partial class frmMain : Form
         ckEx = new CheckBox { Text = "排除", AutoSize = true };
         ckEx.CheckedChanged += (_, _) => OnFilterChanged();
         panel.Controls.Add(ckEx);
+    }
+
+    // ── 过滤条件收藏（tag / message）──
+    static List<string> FilterFavList(bool forTag) =>
+        forTag ? FavoritesStore.Default.TagFilters : FavoritesStore.Default.MsgFilters;
+
+    void ShowFilterFavMenu(Button anchor, TextBox ed, bool forTag)
+    {
+        var list = FilterFavList(forTag);
+        var menu = new ContextMenuStrip();
+        if (list.Count == 0)
+        {
+            menu.Items.Add(new ToolStripMenuItem("（暂无收藏，点 ★ 收藏当前内容）") { Enabled = false });
+        }
+        else
+        {
+            foreach (var item in list)
+            {
+                var text = item;
+                var mi = new ToolStripMenuItem(text);
+                mi.Click += (_, _) =>
+                {
+                    ed.Text = text;
+                    ed.SelectionStart = text.Length;
+                    ApplyFilter();
+                };
+                menu.Items.Add(mi);
+            }
+            menu.Items.Add(new ToolStripSeparator());
+            menu.Items.Add("清空收藏", null, (_, _) =>
+            {
+                FilterFavList(forTag).Clear();
+                FavoritesStore.Default.Save();
+                ShowStatus("已清空收藏");
+            });
+        }
+        menu.Show(anchor, new Point(0, anchor.Height));
+    }
+
+    void ToggleFilterFav(TextBox ed, bool forTag)
+    {
+        var fav = FavoritesStore.Default;
+        var text = ed.Text.Trim();
+        if (text.Length == 0) { ShowStatus("内容为空，无法收藏"); return; }
+        bool removed = forTag ? fav.RemoveTagFilter(text) : fav.RemoveMsgFilter(text);
+        if (removed)
+        {
+            fav.Save();
+            ShowStatus($"已移除收藏：{text}");
+        }
+        else
+        {
+            if (forTag) fav.AddTagFilter(text); else fav.AddMsgFilter(text);
+            fav.Save();
+            ShowStatus($"已收藏：{text}");
+        }
     }
 
     // ── 过滤变更 ──
@@ -922,7 +990,7 @@ public partial class frmMain : Form
         else if (e.Control && e.KeyCode == Keys.Enter) { ApplyFilter(); e.Handled = true; }
         else if (e.Control && e.KeyCode == Keys.O) { OpenFile(); e.Handled = true; }
         else if (e.Control && e.KeyCode == Keys.E) { ExportRows(false); e.Handled = true; }
-        else if (e.Control && e.KeyCode == Keys.F) { _edMsg.Focus(); _edMsg.SelectAll(); e.Handled = true; }
+        else if (e.Control && e.KeyCode == Keys.F) { ShowFilterDialog(); _edMsg.Focus(); _edMsg.SelectAll(); e.Handled = true; }
         else if (e.Control && e.KeyCode == Keys.C) { CopySelection(); e.Handled = true; }
         else if (e.KeyCode == Keys.F5) { Reload(); e.Handled = true; }
         else if (e.KeyCode == Keys.F2) { GotoMark(e.Shift); e.Handled = true; }
@@ -1325,6 +1393,23 @@ public partial class frmMain : Form
         if (_cmdDialog.WindowState == FormWindowState.Minimized) _cmdDialog.WindowState = FormWindowState.Normal;
         _cmdDialog.BringToFront();
         _cmdDialog.Activate();
+    }
+
+    // ── 过滤设置窗口（非模态，悬浮在主窗口之上）──
+    void ShowFilterDialog()
+    {
+        if (_filterDialog == null || _filterDialog.IsDisposed)
+            _filterDialog = new FilterDialog(_panel, () => ApplyFilter());
+
+        if (!_filterDialog.Visible)
+        {
+            _filterDialog.Show(this);
+            _filterDialog.PositionAboveOwner();
+        }
+        if (_filterDialog.WindowState == FormWindowState.Minimized)
+            _filterDialog.WindowState = FormWindowState.Normal;
+        _filterDialog.BringToFront();
+        _filterDialog.Activate();
     }
 
     // ── 辅助 ──
