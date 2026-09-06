@@ -18,6 +18,12 @@ public sealed class FavoritesStore
 
         /// <summary>访问过的 run-as 包名（最近在前）。</summary>
         public List<string> RunAsPackages { get; set; } = new();
+
+        /// <summary>安装过的 APK 本机路径（最近在前）。</summary>
+        public List<string> ApkPaths { get; set; } = new();
+
+        /// <summary>安装/卸载收藏的应用包名（最近在前）。</summary>
+        public List<string> Packages { get; set; } = new();
     }
 
     static readonly JsonSerializerOptions JsonOpts = new()
@@ -56,6 +62,8 @@ public sealed class FavoritesStore
                     data.Remote ??= new List<FavoriteDir>();
                     data.Local ??= new List<FavoriteDir>();
                     data.RunAsPackages ??= new List<string>();
+                    data.ApkPaths ??= new List<string>();
+                    data.Packages ??= new List<string>();
                     return new FavoritesStore(data);
                 }
             }
@@ -156,6 +164,33 @@ public sealed class FavoritesStore
 
     public bool RemoveRunAsPackage(string pkg) =>
         _data.RunAsPackages.RemoveAll(p => p == pkg) > 0;
+
+    // ── APK 路径 / 应用包名收藏（安装卸载窗口用）──
+
+    /// <summary>收藏过的 APK 本机路径（最近在前）。</summary>
+    public List<string> ApkPaths => _data.ApkPaths;
+
+    /// <summary>收藏过的应用包名（最近在前）。</summary>
+    public List<string> Packages => _data.Packages;
+
+    public bool AddApkPath(string path) => AddRecent(_data.ApkPaths, path);
+
+    public bool RemoveApkPath(string path) => _data.ApkPaths.RemoveAll(p => p == path) > 0;
+
+    public bool AddPackage(string pkg) => AddRecent(_data.Packages, pkg);
+
+    public bool RemovePackage(string pkg) => _data.Packages.RemoveAll(p => p == pkg) > 0;
+
+    /// <summary>把值插到列表最前，去重并限制长度。空值或已存在时返回 false。</summary>
+    static bool AddRecent(List<string> list, string value)
+    {
+        value = (value ?? "").Trim();
+        if (value.Length == 0) return false;
+        list.RemoveAll(p => string.Equals(p, value, StringComparison.OrdinalIgnoreCase));
+        list.Insert(0, value);
+        while (list.Count > MaxPerList) list.RemoveAt(list.Count - 1);
+        return true;
+    }
 
     int IndexOf(bool remote, string path)
     {

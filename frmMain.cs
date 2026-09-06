@@ -38,6 +38,7 @@ public partial class frmMain : Form
     // ── 控件 ──
     LogListView _listView = null!;
     ToolStrip _toolStrip = null!;
+    ToolStrip _toolStrip2 = null!;
     StatusStrip _statusStrip = null!;
     ToolStripStatusLabel _lblFile = null!, _lblStat = null!, _lblPos = null!, _lblMsg = null!;
     ToolStripProgressBar _pbar = null!;
@@ -131,6 +132,7 @@ public partial class frmMain : Form
             ShortcutKeyDisplayString = "Ctrl+Shift+C",
         };
         mTools!.DropDownItems.Add(actCmd);
+        mTools.DropDownItems.Add(new ToolStripMenuItem("安装/卸载 APK…", null, (_, _) => AdbApkManager()));
 
         // 字号子菜单
         var mFont = new ToolStripMenuItem("字号");
@@ -165,6 +167,7 @@ public partial class frmMain : Form
             new ToolStripButton("录屏", null, (_, _) => AdbScreenRecord()) { Enabled = false },
             new ToolStripSeparator(),
             new ToolStripButton("文件浏览", null, (_, _) => AdbFileBrowser()) { Enabled = false },
+            new ToolStripButton("安装APK", null, (_, _) => AdbApkManager()) { Enabled = false },
             btnCmd,
             new ToolStripSeparator(),
             _lblAdbStat,
@@ -185,17 +188,23 @@ public partial class frmMain : Form
             new ToolStripSeparator(),
             new ToolStripButton("导出结果…", null, (_, _) => ExportRows(false)),
             new ToolStripButton("导出标记行…", null, (_, _) => ExportRows(true)),
-            new ToolStripSeparator(),
-            new ToolStripButton("◀ 标记", null, (_, _) => GotoMark(true)),
-            new ToolStripButton("标记 ▶", null, (_, _) => GotoMark(false)),
-            new ToolStripButton("清除标记", null, (_, _) => ClearMarks()),
-            new ToolStripSeparator(),
-            _lblMarks,
             new ToolStripSeparator()
         });
         _toolStrip.Items.AddRange(adbItems);
         Controls.Add(_toolStrip);
         _toolStrip.Resize += (_, _) => LayoutDeviceCombo();
+
+        // ── 第二行工具栏：标记相关按钮挪到这里，给第一行的设备下拉框腾出宽度 ──
+        _toolStrip2 = new ToolStrip { GripStyle = ToolStripGripStyle.Hidden, ShowItemToolTips = false };
+        _toolStrip2.Items.AddRange(new ToolStripItem[] {
+            new ToolStripLabel("标记:"),
+            new ToolStripButton("◀ 上一个", null, (_, _) => GotoMark(true)),
+            new ToolStripButton("下一个 ▶", null, (_, _) => GotoMark(false)),
+            new ToolStripButton("清除标记", null, (_, _) => ClearMarks()),
+            new ToolStripSeparator(),
+            _lblMarks,
+        });
+        Controls.Add(_toolStrip2);
 
         // ── 过滤面板 ──
         BuildFilterPanel();
@@ -240,6 +249,8 @@ public partial class frmMain : Form
         };
         split.BringToFront();
         _statusStrip.BringToFront();
+        // 让第二行工具栏位于主工具栏下方（同为 Top 停靠，索引越低越靠内/靠下）
+        _toolStrip2.BringToFront();
 
         // ── 定时器 ──
         _autoTimer.Tick += (_, _) => { _autoTimer.Stop(); ApplyFilter(); };
@@ -1269,6 +1280,20 @@ public partial class frmMain : Form
             : s.LastLocalPath;
 
         new FileBrowserDialog(_adbManager, serial, isRoot, remote, local).ShowDialog(this);
+    }
+
+    // ── APK 安装/卸载 ──
+
+    void AdbApkManager()
+    {
+        var serial = SelectedSerial();
+        if (serial == null || _adbManager == null)
+        {
+            ShowError("请先选择设备");
+            return;
+        }
+        bool isRoot = _adbDevices.FirstOrDefault(d => d.Serial == serial)?.IsRoot ?? false;
+        new ApkDialog(_adbManager, serial, isRoot).ShowDialog(this);
     }
 
     // ── 命令窗口 ──
