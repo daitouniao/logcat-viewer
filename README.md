@@ -1,11 +1,11 @@
 # logcat viewer
 
-[![Version: V0.01](https://img.shields.io/badge/version-V0.01-green)](logcat.csproj)
+[![Version: V0.02](https://img.shields.io/badge/version-V0.02-green)](logcat.csproj)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
 
-Windows 桌面端 Android 日志（logcat）查看器。基于 WinForms，使用内存映射文件 + 列式索引，可直接打开并流畅浏览千万行级别的日志文件，同时支持通过 ADB 实时采集设备日志、截图、录屏、文件互传与分类收藏常用命令。
+Windows 桌面端 Android 日志（logcat）查看器。基于 WinForms，使用内存映射文件 + 列式索引，可直接打开并流畅浏览千万行级别的日志文件，同时支持通过 ADB 实时采集设备日志、截图、录屏、文件互传、APK 安装/卸载与分类收藏常用命令。
 
-> 当前版本 **V0.01**（第一个可用版本）。版本号以 [logcat.csproj](logcat.csproj) 的 `<Version>` 为唯一来源，发布时只改该处，程序标题、关于对话框与 exe 文件属性会自动同步。
+> 当前版本 **V0.02**（新增 APK 安装/卸载、整理过滤显示、程序图标）。版本号以 [logcat.csproj](logcat.csproj) 的 `<Version>` 为唯一来源，发布时只改该处，程序标题、关于对话框与 exe 文件属性会自动同步。
 
 ## 目录
 
@@ -16,6 +16,7 @@ Windows 桌面端 Android 日志（logcat）查看器。基于 WinForms，使用
     - [过滤](#过滤)
     - [标记与导出](#标记与导出)
     - [ADB 设备功能](#adb-设备功能)
+    - [安装 / 卸载 APK](#安装--卸载-apk)
     - [命令窗口](#命令窗口)
   - [环境要求](#环境要求)
   - [构建与运行](#构建与运行)
@@ -48,6 +49,8 @@ Windows 桌面端 Android 日志（logcat）查看器。基于 WinForms，使用
 - **分钟**：按时间戳的分钟值过滤，如 `05 20`
 - **仅标记行**：只看被标记的记录
 - **自动应用**：输入后延迟 400 ms 自动刷新，也可用 `Ctrl+Enter` 手动应用
+- **独立过滤窗口**：过滤面板放在一个非模态、始终悬浮于主窗口之上的「过滤设置」窗口里，主区域因此整片留给日志列表；点关闭只是收起（过滤条件不丢），可从第二行工具栏的「过滤设置」、菜单「设置 → 过滤设置窗口」或 `Ctrl+F` 再打开，程序启动时自动弹出并贴在主窗口顶部居中
+- **过滤条件收藏**：Tag 与 Message 各自一份收藏，输入框旁的 `▾` 从收藏中选（可单条移除或清空），`★` 收藏当前内容（已收藏则移除），每份上限 60 条并持久化
 
 ### 标记与导出
 
@@ -67,7 +70,23 @@ Windows 桌面端 Android 日志（logcat）查看器。基于 WinForms，使用
 | 保存日志      | 把本次采集内容另存为 `.log`                                                                                                      |
 | 截图 / 录屏   | 截图预览并保存；录屏可拉取到本地                                                                                                 |
 | 文件浏览      | 双栏文件管理器：设备端 ↔ 本机端互传、刷新、目录收藏；`/data/data` 等受限目录需 root 才能双向传输（未 root 可 run-as 浏览与上传） |
+| 安装APK       | 安装 / 卸载应用窗口，也可从菜单「工具 → 安装/卸载 APK…」打开，见下节                                                            |
 | 命令          | 打开命令窗口，见下节                                                                                                             |
+
+第二行工具栏放标记相关按钮（上一个 / 下一个 / 清除标记 / 标记计数）与「过滤设置」入口。
+
+### 安装 / 卸载 APK
+
+面向选中设备的独立窗口（工具栏「安装APK」或菜单「工具 → 安装/卸载 APK…」），安装与卸载各一个页签，底部共用一块输出区（可停止 / 复制 / 清空），窗口顶部显示当前设备序列号与 root 状态。
+
+- **安装两条通道**
+  - `adb install`：可勾选 `-r` 覆盖安装（保留数据，默认勾）、`-d` 允许降级、`-g` 授予全部权限、`-t` 允许测试包
+  - `pm install`：`adb install` 被禁用时改用，先把 APK 推到设备端临时目录（默认 `/data/local/tmp`，可改）再安装，完成后自动清理临时文件；输出里出现 `Success` 即安装成功
+- **卸载两条通道**：`adb uninstall` 或 `pm uninstall`，可勾 `-k` 保留数据和缓存；`pm` 通道可选「以 root 执行」（`su -c` 包裹），卸载系统预装应用通常需 root
+- **已装应用列表**：开窗自动拉取设备上的三方应用（应用名 / 包名 / APK 路径），可手动刷新；双击或按 `Enter` 确认后直接卸载并刷新列表，也可把包名填到输入框再卸载
+- **路径与包名收藏**：APK 本机路径（可「浏览…」选择）与应用包名都能 ★ 收藏 / ☆ 移除，下拉框直接复用
+- **选项记忆**：通道、安装参数、临时目录、root 与保留数据等选项在关窗时写入用户配置，下次打开沿用
+- **回显兜底**：拉取应用列表时带成功哨兵判定，避免 `pm` 无输出时被 adb 当成 unresponsive
 
 ### 命令窗口
 
@@ -106,7 +125,7 @@ dotnet publish -c Release   # 发布
 | `F5`              | 重载（增量，文件无变化则跳过）            |
 | `Ctrl+E`          | 导出当前结果                              |
 | `Ctrl+Enter`      | 应用过滤                                  |
-| `Ctrl+F`          | 聚焦 Message 输入框                       |
+| `Ctrl+F`          | 打开过滤设置窗口并聚焦 Message 输入框     |
 | `Ctrl+C`          | 复制选中行                                |
 | `Ctrl+Shift+C`    | 打开命令窗口                              |
 | `F2` / `Shift+F2` | 上一个 / 下一个标记                       |
@@ -129,7 +148,8 @@ dotnet publish -c Release   # 发布
 
 ```
 Program.cs              入口
-frmMain.cs              主窗口：布局、过滤面板、ADB 工具栏、快捷键
+frmMain.cs              主窗口：布局、双行工具栏、过滤面板构建与收藏、ADB 功能入口、快捷键
+app.ico                 程序图标（csproj 的 ApplicationIcon）
 Controls/
   LogListView.cs        虚拟模式日志列表（列定义、级别配色、标记、视图快照）
   FilePane.cs           文件面板基类
@@ -137,6 +157,8 @@ Controls/
   LocalFilePane.cs      本机端文件面板
 Forms/
   FileBrowserDialog.cs  设备 ↔ 本机双栏文件管理器
+  ApkDialog.cs          APK 安装 / 卸载（双通道、已装应用列表、路径与包名收藏）
+  FilterDialog.cs       过滤设置的非模态悬浮窗口（承载主窗体的过滤面板）
   CommandDialog.cs      命令窗口（分类列表、收藏、历史、执行与输出）
   CommandEditDialog.cs  收藏条目的新建 / 编辑
   ScreenCaptureDialog.cs 截图 / 录屏
@@ -155,8 +177,11 @@ Services/
   FilterEngine.cs       过滤引擎（预筛 → message 匹配 → 导出）
   AdbManager.cs         ADB 封装（设备枚举、Shell、流式执行、本机 adb、截图、推拉文件）
   LogcatStream.cs       实时 logcat 采集流
-  FavoritesStore.cs     目录收藏持久化
+  FavoritesStore.cs     收藏持久化（目录、run-as 包名、APK 路径、应用包名、tag / message 过滤条件）
   CommandStore.cs       命令分类 / 收藏 / 历史持久化 + 内置命令库
+  AppInfo.cs            产品名与版本号（读取程序集 InformationalVersion，标题与关于对话框共用）
+Properties/
+  Settings.cs           用户级设置（窗口状态、显示选项、上次路径、安装/卸载窗口选项）
 LICENSE                 Apache-2.0 全文
 THIRD-PARTY-NOTICES.md  第三方库与工具链的许可声明
 DISCLAIMER.md           免责声明全文
@@ -164,10 +189,10 @@ DISCLAIMER.md           免责声明全文
 
 ## 数据存储
 
-- 窗口大小/位置、续行合并、自动应用、字号等设置保存在用户配置（`Properties.Settings`）
-- 目录收藏以 JSON 持久化到 `%LOCALAPPDATA%\logcat\favorites.json`
+- 窗口大小/位置、续行合并、自动应用、字号、上次浏览路径等设置保存在用户配置（`Properties.Settings`）；安装/卸载窗口的通道、安装参数、临时目录、root 与「保留数据」选项也记在这里
+- 各类收藏以 JSON 持久化到 `%LOCALAPPDATA%\logcat\favorites.json`：设备端 / 本机端目录收藏（含别名）、run-as 包名、APK 本机路径、应用包名、tag 与 message 过滤条件，每类列表上限 60 条（最近使用在前）
 - 命令窗口的分类、收藏、历史与占位符取值以 JSON 持久化到 `%LOCALAPPDATA%\logcat\commands.json`（首次打开时写入内置命令库）
-- 实时采集的日志写入系统临时目录 `logcat_live_*.log`，关闭窗口时释放
+- 实时采集的日志写入系统临时目录 `logcat_live_*.log`，关闭窗口时释放；`pm install` 通道推送到设备的 APK 装完即清理
 
 ## 许可
 
@@ -200,7 +225,7 @@ DISCLAIMER.md           免责声明全文
 
 要点摘要：
 
-- **设备操作风险自担**：截图、录屏、文件推拉、`adb shell` / root 命令等操作直接作用于你的设备，请自行确认命令含义；因误操作导致的数据丢失、系统异常或设备损坏由使用者本人承担。
+- **设备操作风险自担**：截图、录屏、文件推拉、APK 安装/卸载、`adb shell` / root 命令等操作直接作用于你的设备，请自行确认命令含义；因误操作导致的数据丢失、系统异常或设备损坏由使用者本人承担。
 - **root 与受限目录**：访问 `/data/data` 等受限目录需设备已 root 或可 run-as，此类操作可能破坏应用数据或影响保修，请谨慎评估。
 - **合法合规使用**：仅限用于自己拥有授权的设备与数据，不得用于未授权访问、采集他人隐私或任何违反当地法律法规的用途。
 - **日志含敏感信息**：logcat 日志常包含账号、token、位置等隐私数据，导出与分享前请自行脱敏。
