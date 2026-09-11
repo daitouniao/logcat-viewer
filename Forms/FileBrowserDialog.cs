@@ -19,6 +19,13 @@ public class FileBrowserDialog : Form
 
     bool _transferring;
 
+    /// <summary>
+    /// 传输进行中是否阻止关闭并弹提示。默认 true；
+    /// 嵌入设备操作窗口后，应用退出场景由宿主把它设为 false，避免关程序时弹「传输中」确认框。
+    /// </summary>
+    [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
+    internal bool BlockCloseWhileTransferring { get; set; } = true;
+
     public FileBrowserDialog(AdbManager manager, string serial, bool isRoot = false,
                              string startPath = "/sdcard", string localStartPath = "")
     {
@@ -352,7 +359,7 @@ public class FileBrowserDialog : Form
 
     protected override void OnFormClosing(FormClosingEventArgs e)
     {
-        if (_transferring && e.CloseReason == CloseReason.UserClosing)
+        if (_transferring && BlockCloseWhileTransferring && e.CloseReason == CloseReason.UserClosing)
         {
             MessageBox.Show(this, "文件正在传输中，请等待完成后再关闭。", "提示",
                 MessageBoxButtons.OK, MessageBoxIcon.Information);
@@ -370,7 +377,7 @@ public class FileBrowserDialog : Form
     {
         try
         {
-            var s = logcat.Properties.Settings.Default;
+            var s = logcat.Services.AppSettings.Default;
             if (!string.IsNullOrEmpty(_remote.CurrentPath)) s.LastRemotePath = _remote.CurrentPath;
             if (!string.IsNullOrEmpty(_local.CurrentPath)) s.LastLocalPath = _local.CurrentPath;
             s.Save();

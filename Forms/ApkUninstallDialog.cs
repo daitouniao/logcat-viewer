@@ -3,12 +3,10 @@ using logcat.Services;
 namespace logcat.Forms;
 
 /// <summary>
-/// APK 安装 / 卸载窗口。
-/// 安装支持两条通道：本机 <c>adb install</c>（可带 -r -d -g -t 参数），
-/// 或在 adb install 被禁用时改用设备端 <c>pm install</c>（先推送 APK 到临时目录再安装）；
-/// 卸载同理支持 <c>adb uninstall</c> 与 <c>pm uninstall</c>。APK 路径与包名都可收藏复用。
+/// APK 卸载窗口。
+/// 支持 <c>adb uninstall</c> 与 <c>pm uninstall</c>，包名可收藏复用。
 /// </summary>
-public sealed class ApkDialog : Form
+public sealed class ApkUninstallDialog : Form
 {
     readonly AdbManager _manager;
     readonly string _serial;
@@ -18,13 +16,6 @@ public sealed class ApkDialog : Form
     readonly IProgress<string> _progress;
     CancellationTokenSource? _cts;
     bool _busy;
-
-    // 安装页
-    ComboBox _cboApk = null!;
-    RadioButton _rbAdbInstall = null!, _rbPmInstall = null!;
-    CheckBox _ckR = null!, _ckD = null!, _ckG = null!, _ckT = null!, _ckInstallRoot = null!;
-    TextBox _txtTmp = null!;
-    Button _btnInstall = null!;
 
     // 卸载页
     ComboBox _cboPkg = null!;
@@ -41,14 +32,14 @@ public sealed class ApkDialog : Form
     Label _lblStat = null!, _lblDevice = null!;
     Button _btnStop = null!, _btnCopy = null!, _btnClear = null!;
 
-    public ApkDialog(AdbManager manager, string serial, bool isRoot)
+    public ApkUninstallDialog(AdbManager manager, string serial, bool isRoot)
     {
         _manager = manager;
         _serial = serial;
         _isRoot = isRoot;
         _progress = new Progress<string>(AppendOutput);
 
-        Text = "安装 / 卸载 APK";
+        Text = $"卸载 APK — {serial}";
         Size = new Size(780, 700);
         MinimumSize = new Size(700, 600);
         StartPosition = FormStartPosition.CenterParent;
@@ -56,9 +47,7 @@ public sealed class ApkDialog : Form
 
         BuildUi();
         LoadOptions();
-        UpdateInstallRootEnabled();
         UpdateUninstallRootEnabled();
-        RefreshApkCombo();
         RefreshPkgCombo();
         _lblDevice.Text = $"设备：{serial}{(isRoot ? "  [root]" : "")}";
         Shown += async (_, _) => await RefreshAppsAsync();
@@ -90,10 +79,8 @@ public sealed class ApkDialog : Form
         };
         root.Controls.Add(_lblDevice, 0, 0);
 
-        var tabs = new TabControl { Dock = DockStyle.Fill };
-        tabs.TabPages.Add(BuildInstallTab());
-        tabs.TabPages.Add(BuildUninstallTab());
-        root.Controls.Add(tabs, 0, 1);
+        var uninstallPanel = BuildUninstallPanel();
+        root.Controls.Add(uninstallPanel, 0, 1);
 
         var outGroup = new GroupBox { Text = "输出", Dock = DockStyle.Fill, Padding = new Padding(6, 4, 6, 6) };
         _txtOut = new TextBox
@@ -135,67 +122,12 @@ public sealed class ApkDialog : Form
         _btnClear = BarButton("清空", 60);
         _btnClear.Click += (_, _) => _txtOut.Clear();
         bar.Controls.Add(_btnClear);
-        var btnClose = BarButton("关闭", 64);
-        btnClose.Click += (_, _) => Close();
-        bar.Controls.Add(btnClose);
         root.Controls.Add(bar, 0, 3);
     }
 
-    TabPage BuildInstallTab()
+    Panel BuildUninstallPanel()
     {
-        var page = new TabPage("安装 APK") { Padding = new Padding(8) };
-
-        page.Controls.Add(new Label { Text = "APK 文件:", Location = new Point(10, 16), AutoSize = true });
-        _cboApk = new ComboBox { Location = new Point(86, 12), Width = 372, DropDownStyle = ComboBoxStyle.DropDown };
-        page.Controls.Add(_cboApk);
-        var btnBrowse = new Button { Text = "浏览…", Location = new Point(464, 11), Size = new Size(62, 25) };
-        btnBrowse.Click += (_, _) => BrowseApk();
-        page.Controls.Add(btnBrowse);
-        var btnFavApk = new Button { Text = "★ 收藏", Location = new Point(530, 11), Size = new Size(62, 25) };
-        btnFavApk.Click += (_, _) => FavApk();
-        page.Controls.Add(btnFavApk);
-        var btnUnfavApk = new Button { Text = "☆ 移除", Location = new Point(596, 11), Size = new Size(62, 25) };
-        btnUnfavApk.Click += (_, _) => UnfavApk();
-        page.Controls.Add(btnUnfavApk);
-
-        page.Controls.Add(new Label { Text = "安装方式:", Location = new Point(10, 52), AutoSize = true });
-        _rbAdbInstall = new RadioButton { Text = "adb install", Location = new Point(86, 49), AutoSize = true, Checked = true };
-        _rbPmInstall = new RadioButton { Text = "pm install（adb 安装被禁用时，先推送到设备再装）", Location = new Point(200, 49), AutoSize = true };
-        foreach (var rb in new[] { _rbAdbInstall, _rbPmInstall })
-            rb.CheckedChanged += (_, _) => UpdateInstallRootEnabled();
-        page.Controls.Add(_rbAdbInstall);
-        page.Controls.Add(_rbPmInstall);
-
-        page.Controls.Add(new Label { Text = "参数:", Location = new Point(10, 86), AutoSize = true });
-        _ckR = new CheckBox { Text = "-r 覆盖安装（保留数据）", Location = new Point(86, 83), AutoSize = true, Checked = true };
-        _ckD = new CheckBox { Text = "-d 允许降级", Location = new Point(266, 83), AutoSize = true };
-        _ckG = new CheckBox { Text = "-g 授予全部权限", Location = new Point(380, 83), AutoSize = true };
-        _ckT = new CheckBox { Text = "-t 允许测试包", Location = new Point(520, 83), AutoSize = true };
-        page.Controls.AddRange(new Control[] { _ckR, _ckD, _ckG, _ckT });
-
-        _ckInstallRoot = new CheckBox { Text = "以 root 执行（su -c 包裹，仅 pm install 生效）", Location = new Point(86, 116), AutoSize = true, Enabled = false };
-        page.Controls.Add(_ckInstallRoot);
-        page.Controls.Add(new Label { Text = "临时目录:", Location = new Point(400, 118), AutoSize = true });
-        _txtTmp = new TextBox { Location = new Point(470, 114), Width = 188, Text = "/data/local/tmp" };
-        page.Controls.Add(_txtTmp);
-
-        _btnInstall = new Button { Text = "安装", Location = new Point(86, 150), Size = new Size(120, 32) };
-        _btnInstall.Click += (_, _) => DoInstall();
-        page.Controls.Add(_btnInstall);
-        page.Controls.Add(new Label
-        {
-            Text = "提示：pm install 完成后会自动清理临时 APK。输出里出现 Success 即安装成功。",
-            Location = new Point(216, 158),
-            AutoSize = true,
-            ForeColor = Color.DimGray,
-        });
-
-        return page;
-    }
-
-    TabPage BuildUninstallTab()
-    {
-        var page = new TabPage("卸载应用") { Padding = new Padding(8) };
+        var panel = new Panel { Dock = DockStyle.Fill, Padding = new Padding(8) };
         var grid = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
@@ -203,12 +135,12 @@ public sealed class ApkDialog : Form
             RowCount = 5,
             Margin = Padding.Empty,
         };
-        grid.RowStyles.Add(new RowStyle(SizeType.Absolute, 34));
-        grid.RowStyles.Add(new RowStyle(SizeType.Absolute, 30));
-        grid.RowStyles.Add(new RowStyle(SizeType.Absolute, 30));
-        grid.RowStyles.Add(new RowStyle(SizeType.Absolute, 42));
-        grid.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        page.Controls.Add(grid);
+        grid.RowStyles.Add(new RowStyle(SizeType.Absolute, 34));   // 包名输入
+        grid.RowStyles.Add(new RowStyle(SizeType.Absolute, 30));   // 卸载方式
+        grid.RowStyles.Add(new RowStyle(SizeType.Absolute, 30));   // 选项
+        grid.RowStyles.Add(new RowStyle(SizeType.Absolute, 36));   // 卸载按钮+提示
+        grid.RowStyles.Add(new RowStyle(SizeType.Percent, 100));    // 应用列表
+        panel.Controls.Add(grid);
 
         // 行0：包名输入 + 收藏 + 刷新列表
         var rowPkg = new FlowLayoutPanel { Dock = DockStyle.Fill, WrapContents = false, Margin = Padding.Empty };
@@ -259,7 +191,8 @@ public sealed class ApkDialog : Form
         });
         grid.Controls.Add(rowAct, 0, 3);
 
-        // 行4：设备上已装的三方应用列表
+        // 列表
+        // 列表
         _lvApps = new ListView
         {
             Dock = DockStyle.Fill,
@@ -269,16 +202,16 @@ public sealed class ApkDialog : Form
             HideSelection = false,
             MultiSelect = false,
             Font = new Font("Consolas", 9.5F),
-            Margin = new Padding(0, 4, 0, 0),
+            Margin = Padding.Empty,
         };
-        _lvApps.Columns.Add("应用名", 170);
-        _lvApps.Columns.Add("包名", 260);
-        _lvApps.Columns.Add("APK 路径", 320);
+        _lvApps.Columns.Add("应用名", 180);
+        _lvApps.Columns.Add("包名", 280);
+        _lvApps.Columns.Add("APK 路径", -2); // 自动填充剩余宽度
         _lvApps.DoubleClick += (_, _) => OnAppDoubleClicked();
         _lvApps.KeyDown += (_, e) => { if (e.KeyCode == Keys.Enter) { OnAppDoubleClicked(); e.Handled = true; } };
         grid.Controls.Add(_lvApps, 0, 4);
 
-        return page;
+        return panel;
     }
 
     static Button BarButton(string text, int width) => new()
@@ -290,56 +223,12 @@ public sealed class ApkDialog : Form
 
     // ── 收藏 ──
 
-    void RefreshApkCombo()
-    {
-        var cur = _cboApk.Text;
-        _cboApk.Items.Clear();
-        foreach (var p in _fav.ApkPaths) _cboApk.Items.Add(p);
-        _cboApk.Text = cur;
-    }
-
     void RefreshPkgCombo()
     {
         var cur = _cboPkg.Text;
         _cboPkg.Items.Clear();
         foreach (var p in _fav.Packages) _cboPkg.Items.Add(p);
         _cboPkg.Text = cur;
-    }
-
-    void BrowseApk()
-    {
-        using var dlg = new OpenFileDialog
-        {
-            Title = "选择要安装的 APK",
-            Filter = "APK 文件 (*.apk)|*.apk|所有文件 (*.*)|*.*",
-        };
-        var last = _cboApk.Text.Trim();
-        if (last.Length > 0)
-        {
-            var dir = Path.GetDirectoryName(last);
-            if (!string.IsNullOrEmpty(dir) && Directory.Exists(dir)) dlg.InitialDirectory = dir;
-        }
-        if (dlg.ShowDialog(this) != DialogResult.OK) return;
-        _cboApk.Text = dlg.FileName;
-    }
-
-    void FavApk()
-    {
-        var path = _cboApk.Text.Trim().Trim('"');
-        if (path.Length == 0) { Status("APK 路径为空，无法收藏"); return; }
-        _fav.AddApkPath(path);
-        _fav.Save();
-        RefreshApkCombo();
-        Status($"已收藏：{path}");
-    }
-
-    void UnfavApk()
-    {
-        var path = _cboApk.Text.Trim().Trim('"');
-        if (!_fav.RemoveApkPath(path)) { Status("该路径未在收藏中"); return; }
-        _fav.Save();
-        RefreshApkCombo();
-        Status($"已移除收藏：{path}");
     }
 
     void FavPkg()
@@ -363,13 +252,6 @@ public sealed class ApkDialog : Form
 
     // ── root 选项联动 ──
 
-    void UpdateInstallRootEnabled()
-    {
-        _ckInstallRoot.Enabled = _rbPmInstall.Checked;
-        if (!_ckInstallRoot.Enabled) _ckInstallRoot.Checked = false;
-        _txtTmp.Enabled = _rbPmInstall.Checked;
-    }
-
     void UpdateUninstallRootEnabled()
     {
         _ckUninstallRoot.Enabled = _rbPmUninstall.Checked;
@@ -378,96 +260,25 @@ public sealed class ApkDialog : Form
 
     // ── 选项记忆 ──
 
-    /// <summary>从设置回填上次的通道、参数、临时目录与 root 选项。</summary>
     void LoadOptions()
     {
         var s = logcat.Services.AppSettings.Default;
-        _rbPmInstall.Checked = s.ApkInstallViaPm;
-        _rbAdbInstall.Checked = !s.ApkInstallViaPm;
-        var flags = s.ApkInstallFlags ?? "";
-        _ckR.Checked = flags.Contains("-r", StringComparison.Ordinal);
-        _ckD.Checked = flags.Contains("-d", StringComparison.Ordinal);
-        _ckG.Checked = flags.Contains("-g", StringComparison.Ordinal);
-        _ckT.Checked = flags.Contains("-t", StringComparison.Ordinal);
-        if (!string.IsNullOrWhiteSpace(s.ApkTmpDir)) _txtTmp.Text = s.ApkTmpDir;
         _rbPmUninstall.Checked = s.ApkUninstallViaPm;
         _rbAdbUninstall.Checked = !s.ApkUninstallViaPm;
         _ckKeepData.Checked = s.ApkKeepData;
-        _ckInstallRoot.Checked = s.ApkUseRoot;
         _ckUninstallRoot.Checked = s.ApkUseRoot;
     }
 
-    /// <summary>关窗时把当前选项写回设置，下次打开沿用。</summary>
     void SaveOptions()
     {
         var s = logcat.Services.AppSettings.Default;
-        s.ApkInstallViaPm = _rbPmInstall.Checked;
-        s.ApkInstallFlags = InstallFlags();
-        s.ApkTmpDir = _txtTmp.Text.Trim();
         s.ApkUninstallViaPm = _rbPmUninstall.Checked;
         s.ApkKeepData = _ckKeepData.Checked;
-        s.ApkUseRoot = _ckInstallRoot.Checked || _ckUninstallRoot.Checked;
-        try { s.Save(); } catch { /* 设置不可写时忽略 */ }
+        s.ApkUseRoot = _ckUninstallRoot.Checked;
+        try { s.Save(); } catch { }
     }
 
     // ── 执行 ──
-
-    string InstallFlags()
-    {
-        var f = new List<string>();
-        if (_ckR.Checked) f.Add("-r");
-        if (_ckD.Checked) f.Add("-d");
-        if (_ckG.Checked) f.Add("-g");
-        if (_ckT.Checked) f.Add("-t");
-        return string.Join(" ", f);
-    }
-
-    async void DoInstall()
-    {
-        if (_busy) return;
-        var apk = _cboApk.Text.Trim().Trim('"');
-        if (apk.Length == 0) { Status("请选择或输入 APK 文件路径"); return; }
-        if (!File.Exists(apk)) { Status($"找不到文件：{apk}"); return; }
-
-        var flags = InstallFlags();
-        bool pm = _rbPmInstall.Checked;
-        bool root = pm && _ckInstallRoot.Checked;
-
-        if (!Begin()) return;
-        try
-        {
-            if (!pm)
-            {
-                var head = flags.Length > 0 ? $"install {flags}" : "install";
-                var args = AdbManager.AdbArgs($"{head} \"{apk}\"", _serial);
-                AppendOutput($"> adb {args}");
-                int code = await AdbManager.RunAdbAsync(args, _progress, _cts!.Token);
-                AppendOutput($"— 退出码 {code}");
-                Status(code == 0 ? "adb install 完成，请检查输出中的 Success" : $"adb install 结束（退出码 {code}）");
-            }
-            else
-            {
-                var tmpDir = string.IsNullOrWhiteSpace(_txtTmp.Text) ? "/data/local/tmp" : _txtTmp.Text.Trim().TrimEnd('/');
-                var remote = $"{tmpDir}/{Path.GetFileName(apk)}";
-                AppendOutput($"> 推送 {apk} → {_serial}:{remote}");
-                await _manager.PushAsync(_serial, apk, remote);
-
-                var cmd = $"pm install{(flags.Length > 0 ? " " + flags : "")} '{remote}'";
-                AppendOutput($"> adb shell {(root ? "su -c " : "")}{cmd}");
-                await _manager.ShellLinesAsync(_serial, Wrap(cmd, root), _progress, _cts!.Token);
-
-                // 临时文件用尽力清理，失败不影响结果
-                try { await _manager.ShellAsync(_serial, Wrap($"rm -f '{remote}'", root), 15); } catch { }
-                Status("pm install 执行完毕，请检查输出中的 Success/Failure");
-            }
-            _fav.AddApkPath(apk);
-            _fav.Save();
-            RefreshApkCombo();
-        }
-        catch (OperationCanceledException) { Status("已取消"); }
-        catch (Exception ex) { AppendOutput("!! " + Friendly(ex)); Status("安装失败：" + Friendly(ex)); }
-        finally { End(); }
-    }
 
     async void DoUninstall()
     {
@@ -478,7 +289,6 @@ public sealed class ApkDialog : Form
         await UninstallAsync(pkg, refreshList: true);
     }
 
-    /// <summary>双击（或回车）列表项：确认后卸载并刷新列表。</summary>
     void OnAppDoubleClicked()
     {
         if (_busy || _lvApps.SelectedItems.Count == 0) return;
@@ -491,7 +301,6 @@ public sealed class ApkDialog : Form
         _ = UninstallAsync(pkg, refreshList: true);
     }
 
-    /// <summary>按当前选定的通道与选项卸载指定包，完成后按需刷新列表。</summary>
     async Task UninstallAsync(string pkg, bool refreshList)
     {
         if (_busy) return;
@@ -527,7 +336,6 @@ public sealed class ApkDialog : Form
         finally { End(); }
     }
 
-    /// <summary>刷新按钮 / 开窗自动拉取：带忙碌护栏与异常处理。</summary>
     async Task RefreshAppsAsync()
     {
         if (_busy) return;
@@ -538,7 +346,6 @@ public sealed class ApkDialog : Form
         finally { End(); }
     }
 
-    /// <summary>拉取设备上已装的三方应用（包名 + APK 路径），尽力取应用名。</summary>
     async Task FetchAppsAsync()
     {
         AppendOutput("> adb shell pm list packages -3 -f");
@@ -571,10 +378,6 @@ public sealed class ApkDialog : Form
         Status($"已加载 {apps.Count} 个三方应用" + (labels.Count == 0 ? "（未取到应用名，已用包名末段代替）" : ""));
     }
 
-    /// <summary>
-    /// 尽力获取应用名：仅当设备存在 aapt 时才逐个解析 APK 的 application-label，
-    /// 否则命令整体短路返回空，失败也不影响列表（用包名兑底）。
-    /// </summary>
     async Task<Dictionary<string, string>> FetchLabelsAsync()
     {
         var map = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -596,11 +399,10 @@ public sealed class ApkDialog : Form
                 if (lbl.Length > 0) map[l[..t]] = lbl;
             }
         }
-        catch { /* 应用名仅锦上添花，取不到就用包名兑底 */ }
+        catch { }
         return map;
     }
 
-    /// <summary>无应用名时用包名末段作为显示名（com.tencent.mm → mm）。</summary>
     static string FallbackName(string pkg)
     {
         int i = pkg.LastIndexOf('.');
@@ -608,7 +410,6 @@ public sealed class ApkDialog : Form
         return tail.Length == 0 ? pkg : tail;
     }
 
-    /// <summary>按 root 选项决定是否用 su -c 包裹设备端命令。</summary>
     static string Wrap(string cmd, bool root) =>
         root ? $"su -c {AdbManager.ShellQuote(cmd)}" : cmd;
 
@@ -620,7 +421,8 @@ public sealed class ApkDialog : Form
         if (_busy) return false;
         _busy = true;
         _cts = new CancellationTokenSource();
-        SetButtonsEnabled(false);
+        _btnUninstall.Enabled = false;
+        _btnRefreshApps.Enabled = false;
         _btnStop.Enabled = true;
         Status("执行中…");
         return true;
@@ -630,16 +432,10 @@ public sealed class ApkDialog : Form
     {
         _busy = false;
         _btnStop.Enabled = false;
-        SetButtonsEnabled(true);
+        _btnUninstall.Enabled = true;
+        _btnRefreshApps.Enabled = true;
         _cts?.Dispose();
         _cts = null;
-    }
-
-    void SetButtonsEnabled(bool enabled)
-    {
-        _btnInstall.Enabled = enabled;
-        _btnUninstall.Enabled = enabled;
-        _btnRefreshApps.Enabled = enabled;
     }
 
     void Stop()
@@ -668,7 +464,6 @@ public sealed class ApkDialog : Form
 
     void Status(string text) => _lblStat.Text = text;
 
-    /// <summary>adb 对无输出的失败命令一律报 unresponsive，换成可行动的提示。</summary>
     static string Friendly(Exception ex)
     {
         var msg = ex.Message ?? "";

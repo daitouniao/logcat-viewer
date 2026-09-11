@@ -1,7 +1,6 @@
 using System.Text.RegularExpressions;
 using logcat.Forms;
 using logcat.Models;
-using logcat.Properties;
 using logcat.Services;
 
 namespace logcat.Controls;
@@ -25,7 +24,7 @@ public sealed class DeviceFilePane : FilePane
     public string? RunAsPackage { get; private set; }
 
     /// <summary>run-as 模式的中转目录，默认放 Download，可在 run-as 对话框中修改。</summary>
-    public string RunAsRelayDir { get; private set; } = Settings.Default.LastRunAsRelayDir;
+    public string RunAsRelayDir { get; private set; } = logcat.Services.AppSettings.Default.LastRunAsRelayDir;
 
     public DeviceFilePane(AdbManager manager, string serial, bool isRoot)
         : base($"Android 设备 — {serial}{(isRoot ? "  [root]" : "")}")
@@ -229,6 +228,10 @@ public sealed class DeviceFilePane : FilePane
         btnDel.Click += async (_, _) => await DeleteSelectedAsync();
         bar.Controls.Add(btnDel);
 
+        var btnRename = NewBarButton("重命名", 76);
+        btnRename.Click += async (_, _) => await RenameSelectedAsync();
+        bar.Controls.Add(btnRename);
+
         _btnRunAs = NewBarButton("run-as…", 72);
         _btnRunAs.Click += (_, _) => _ = OnRunAsAsync();
         bar.Controls.Add(_btnRunAs);
@@ -306,7 +309,7 @@ public sealed class DeviceFilePane : FilePane
         // 记住包名收藏与中转目录，下次直接复用
         if (FavoritesStore.Default.AddRunAsPackage(RunAsPackage))
             FavoritesStore.Default.Save();
-        var s = Settings.Default;
+        var s = logcat.Services.AppSettings.Default;
         if (s.LastRunAsRelayDir != RunAsRelayDir)
         {
             s.LastRunAsRelayDir = RunAsRelayDir;
@@ -344,6 +347,16 @@ public sealed class DeviceFilePane : FilePane
             ShowError($"删除失败：{ex.Message}");
         }
         finally { Pbar.Visible = false; }
+    }
+
+    // ── 重命名（设备端走 shell mv）──
+
+    protected override async Task RenameAsync(FileEntry e, string newName)
+    {
+        var parent = GetParentPath(e.Path) ?? "/";
+        var newPath = parent is "" or "/" ? "/" + newName : parent + "/" + newName;
+        // 同目录内移动即重命名；提权判定以源路径为准（目标与源同目录）
+        await ShellOkAsync($"mv -f '{e.Path}' '{newPath}'", $"重命名 {e.Name} 失败", 30, NeedsElevation(e.Path));
     }
 
     /// <summary>判断设备端路径是否为目录。</summary>

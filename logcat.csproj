@@ -8,15 +8,16 @@
     <UseWindowsForms>true</UseWindowsForms>
     <ImplicitUsings>enable</ImplicitUsings>
     <!-- 版本号唯一来源：发布时只改这里，显示约定为 V<Version>（见 Services/AppInfo.cs） -->
-    <Version>0.02</Version>
+    <Version>0.0.3</Version>
     <!-- InformationalVersion 不追加 git commit 元数据，保证「属性-详细信息」里显示干净的 0.02 -->
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <!-- 许可与版权信息，写入程序集特性（exe 右键「属性 - 详细信息」可见） -->
     <Copyright>Copyright 2026 logcat viewer contributors. Licensed under the Apache License, Version 2.0.</Copyright>
   </PropertyGroup>
 
-  <!-- 构建 / 发布产物中携带许可、第三方声明与免责声明，满足 Apache-2.0 第 4 条的分发要求 -->
+  <!-- 构建 / 发布产物中携带项目文档（README、许可、第三方声明与免责声明），满足 Apache-2.0 第 4 条的分发要求 -->
   <ItemGroup>
+    <None Include="README.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <None Include="LICENSE" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <None Include="THIRD-PARTY-NOTICES.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <None Include="DISCLAIMER.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />

@@ -64,15 +64,22 @@ public partial class frmMain : Form
     readonly System.Windows.Forms.Timer _adbStatTimer = new() { Interval = 300 };
 
     // 菜单项
-    ToolStripMenuItem _actJoin = null!, _actSingleExport = null!;
+    ToolStripMenuItem _actJoin = null!, _actSingleExport = null!, _actSaveLog = null!;
 
-    // 命令窗口（非模态，可与日志列表并行使用）
-    CommandDialog? _cmdDialog;
+    // 设备操作总窗口（截图 / 录屏 / 文件浏览 / 安装·卸载 APK / 命令 合并为一个页签式窗口，非模态）
+    DeviceOpsDialog? _deviceOps;
 
     // 过滤设置窗口（非模态，悬浮在主窗口之上）
     FilterDialog? _filterDialog;
 
     readonly ILogger _logger;
+
+    // ── 窗口几何（多屏安全）──
+    // 保存的“正常态矩形”与窗口状态；在 Load 事件中应用，
+    // 最大化需等窗体句柄就绪才能可靠落到原屏。
+    Rectangle _savedBounds;
+    FormWindowState _savedState = FormWindowState.Normal;
+    bool _hasSavedGeometry;
 
     public frmMain()
     {
@@ -108,7 +115,8 @@ public partial class frmMain : Form
         var actExport = new ToolStripMenuItem("导出结果…", null, (_, _) => ExportRows(false), Keys.Control | Keys.E);
         var actExportMarked = new ToolStripMenuItem("导出标记行…", null, (_, _) => ExportRows(true));
         var actQuit = new ToolStripMenuItem("退出", null, (_, _) => Close(), Keys.Control | Keys.Q);
-        mFile!.DropDownItems.AddRange(new ToolStripItem[] { actOpen, actReload, actExport, actExportMarked, new ToolStripSeparator(), actQuit });
+        _actSaveLog = new ToolStripMenuItem("保存日志…", null, (_, _) => AdbSaveLog()) { Enabled = false };
+        mFile!.DropDownItems.AddRange(new ToolStripItem[] { actOpen, actReload, actExport, actExportMarked, _actSaveLog, new ToolStripSeparator(), actQuit });
 
         var actPrevMark = new ToolStripMenuItem("◀ 上一个标记", null, (_, _) => GotoMark(true), Keys.F2);
         var actNextMark = new ToolStripMenuItem("下一个标记 ▶", null, (_, _) => GotoMark(false), Keys.Shift | Keys.F2);
@@ -123,7 +131,7 @@ public partial class frmMain : Form
         _actSingleExport.Click += (_, _) => _singleLineExport = _actSingleExport.Checked;
         mSet.DropDownItems.Add(_actSingleExport);
         mSet.DropDownItems.Add(new ToolStripSeparator());
-        mSet.DropDownItems.Add(new ToolStripMenuItem("过滤设置窗口", null, (_, _) => ShowFilterDialog()));
+        mSet.DropDownItems.Add(new ToolStripMenuItem("过滤设置…", null, (_, _) => ShowFilterDialog()));
 
         // ── 帮助菜单 ──
         var mHelp = new ToolStripMenuItem("帮助");
@@ -132,12 +140,8 @@ public partial class frmMain : Form
 
         // ── 工具菜单 ──
         var mTools = new ToolStripMenuItem("工具");
-        var actCmd = new ToolStripMenuItem("命令窗口…", null, (_, _) => AdbCommandWindow())
-        {
-            ShortcutKeyDisplayString = "Ctrl+Shift+C",
-        };
-        mTools!.DropDownItems.Add(actCmd);
-        mTools.DropDownItems.Add(new ToolStripMenuItem("安装/卸载 APK…", null, (_, _) => AdbApkManager()));
+        var mDeviceOps = new ToolStripMenuItem("设备操作", null, (_, _) => ShowDeviceOps(DeviceOpsDialog.PageKind.Command));
+        mTools!.DropDownItems.Add(mDeviceOps);
 
         // 字号子菜单
         var mFont = new ToolStripMenuItem("字号");
@@ -157,23 +161,16 @@ public partial class frmMain : Form
         var actStop = new ToolStripButton("停止", null, (_, _) => StopWorker()) { Enabled = false };
         _lblMarks = new ToolStripLabel("标记 0");
         _comboDevice = new ToolStripComboBox { Enabled = false, Width = 230, DropDownWidth = 320 };
+        // 换设备时，让设备操作窗口里绑定设备的页签跟着重建
+        _comboDevice.SelectedIndexChanged += (_, _) => _deviceOps?.OnDeviceChanged();
         _lblAdbStat = new ToolStripLabel("");
         var btnRefresh = new ToolStripButton("刷新设备", null, (_, _) => AdbRefresh());
-        var btnCmd = new ToolStripButton("命令", null, (_, _) => AdbCommandWindow());
         ToolStripItem[] adbItems =
         {
             btnRefresh,
             new ToolStripSeparator(),
             new ToolStripButton("▶ 开始采集", null, (_, _) => AdbStartCapture()) { Enabled = false },
             new ToolStripButton("■ 停止采集", null, (_, _) => AdbStopCapture()) { Enabled = false },
-            new ToolStripButton("保存日志…", null, (_, _) => AdbSaveLog()) { Enabled = false },
-            new ToolStripSeparator(),
-            new ToolStripButton("截图", null, (_, _) => AdbScreenshot()) { Enabled = false },
-            new ToolStripButton("录屏", null, (_, _) => AdbScreenRecord()) { Enabled = false },
-            new ToolStripSeparator(),
-            new ToolStripButton("文件浏览", null, (_, _) => AdbFileBrowser()) { Enabled = false },
-            new ToolStripButton("安装APK", null, (_, _) => AdbApkManager()) { Enabled = false },
-            btnCmd,
             new ToolStripSeparator(),
             _lblAdbStat,
             new ToolStripSeparator(),
@@ -181,18 +178,13 @@ public partial class frmMain : Form
             _comboDevice
         };
         foreach (var it in adbItems) it.Tag = "adb";
-        // 不依赖具体设备的按钮（刷新列表、开命令窗口）单独标记，无设备时也要能点
+        // 不依赖具体设备的按钮（刷新设备、设备操作总入口）单独标记，无设备时也要能点
         btnRefresh.Tag = "adb-free";
-        btnCmd.Tag = "adb-free";
         _toolStrip.Items.AddRange(new ToolStripItem[] {
             mFile, mView, mSet, mTools, mHelp,
             new ToolStripSeparator(),
-            new ToolStripButton("打开…", null, (_, _) => OpenFile()),
             new ToolStripButton("重载", null, (_, _) => Reload()),
             actStop,
-            new ToolStripSeparator(),
-            new ToolStripButton("导出结果…", null, (_, _) => ExportRows(false)),
-            new ToolStripButton("导出标记行…", null, (_, _) => ExportRows(true)),
             new ToolStripSeparator()
         });
         _toolStrip.Items.AddRange(adbItems);
@@ -208,8 +200,6 @@ public partial class frmMain : Form
             new ToolStripButton("清除标记", null, (_, _) => ClearMarks()),
             new ToolStripSeparator(),
             _lblMarks,
-            new ToolStripSeparator(),
-            new ToolStripButton("过滤设置", null, (_, _) => ShowFilterDialog()),
         });
         Controls.Add(_toolStrip2);
 
@@ -241,7 +231,11 @@ public partial class frmMain : Form
         // 过滤面板移到独立的非模态窗口（FilterDialog），主区域只保留日志列表填满
         _filterDialog = new FilterDialog(_panel, () => ApplyFilter());
         Controls.Add(_listView);
-        Load += (_, _) => LayoutDeviceCombo();
+        Load += (_, _) =>
+        {
+            ApplyWindowGeometry();
+            LayoutDeviceCombo();
+        };
         Shown += (_, _) => ShowFilterDialog();
         _listView.BringToFront();
         _statusStrip.BringToFront();
@@ -302,8 +296,6 @@ public partial class frmMain : Form
         // 级别行
         var lvlPanel = new FlowLayoutPanel { AutoSize = true, WrapContents = false };
         lvlPanel.Controls.Add(new Label { Text = "级别", AutoSize = true, Padding = new Padding(0, 4, 8, 0) });
-        var allLevels = LogParser.ALL_LEVELS;
-        int defaultLevels = 0b11111110; // V=1..A=7, 默认排除 V(1) 和 D(2)
         for (int i = 0; i < 8; i++)
         {
             int code = i;
@@ -311,7 +303,8 @@ public partial class frmMain : Form
             {
                 Text = i < LogParser.LEVEL_NAME.Length ? LogParser.LEVEL_NAME[i] : "?",
                 AutoSize = true,
-                Checked = i > 0 && i != (int)Services.LogParser.LVL_V && i != (int)Services.LogParser.LVL_D
+                // 默认全选：V/D/I/W/E/F/A（不含 UNKNOWN=0）
+                Checked = i > 0
             };
             _lvlBoxes[i].CheckedChanged += (_, _) => OnFilterChanged();
             if (i > 0) lvlPanel.Controls.Add(_lvlBoxes[i]);
@@ -1042,7 +1035,13 @@ public partial class frmMain : Form
     // ── 设置 ──
     void LoadSettings()
     {
-        var s = Properties.Settings.Default;
+        StartupLog.SessionStart("logcat");
+        var screens = Screen.AllScreens;
+        StartupLog.Write($"检测到屏幕数={screens.Length}");
+        for (int i = 0; i < screens.Length; i++)
+            StartupLog.Write($"  屏[{i}] Primary={screens[i].Primary} Bounds={screens[i].Bounds} WorkingArea={screens[i].WorkingArea}");
+
+        var s = logcat.Services.AppSettings.Default;
         try
         {
             _join = s.Join;
@@ -1054,24 +1053,82 @@ public partial class frmMain : Form
             _listView.NewlineVis = _newlineVis;
             _fontPt = s.FontPt > 0 ? s.FontPt : 10;
             ApplyFont(_fontPt);
-            if (s.WindowLocation != null) Location = s.WindowLocation;
-            if (s.WindowSize != null) Size = s.WindowSize;
-            if (s.WindowState >= 0 && s.WindowState <= 2) WindowState = (FormWindowState)s.WindowState;
+
+            // 窗口几何：先校验坐标是否落在当前连接的屏幕内，
+            // 避免上次在副屏、这次该屏未连接时窗口跑到屏外
+            if (s.WindowState is >= 0 and <= 2)
+            {
+                var bounds = new Rectangle(s.WindowLocation, s.WindowSize);
+                var state = (FormWindowState)s.WindowState;
+                bool onScreen = bounds.Width > 100 && bounds.Height > 100 &&
+                                Screen.AllScreens.Any(sc => sc.WorkingArea.IntersectsWith(bounds));
+                StartupLog.Write($"读取 settings.json：Location={s.WindowLocation} Size={s.WindowSize} State={(int)state}");
+                if (onScreen)
+                {
+                    _savedBounds = bounds;
+                    // 最小化不持久化，还原为正常态，否则下次启动直接最小化
+                    _savedState = state == FormWindowState.Minimized ? FormWindowState.Normal : state;
+                    _hasSavedGeometry = true;
+                    int hitIdx = -1;
+                    for (int i = 0; i < screens.Length; i++)
+                        if (screens[i].WorkingArea.IntersectsWith(bounds)) { hitIdx = i; break; }
+                    StartupLog.Write($"校验通过：坐标落在屏[{hitIdx}]，将应用几何（状态={_savedState}）");
+                }
+                else
+                {
+                    StartupLog.Write("校验失败：坐标不在任何屏幕内，放弃保存几何，使用默认布局");
+                }
+            }
+            else
+            {
+                StartupLog.Write("settings.json 无有效窗口状态，使用默认布局");
+            }
         }
-        catch { /* 首次运行，使用默认值 */ }
+        catch { StartupLog.Write("LoadSettings 异常，使用默认布局"); /* 首次运行，使用默认值 */ }
+    }
+
+    // 在 Load 事件中调用：此时窗体句柄已就绪，最大化能可靠落到原屏
+    void ApplyWindowGeometry()
+    {
+        if (!_hasSavedGeometry)
+        {
+            StartupLog.Write("ApplyWindowGeometry：无保存几何，保持默认布局");
+            return;
+        }
+        StartupLog.Write("ApplyWindowGeometry：开始应用保存几何");
+        StartPosition = FormStartPosition.Manual;
+        Location = _savedBounds.Location;
+        Size = _savedBounds.Size;
+        if (_savedState == FormWindowState.Maximized)
+            WindowState = FormWindowState.Maximized;
+
+        // 推迟到布局完成后再读实际落点，确保取到最终位置/所在屏
+        BeginInvoke((System.Action)(() =>
+        {
+            var cur = Screen.FromPoint(Location);
+            int idx = System.Array.IndexOf(Screen.AllScreens, cur);
+            StartupLog.Write($"应用后实际：Location={Location} Size={Size} State={WindowState} 所在屏[{idx}] Primary={cur.Primary}");
+        }));
     }
 
     void SaveSettings()
     {
-        var s = Properties.Settings.Default;
+        var s = logcat.Services.AppSettings.Default;
         s.Join = _join;
         s.SingleLineExport = _singleLineExport;
         s.AutoApply = _chkAuto.Checked;
         s.NewlineVis = _newlineVis;
         s.FontPt = _fontPt;
-        s.WindowLocation = WindowState == FormWindowState.Normal ? Location : RestoreBounds.Location;
-        s.WindowSize = WindowState == FormWindowState.Normal ? Size : RestoreBounds.Size;
-        s.WindowState = (int)WindowState;
+        // 始终保存“正常态矩形”：RestoreBounds 在最大/最小化时给出还原后的位置，
+        // 这样下次恢复最大化时能正确回到上次的屏幕
+        // 正常态用当前 Bounds：RestoreBounds 内部取 rcNormalPosition，
+        // 仅在窗口被最大/最小化过才由 Windows 填充；一直正常态时为未定义值（常返回 -1,-1），
+        // 会导致位置丢失。故正常态必须用 this.Bounds，只有最大/最小化时才用 RestoreBounds。
+        var bounds = WindowState == FormWindowState.Normal ? Bounds : RestoreBounds;
+        s.WindowLocation = bounds.Location;
+        s.WindowSize = bounds.Size;
+        s.WindowState = (int)(WindowState == FormWindowState.Minimized ? FormWindowState.Normal : WindowState);
+        StartupLog.Write($"SaveSettings：写入 Location={bounds.Location} Size={bounds.Size} State={s.WindowState}（关闭时 WindowState={WindowState}, 采用={(WindowState == FormWindowState.Normal ? "Bounds" : "RestoreBounds")}）");
         s.Save();
     }
 
@@ -1231,9 +1288,9 @@ public partial class frmMain : Form
             {
                 if (btn.Text.Contains("开始采集")) btn.Enabled = !_adbCapturing;
                 if (btn.Text.Contains("停止") && !btn.Text.Contains("开始")) btn.Enabled = _adbCapturing;
-                if (btn.Text.Contains("保存")) btn.Enabled = !_adbCapturing && _adbTempPath != null;
             }
         }
+        _actSaveLog.Enabled = !_adbCapturing && _adbTempPath != null;
     }
 
     void AdbSaveLog()
@@ -1319,52 +1376,7 @@ public partial class frmMain : Form
             _lblAdbStat.Text = $"采集中… {_adbLiveCount:N0} 行";
     }
 
-    // ── ADB 截图/录屏/文件浏览 ──
-
-    void AdbScreenshot()
-    {
-        var serial = SelectedSerial();
-        if (serial == null || _adbManager == null) return;
-        new ScreenCaptureDialog(_adbManager, serial, startRecording: false).ShowDialog(this);
-    }
-
-    void AdbScreenRecord()
-    {
-        var serial = SelectedSerial();
-        if (serial == null || _adbManager == null) return;
-        new ScreenCaptureDialog(_adbManager, serial, startRecording: true).ShowDialog(this);
-    }
-
-    void AdbFileBrowser()
-    {
-        var serial = SelectedSerial();
-        if (serial == null || _adbManager == null) return;
-        bool isRoot = _adbDevices.FirstOrDefault(d => d.Serial == serial)?.IsRoot ?? false;
-
-        var s = Properties.Settings.Default;
-        var remote = string.IsNullOrEmpty(s.LastRemotePath) ? "/sdcard" : s.LastRemotePath;
-        var local = string.IsNullOrEmpty(s.LastLocalPath)
-            ? Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory)
-            : s.LastLocalPath;
-
-        new FileBrowserDialog(_adbManager, serial, isRoot, remote, local).ShowDialog(this);
-    }
-
-    // ── APK 安装/卸载 ──
-
-    void AdbApkManager()
-    {
-        var serial = SelectedSerial();
-        if (serial == null || _adbManager == null)
-        {
-            ShowError("请先选择设备");
-            return;
-        }
-        bool isRoot = _adbDevices.FirstOrDefault(d => d.Serial == serial)?.IsRoot ?? false;
-        new ApkDialog(_adbManager, serial, isRoot).ShowDialog(this);
-    }
-
-    // ── 命令窗口 ──
+    // ── 设备操作总窗口（截图 / 录屏 / 文件浏览 / 安装·卸载 APK / 命令 合并为一个页签式窗口）──
 
     bool SelectedIsRoot()
     {
@@ -1372,27 +1384,33 @@ public partial class frmMain : Form
         return serial != null && (_adbDevices.FirstOrDefault(d => d.Serial == serial)?.IsRoot ?? false);
     }
 
+    void AdbCommandWindow() => ShowDeviceOps(DeviceOpsDialog.PageKind.Command);
+
     /// <summary>
-    /// 打开（或唤到前台）命令窗口。非模态，所以设备是执行那一刻才取的：
-    /// 窗口开着时换设备，下一条命令就跑在新设备上。
+    /// 打开（或唤到前台）设备操作窗口并切到对应页签。窗口单例、非模态；
+    /// 命令页通过回调实时取主窗口选中设备，其余页签在换设备时由 OnDeviceChanged 重建。
     /// </summary>
-    void AdbCommandWindow()
+    void ShowDeviceOps(DeviceOpsDialog.PageKind page)
     {
         if (_adbManager == null)
         {
-            ShowError("ADB 不可用，无法执行命令");
+            ShowError("ADB 不可用");
             return;
         }
-        if (_cmdDialog == null || _cmdDialog.IsDisposed)
+        if (_deviceOps == null || _deviceOps.IsDisposed)
         {
-            _cmdDialog = new CommandDialog(_adbManager, SelectedSerial, SelectedIsRoot);
-            _cmdDialog.FormClosed += (_, _) => _cmdDialog = null;
-            _cmdDialog.Show(this);
-            return;
+            _deviceOps = new DeviceOpsDialog(_adbManager, SelectedSerial, SelectedIsRoot);
+            _deviceOps.FormClosed += (_, _) => _deviceOps = null;
+            _deviceOps.Show(this);
         }
-        if (_cmdDialog.WindowState == FormWindowState.Minimized) _cmdDialog.WindowState = FormWindowState.Normal;
-        _cmdDialog.BringToFront();
-        _cmdDialog.Activate();
+        else
+        {
+            if (_deviceOps.WindowState == FormWindowState.Minimized)
+                _deviceOps.WindowState = FormWindowState.Normal;
+            _deviceOps.BringToFront();
+            _deviceOps.Activate();
+        }
+        _deviceOps.OpenPage(page);
     }
 
     // ── 过滤设置窗口（非模态，悬浮在主窗口之上）──

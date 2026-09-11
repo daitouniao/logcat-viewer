@@ -88,7 +88,7 @@ SDK 自带的第三方声明见 `C:\Program Files\dotnet\ThirdPartyNotices.txt` 
 
 发布二进制（`dotnet publish` 产物或源码包）时，请确保：
 
-1. 保留根目录 `LICENSE`（Apache-2.0 全文），或在压缩包/安装目录中放入同等副本；输出目录已通过 `logcat.csproj` 自动复制 `LICENSE` 与 `THIRD-PARTY-NOTICES.md`。
+1. 保留根目录 `LICENSE`（Apache-2.0 全文），或在压缩包/安装目录中放入同等副本；输出目录已通过 `logcat.csproj` 自动复制 `README.md`、`LICENSE`、`THIRD-PARTY-NOTICES.md` 与 `DISCLAIMER.md`。
 2. 一并分发本文件，或把其中的第三方声明放进「关于」对话框、`about.txt` 等第三方声明通常出现的位置（Apache-2.0 第 4(d) 条允许的形式）。
 3. 不要移除或修改依赖 DLL 内嵌的版权信息（`AdvancedSharpAdbClient.dll` 等保留原始版本资源）。
 4. 若修改了本项目的源文件，按 Apache-2.0 第 4(b) 条在改动处说明你修改过该文件。

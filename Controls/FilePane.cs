@@ -354,6 +354,11 @@ public abstract class FilePane : UserControl
             e.SuppressKeyPress = true;
             GoUp();
         }
+        else if (e.KeyCode == Keys.F2)
+        {
+            e.SuppressKeyPress = true;
+            _ = RenameSelectedAsync();
+        }
         else if (e.KeyCode == Keys.C && e.Control)
         {
             e.SuppressKeyPress = true;
@@ -385,6 +390,7 @@ public abstract class FilePane : UserControl
             var names = SelectedEntries.Select(e => e.Name);
             if (names.Any()) TrySetClipboard(string.Join(Environment.NewLine, names));
         });
+        menu.Items.Add("重命名", null, (_, _) => _ = RenameSelectedAsync());
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("刷新", null, (_, _) => _ = RefreshAsync());
         List.ContextMenuStrip = menu;
@@ -405,6 +411,75 @@ public abstract class FilePane : UserControl
     {
         try { Clipboard.SetText(text); }
         catch { /* 剪贴板被占用时忽略 */ }
+    }
+
+    // ── 重命名 ──
+
+    /// <summary>重命名当前选中的一个或多个条目（逐个弹出输入框）。</summary>
+    public async Task RenameSelectedAsync()
+    {
+        var entries = SelectedEntries;
+        if (entries.Count == 0) return;
+        foreach (var e in entries)
+            await RenameOneAsync(e);
+    }
+
+    async Task RenameOneAsync(FileEntry e)
+    {
+        var name = SimpleInputBox.Show(this, "重命名", $"输入新名称：\n{e.Path}", e.Name);
+        if (string.IsNullOrWhiteSpace(name)) return;
+        // 设备端（Linux）允许尾随空格/点，本机端（Windows）去掉尾随点以免变成隐藏名
+        name = IsRemote ? name.Trim() : name.Trim().TrimEnd('.');
+        if (name == e.Name) return;
+        if (!ValidateNewName(name, e.Path, out var error))
+        {
+            ShowError(error);
+            return;
+        }
+        try
+        {
+            Pbar.Visible = true;
+            SetStatus($"重命名 {e.Name} → {name}…");
+            await RenameAsync(e, name);
+            await RefreshAsync();
+            SelectByName(name);
+            SetStatus($"已重命名为 {name}");
+        }
+        catch (Exception ex)
+        {
+            ShowError($"重命名失败：{ex.Message}");
+            await RefreshAsync();
+        }
+        finally { Pbar.Visible = false; }
+    }
+
+    /// <summary>执行实际重命名：设备端走 shell mv，本机走 File/Directory.Move。</summary>
+    protected abstract Task RenameAsync(FileEntry e, string newName);
+
+    /// <summary>校验新名称是否可用（空、非法字符、与同目录现有项冲突等）。</summary>
+    protected virtual bool ValidateNewName(string name, string currentPath, out string error)
+    {
+        error = "";
+        if (name.Length == 0) { error = "名称不能为空。"; return false; }
+        bool invalid = IsRemote
+            ? name.Any(c => c == '/' || c == '\0')
+            : name.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0;
+        if (invalid) { error = "名称包含非法字符。"; return false; }
+        if (name is "." or "..") { error = "不能使用 . 或 .. 作为名称。"; return false; }
+        if (NameExistsInCurrentDir(name, currentPath)) { error = $"当前目录已存在名为「{name}」的项。"; return false; }
+        return true;
+    }
+
+    /// <summary>当前目录列表中是否已存在同名项（用于重命名冲突预检）。</summary>
+    protected bool NameExistsInCurrentDir(string name, string? exceptPath = null)
+    {
+        foreach (ListViewItem item in List.Items)
+        {
+            if (item.Tag is not FileEntry e) continue;
+            if (exceptPath != null && FavoritesStore.PathEquals(e.Path, exceptPath, IsRemote)) continue;
+            if (string.Equals(e.Name, name, StringComparison.OrdinalIgnoreCase)) return true;
+        }
+        return false;
     }
 
     // ── 收藏 ──

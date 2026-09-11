@@ -166,6 +166,10 @@ public sealed class LocalFilePane : FilePane
         var btnDel = NewBarButton("删除选中", 76);
         btnDel.Click += async (_, _) => await DeleteSelectedAsync();
         bar.Controls.Add(btnDel);
+
+        var btnRename = NewBarButton("重命名", 76);
+        btnRename.Click += async (_, _) => await RenameSelectedAsync();
+        bar.Controls.Add(btnRename);
     }
 
     // ── 右键菜单 ──
@@ -245,6 +249,19 @@ public sealed class LocalFilePane : FilePane
         else SetStatus($"已删除 {entries.Count} 项");
 
         await RefreshAsync();
+    }
+
+    // ── 重命名（本机端走 File/Directory.Move）──
+
+    protected override Task RenameAsync(FileEntry e, string newName)
+    {
+        var dir = Path.GetDirectoryName(e.Path) ?? "";
+        var newPath = Path.Combine(dir, newName);
+        if (File.Exists(newPath) || Directory.Exists(newPath))
+            throw new IOException($"目标已存在：{newName}");
+        if (e.IsDir) Directory.Move(e.Path, newPath);
+        else File.Move(e.Path, newPath);
+        return Task.CompletedTask;
     }
 
     /// <summary>把本机目录递归展开为文件列表。</summary>
