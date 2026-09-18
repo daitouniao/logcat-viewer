@@ -42,8 +42,6 @@ public partial class frmMain : Form
     StatusStrip _statusStrip = null!;
     ToolStripStatusLabel _lblFile = null!, _lblStat = null!, _lblPos = null!, _lblMsg = null!;
     ToolStripProgressBar _pbar = null!;
-    ToolStripLabel _lblMarks = null!;
-    ToolStripLabel _lblAdbStat = null!;
     ToolStripComboBox _comboDevice = null!;
 
     // 过滤面板控件
@@ -107,7 +105,6 @@ public partial class frmMain : Form
 
         // ── 菜单（并入工具栏第一行）──
         var mFile = new ToolStripMenuItem("文件");
-        var mView = new ToolStripMenuItem("标记");
         var mSet = new ToolStripMenuItem("设置");
 
         var actOpen = new ToolStripMenuItem("打开…", null, (_, _) => OpenFile(), Keys.Control | Keys.O);
@@ -117,11 +114,6 @@ public partial class frmMain : Form
         var actQuit = new ToolStripMenuItem("退出", null, (_, _) => Close(), Keys.Control | Keys.Q);
         _actSaveLog = new ToolStripMenuItem("保存日志…", null, (_, _) => AdbSaveLog()) { Enabled = false };
         mFile!.DropDownItems.AddRange(new ToolStripItem[] { actOpen, actReload, actExport, actExportMarked, _actSaveLog, new ToolStripSeparator(), actQuit });
-
-        var actPrevMark = new ToolStripMenuItem("◀ 上一个标记", null, (_, _) => GotoMark(true), Keys.F2);
-        var actNextMark = new ToolStripMenuItem("下一个标记 ▶", null, (_, _) => GotoMark(false), Keys.Shift | Keys.F2);
-        var actClearMarks = new ToolStripMenuItem("清除全部标记", null, (_, _) => ClearMarks());
-        mView!.DropDownItems.AddRange(new ToolStripItem[] { actPrevMark, actNextMark, actClearMarks });
 
         _actJoin = new ToolStripMenuItem("续行合并（堆栈并入上一条记录）") { Checked = true, CheckOnClick = true };
         _actJoin.Click += (_, _) => { _join = _actJoin.Checked; if (_doc != null) StartIndex(_doc.Path); };
@@ -138,11 +130,6 @@ public partial class frmMain : Form
         var actAbout = new ToolStripMenuItem("关于…", null, (_, _) => ShowAbout());
         mHelp!.DropDownItems.Add(actAbout);
 
-        // ── 工具菜单 ──
-        var mTools = new ToolStripMenuItem("工具");
-        var mDeviceOps = new ToolStripMenuItem("设备操作", null, (_, _) => ShowDeviceOps(DeviceOpsDialog.PageKind.Command));
-        mTools!.DropDownItems.Add(mDeviceOps);
-
         // 字号子菜单
         var mFont = new ToolStripMenuItem("字号");
         var fontGroup = new ToolStripMenuItem[5];
@@ -158,33 +145,29 @@ public partial class frmMain : Form
 
         // ── 主工具栏（菜单 + 文件操作 + ADB 合并为一行）──
         _toolStrip = new ToolStrip { GripStyle = ToolStripGripStyle.Hidden, ShowItemToolTips = false };
-        var actStop = new ToolStripButton("停止", null, (_, _) => StopWorker()) { Enabled = false };
-        _lblMarks = new ToolStripLabel("标记 0");
         _comboDevice = new ToolStripComboBox { Enabled = false, Width = 230, DropDownWidth = 320 };
         // 换设备时，让设备操作窗口里绑定设备的页签跟着重建
         _comboDevice.SelectedIndexChanged += (_, _) => _deviceOps?.OnDeviceChanged();
-        _lblAdbStat = new ToolStripLabel("");
+        // 设备操作总入口（截图/录屏/文件浏览/APK/命令）
+        var btnDeviceOps = new ToolStripButton("设备操作", null, (_, _) => ShowDeviceOps(DeviceOpsDialog.PageKind.Command));
         var btnRefresh = new ToolStripButton("刷新设备", null, (_, _) => AdbRefresh());
+        // 刷新设备紧贴设备列表左侧；开始/停止采集在左侧分组
         ToolStripItem[] adbItems =
         {
-            btnRefresh,
-            new ToolStripSeparator(),
+            btnDeviceOps,
             new ToolStripButton("▶ 开始采集", null, (_, _) => AdbStartCapture()) { Enabled = false },
             new ToolStripButton("■ 停止采集", null, (_, _) => AdbStopCapture()) { Enabled = false },
             new ToolStripSeparator(),
-            _lblAdbStat,
-            new ToolStripSeparator(),
+            btnRefresh,
             new ToolStripLabel("设备:"),
             _comboDevice
         };
         foreach (var it in adbItems) it.Tag = "adb";
         // 不依赖具体设备的按钮（刷新设备、设备操作总入口）单独标记，无设备时也要能点
         btnRefresh.Tag = "adb-free";
+        btnDeviceOps.Tag = "adb-free";
         _toolStrip.Items.AddRange(new ToolStripItem[] {
-            mFile, mView, mSet, mTools, mHelp,
-            new ToolStripSeparator(),
-            new ToolStripButton("重载", null, (_, _) => Reload()),
-            actStop,
+            mFile, mSet, mHelp,
             new ToolStripSeparator()
         });
         _toolStrip.Items.AddRange(adbItems);
@@ -198,8 +181,6 @@ public partial class frmMain : Form
             new ToolStripButton("◀ 上一个", null, (_, _) => GotoMark(true)),
             new ToolStripButton("下一个 ▶", null, (_, _) => GotoMark(false)),
             new ToolStripButton("清除标记", null, (_, _) => ClearMarks()),
-            new ToolStripSeparator(),
-            _lblMarks,
         });
         Controls.Add(_toolStrip2);
 
@@ -970,7 +951,6 @@ public partial class frmMain : Form
     {
         int total = _doc?.RowCount ?? 0;
         _lblStat.Text = $"总 {total:N0} 条 | 命中 {_listView.Rows.Length:N0} | 标记 {_marked.Count:N0} | 索引 {_indexMs:F0} ms | 过滤 {_filterMs:F0} ms";
-        _lblMarks.Text = $"标记 {_marked.Count}";
     }
 
     void FlushModelRows()
@@ -1149,7 +1129,7 @@ public partial class frmMain : Form
         {
             _adbManager = new AdbManager(_logger);
             _adbManager.DevicesChanged += (_, devices) => Invoke(() => OnDevicesChanged(devices));
-            _adbManager.Error += (_, msg) => Invoke(() => _lblAdbStat.Text = msg);
+            _adbManager.Error += (_, msg) => Invoke(() => _lblMsg.Text = msg);
             _adbManager.StartMonitor();
             await AdbRefresh();
             SetAdbButtons(true);
@@ -1157,7 +1137,7 @@ public partial class frmMain : Form
         catch (Exception ex)
         {
             _logger.LogWarning("ADB 初始化失败: {0}", ex.Message);
-            _lblAdbStat.Text = "ADB 不可用";
+            _lblMsg.Text = "ADB 不可用";
         }
     }
 
@@ -1178,7 +1158,7 @@ public partial class frmMain : Form
     async Task AdbRefresh()
     {
         if (_adbManager == null) return;
-        _lblAdbStat.Text = "刷新中…";
+        _lblMsg.Text = "刷新中…";
         try
         {
             var devices = await _adbManager.ListDevicesAsync();
@@ -1190,17 +1170,16 @@ public partial class frmMain : Form
             if (devices.Count > 0)
             {
                 _comboDevice.SelectedIndex = 0;
-                _lblAdbStat.Text = $"{devices.Count} 台设备";
             }
             else
             {
-                _lblAdbStat.Text = "无设备";
+                _lblMsg.Text = "无设备";
             }
             SetAdbButtons(true);
         }
         catch (Exception ex)
         {
-            _lblAdbStat.Text = $"刷新失败: {ex.Message}";
+            _lblMsg.Text = $"刷新失败: {ex.Message}";
         }
     }
 
@@ -1249,7 +1228,7 @@ public partial class frmMain : Form
         };
         _streamThread.ErrorOccurred += msg => Invoke(() =>
         {
-            _lblAdbStat.Text = msg;
+            _lblMsg.Text = msg;
         });
         _streamThread.Stopped += () => Invoke(() =>
         {
@@ -1382,7 +1361,7 @@ public partial class frmMain : Form
     void AdbUpdateStat()
     {
         if (_adbCapturing)
-            _lblAdbStat.Text = $"采集中… {_adbLiveCount:N0} 行";
+            _lblMsg.Text = $"采集中… {_adbLiveCount:N0} 行";
     }
 
     // ── 设备操作总窗口（截图 / 录屏 / 文件浏览 / 安装·卸载 APK / 命令 合并为一个页签式窗口）──
