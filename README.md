@@ -1,11 +1,11 @@
 # logcat viewer
 
-[![Version: V0.0.3](https://img.shields.io/badge/version-V0.0.3-green)](logcat.csproj)
+[![Version: V0.0.4](https://img.shields.io/badge/version-V0.0.4-green)](logcat.csproj)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
 
 Windows 桌面端 Android 日志（logcat）查看器。基于 WinForms，使用内存映射文件 + 列式索引，可直接打开并流畅浏览千万行级别的日志文件，同时支持通过 ADB 实时采集设备日志、截图、录屏、文件互传、APK 安装/卸载与分类收藏常用命令。
 
-> 当前版本 **V0.0.3**（新增 APK 安装/卸载、整理过滤显示、程序图标）。版本号以 [logcat.csproj](logcat.csproj) 的 `<Version>` 为唯一来源，发布时只改该处，程序标题、关于对话框与 exe 文件属性会自动同步。
+> 当前版本 **V0.0.4**。版本号以 [logcat.csproj](logcat.csproj) 的 `<Version>` 为唯一来源，发布时只改该处，程序标题、关于对话框与 exe 文件属性会自动同步。
 
 ## 目录
 

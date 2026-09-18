@@ -51,7 +51,11 @@ public partial class frmMain : Form
     CheckBox _ckTagRe = null!, _ckTagCase = null!, _ckTagEx = null!;
     CheckBox _ckMsgRe = null!, _ckMsgCase = null!, _ckMsgEx = null!;
     CheckBox _ckPidEx = null!, _ckTidEx = null!;
-    CheckBox _chkAuto = null!, _chkMarkedOnly = null!, _chkFollow = null!;
+    CheckBox _chkAuto = null!;
+    // 工具栏上的过滤控件（与过滤窗口双向同步）
+    ToolStripTextBox _tbMin = null!, _tbTag = null!, _tbMsg = null!;
+    CheckBox _chkToolbarMarkedOnly = null!, _chkToolbarFollow = null!;
+    bool _syncingFilter;
     Label _lblSpec = null!;
     GroupBox _panel = null!;
 
@@ -174,13 +178,41 @@ public partial class frmMain : Form
         Controls.Add(_toolStrip);
         _toolStrip.Resize += (_, _) => LayoutDeviceCombo();
 
-        // ── 第二行工具栏：标记相关按钮挪到这里，给第一行的设备下拉框腾出宽度 ──
-        _toolStrip2 = new ToolStrip { GripStyle = ToolStripGripStyle.Hidden, ShowItemToolTips = false };
+        // ── 第二行工具栏：标记相关按钮 + 快速过滤输入框 ──
+        _toolStrip2 = new ToolStrip { GripStyle = ToolStripGripStyle.Hidden, ShowItemToolTips = true };
+
+        _chkToolbarMarkedOnly = new CheckBox { Text = "仅标记行", AutoSize = true };
+        _chkToolbarMarkedOnly.CheckedChanged += (_, _) => { if (!_syncingFilter) OnFilterChanged(); };
+        _chkToolbarFollow = new CheckBox { Text = "跟随尾部", AutoSize = true };
+        _chkToolbarFollow.CheckedChanged += (_, _) => { if (!_syncingFilter && _chkToolbarFollow.Checked && _listView.Rows.Length > 0) ScrollBottom(); };
+
+        _tbMin = new ToolStripTextBox { Width = 80, ToolTipText = "如 05 20（空格分隔）" };
+        _tbMin.TextChanged += (_, _) => SyncToolbarToPanel(_tbMin, _edMin);
+        _tbMin.KeyDown += (_, e) => { if (e.KeyCode == Keys.Enter) ApplyFilter(); };
+
+        _tbTag = new ToolStripTextBox { Width = 130, ToolTipText = "多个用空格分隔，短语用双引号包裹" };
+        _tbTag.TextChanged += (_, _) => { SyncToolbarToPanel(_tbTag, _edTag); _cbTagOp.SelectedItem = "or"; };
+        _tbTag.KeyDown += (_, e) => { if (e.KeyCode == Keys.Enter) ApplyFilter(); };
+
+        _tbMsg = new ToolStripTextBox { Width = 180, ToolTipText = "多词用空格分隔，短语用双引号包裹" };
+        _tbMsg.TextChanged += (_, _) => { SyncToolbarToPanel(_tbMsg, _edMsg); _cbMsgOp.SelectedItem = "or"; };
+        _tbMsg.KeyDown += (_, e) => { if (e.KeyCode == Keys.Enter) ApplyFilter(); };
+
         _toolStrip2.Items.AddRange(new ToolStripItem[] {
             new ToolStripLabel("标记:"),
             new ToolStripButton("◀ 上一个", null, (_, _) => GotoMark(true)),
             new ToolStripButton("下一个 ▶", null, (_, _) => GotoMark(false)),
             new ToolStripButton("清除标记", null, (_, _) => ClearMarks()),
+            new ToolStripSeparator(),
+            new ToolStripControlHost(_chkToolbarMarkedOnly),
+            new ToolStripControlHost(_chkToolbarFollow),
+            new ToolStripSeparator(),
+            new ToolStripLabel("分钟"),
+            _tbMin,
+            new ToolStripLabel("Tag"),
+            _tbTag,
+            new ToolStripLabel("Message"),
+            _tbMsg,
         });
         Controls.Add(_toolStrip2);
 
@@ -217,7 +249,6 @@ public partial class frmMain : Form
             ApplyWindowGeometry();
             LayoutDeviceCombo();
         };
-        Shown += (_, _) => ShowFilterDialog();
         _listView.BringToFront();
         _statusStrip.BringToFront();
         // 让第二行工具栏位于主工具栏下方（同为 Top 停靠，索引越低越靠内/靠下）
@@ -303,28 +334,22 @@ public partial class frmMain : Form
         var btnReset = new Button { Text = "重置", Width = 60, Height = 25 };
         btnReset.Click += (_, _) => ResetFilter();
         _chkAuto = new CheckBox { Text = "自动应用", AutoSize = true, Checked = true };
-        _chkMarkedOnly = new CheckBox { Text = "仅标记行", AutoSize = true };
-        _chkMarkedOnly.CheckedChanged += (_, _) => OnFilterChanged();
-        _chkFollow = new CheckBox { Text = "跟随尾部", AutoSize = true };
-        _chkFollow.CheckedChanged += (_, _) => { if (_chkFollow.Checked && _listView.Rows.Length > 0) ScrollBottom(); };
         lvlPanel.Controls.Add(new Label { Text = "    ", AutoSize = true });
         lvlPanel.Controls.Add(btnApply);
         lvlPanel.Controls.Add(btnReset);
         lvlPanel.Controls.Add(_chkAuto);
-        lvlPanel.Controls.Add(_chkMarkedOnly);
-        lvlPanel.Controls.Add(_chkFollow);
         mainLayout.Controls.Add(lvlPanel, 0, 0);
 
         // Tag 行（含收藏）
         var tagPanel = new FlowLayoutPanel { AutoSize = true, WrapContents = false };
         BuildTermControls(tagPanel, "Tag", out _edTag, out _cbTagOp, out _ckTagRe, out _ckTagCase, out _ckTagEx,
-            "多个用空格分隔，短语用双引号包裹", "or", forTag: true);
+            "多个用空格分隔，短语用双引号包裹", "or", forTag: true, syncBox: _tbTag);
         mainLayout.Controls.Add(tagPanel, 0, 1);
 
         // Message 行（含收藏）
         var msgPanel = new FlowLayoutPanel { AutoSize = true, WrapContents = false };
         BuildTermControls(msgPanel, "Message", out _edMsg, out _cbMsgOp, out _ckMsgRe, out _ckMsgCase, out _ckMsgEx,
-            "多词用空格分隔，短语用双引号包裹", "and", forTag: false);
+            "多词用空格分隔，短语用双引号包裹", "and", forTag: false, syncBox: _tbMsg);
         mainLayout.Controls.Add(msgPanel, 0, 2);
 
         // PID / TID / 分钟 行（含过滤条件说明）
@@ -347,7 +372,7 @@ public partial class frmMain : Form
         pidTidPanel.Controls.Add(_ckTidEx);
         pidTidPanel.Controls.Add(new Label { Text = "分钟", AutoSize = true, Padding = new Padding(8, 4, 4, 0) });
         _edMin = new TextBox { Width = 160, PlaceholderText = "如 05 20（空格分隔）" };
-        _edMin.TextChanged += (_, _) => OnFilterChanged();
+        _edMin.TextChanged += (_, _) => { SyncPanelToToolbar(_edMin, _tbMin); OnFilterChanged(); };
         _edMin.KeyDown += (_, e) => { if (e.KeyCode == Keys.Enter) ApplyFilter(); };
         pidTidPanel.Controls.Add(_edMin);
         _lblSpec = new Label { Text = "（无过滤）", AutoSize = true, Padding = new Padding(8, 6, 0, 0), ForeColor = Color.Gray };
@@ -357,19 +382,37 @@ public partial class frmMain : Form
         _panel.Controls.Add(mainLayout);
     }
 
+    // ── 工具栏与过滤窗口输入框双向同步 ──
+    void SyncToolbarToPanel(ToolStripTextBox src, TextBox dst)
+    {
+        if (_syncingFilter) return;
+        _syncingFilter = true;
+        try { dst.Text = src.Text; }
+        finally { _syncingFilter = false; }
+        OnFilterChanged();
+    }
+
+    void SyncPanelToToolbar(TextBox src, ToolStripTextBox dst)
+    {
+        if (_syncingFilter) return;
+        _syncingFilter = true;
+        try { dst.Text = src.Text; }
+        finally { _syncingFilter = false; }
+    }
+
     void BuildTermControls(FlowLayoutPanel panel, string label, out TextBox ed, out ComboBox cbOp,
         out CheckBox ckRe, out CheckBox ckCase, out CheckBox ckEx,
-        string placeholder, string defaultOp, bool forTag)
+        string placeholder, string defaultOp, bool forTag, ToolStripTextBox? syncBox = null)
     {
         panel.Controls.Add(new Label { Text = label, AutoSize = true, Width = 62, Padding = new Padding(0, 4, 0, 0) });
         ed = new TextBox { Width = 280 };
         ed.PlaceholderText = placeholder;
-        ed.TextChanged += (_, _) => OnFilterChanged();
-        ed.KeyDown += (_, e) => { if (e.KeyCode == Keys.Enter) ApplyFilter(); };
+        var box = ed;
+        box.TextChanged += (_, _) => { if (syncBox != null) SyncPanelToToolbar(box, syncBox); OnFilterChanged(); };
+        box.KeyDown += (_, e) => { if (e.KeyCode == Keys.Enter) ApplyFilter(); };
         panel.Controls.Add(ed);
 
         // 收藏：▾ 从收藏选择，★ 收藏/移除当前内容
-        TextBox box = ed;
         var favTip = new ToolTip();
         var btnFavPick = new Button { Text = "▾", Width = 28, Height = 25, Margin = new Padding(2, 0, 0, 0) };
         favTip.SetToolTip(btnFavPick, "从收藏中选择");
@@ -593,7 +636,7 @@ public partial class frmMain : Form
             _filterMs = sw.Elapsed.TotalMilliseconds;
             _listView.SetRows(rows);
             UpdateStat();
-            if (_chkFollow.Checked)
+            if (_chkToolbarFollow.Checked)
             {
                 ScrollBottom();
                 if (keep.HasValue) _listView.RestoreView(keep.Value, restoreTop: false);
@@ -636,7 +679,7 @@ public partial class frmMain : Form
         spec.PidExclude = _ckPidEx.Checked;
         spec.TidExclude = _ckTidEx.Checked;
         spec.Minutes = FilterEngine.ParseMinutes(_edMin.Text);
-        spec.MarkedOnly = _chkMarkedOnly.Checked;
+        spec.MarkedOnly = _chkToolbarMarkedOnly.Checked;
         return spec;
     }
 
@@ -647,7 +690,8 @@ public partial class frmMain : Form
         _edTag.Clear(); _edMsg.Clear(); _edPid.Clear(); _edTid.Clear(); _edMin.Clear();
         _ckTagRe.Checked = _ckTagCase.Checked = _ckTagEx.Checked = false;
         _ckMsgRe.Checked = _ckMsgCase.Checked = _ckMsgEx.Checked = false;
-        _ckPidEx.Checked = _ckTidEx.Checked = _chkMarkedOnly.Checked = false;
+        _ckPidEx.Checked = _ckTidEx.Checked = false;
+        _chkToolbarMarkedOnly.Checked = _chkToolbarFollow.Checked = false;
         ApplyFilter();
     }
 
@@ -934,9 +978,9 @@ public partial class frmMain : Form
     void OnScrolled()
     {
         int top = TopRow();
-        if (_chkFollow.Checked && !_programScroll && top < _lastVsb - 1)
+        if (_chkToolbarFollow.Checked && !_programScroll && top < _lastVsb - 1)
         {
-            _chkFollow.Checked = false;
+            _chkToolbarFollow.Checked = false;
         }
         _lastVsb = top;
         // 更新位置显示
@@ -972,7 +1016,7 @@ public partial class frmMain : Form
         else if (e.Control && e.KeyCode == Keys.Enter) { ApplyFilter(); e.Handled = true; }
         else if (e.Control && e.KeyCode == Keys.O) { OpenFile(); e.Handled = true; }
         else if (e.Control && e.KeyCode == Keys.E) { ExportRows(false); e.Handled = true; }
-        else if (e.Control && e.KeyCode == Keys.F) { ShowFilterDialog(); _edMsg.Focus(); _edMsg.SelectAll(); e.Handled = true; }
+        else if (e.Control && e.KeyCode == Keys.F) { ShowFilterDialog(); _tbMsg.Focus(); _tbMsg.SelectAll(); e.Handled = true; }
         else if (e.Control && e.KeyCode == Keys.C) { CopySelection(); e.Handled = true; }
         else if (e.KeyCode == Keys.F5) { Reload(); e.Handled = true; }
         else if (e.KeyCode == Keys.F2) { GotoMark(e.Shift); e.Handled = true; }
@@ -1241,7 +1285,7 @@ public partial class frmMain : Form
         _adbCapturing = true;
         _adbLiveCount = 0;
         _adbGen = -1; // 确保首次 AdbAutoReload 能通过 guard
-        _chkFollow.Checked = true;
+        _chkToolbarFollow.Checked = true;
         UpdateAdbCaptureUI();
 
         _streamThread.Start(clearFirst: true);
