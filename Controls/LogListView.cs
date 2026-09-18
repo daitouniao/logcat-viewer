@@ -199,6 +199,60 @@ public class LogListView : ListView
         catch { }
     }
 
+    // ── 过滤锚点：过滤/取消过滤后把选中行（或最近存活行）固定回原屏幕位置 ──
+
+    /// <summary>捕获锚点：选中行的文档行号 + 它相对视口顶部的行偏移。无选中时以视口顶行为锚（偏移 0）。</summary>
+    public (int docRow, int offsetFromTop) CaptureAnchor()
+    {
+        int sel = -1;
+        foreach (int i in SelectedIndices) { sel = i; break; }
+        int top = -1;
+        try { top = (int)SendMessage(Handle, LVM_GETTOPINDEX, IntPtr.Zero, IntPtr.Zero); } catch { }
+        if (sel < 0) sel = top;
+        if (sel < 0 || top < 0) return (-1, 0);
+        int dr = DocRow(sel);
+        if (dr < 0) return (-1, 0);
+        return (dr, Math.Max(0, sel - top));
+    }
+
+    /// <summary>
+    /// 过滤完成后固定锚点：若原行仍在结果中，恢复到原屏幕偏移位置；
+    /// 若被过滤掉，取文档行号最近的存活行（前后取更近者）固定在该位置，并选中它。
+    /// 返回实际固定的文档行号（失败返回 -1）。
+    /// </summary>
+    public int PinAnchor(int anchorDocRow, int offsetFromTop)
+    {
+        if (anchorDocRow < 0 || VirtualListSize == 0 || IsDisposed) return -1;
+        int mr = ModelRowOf(anchorDocRow);
+        if (mr < 0) mr = NearestModelRow(anchorDocRow);
+        if (mr < 0) return -1;
+
+        SelectedIndices.Clear();
+        SelectedIndices.Add(mr);
+        try { Items[mr].Focused = true; } catch { }
+
+        // 把目标行滚到原偏移处（超界时会被 clamp 到列表末尾）
+        int target = Math.Max(0, mr - Math.Max(0, offsetFromTop));
+        SetTopModelRow(Math.Min(target, VirtualListSize - 1));
+        return DocRow(mr);
+    }
+
+    /// <summary>在 _rows（升序文档行号）中找与 docRow 最近的存活行。</summary>
+    public int NearestModelRow(int docRow)
+    {
+        if (_rows.Length == 0) return -1;
+        int pos = Array.BinarySearch(_rows, docRow);
+        if (pos >= 0) return pos;
+        int after = ~pos;          // 第一个大于 docRow 的位置
+        int before = after - 1;
+        if (before < 0 && after >= _rows.Length) return -1;
+        if (before < 0) return after;
+        if (after >= _rows.Length) return before;
+        long dB = (long)docRow - _rows[before];
+        long dA = (long)_rows[after] - docRow;
+        return dA < dB ? after : before;
+    }
+
     // ── 行号换算 ──
     public int DocRow(int modelRow) =>
         modelRow >= 0 && modelRow < _rows.Length ? _rows[modelRow] : -1;

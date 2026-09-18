@@ -596,6 +596,9 @@ public partial class frmMain : Form
         if (!quiet) { _pbar.Visible = true; _pbar.Value = 0; _lblMsg.Text = "过滤…"; }
         var sw = System.Diagnostics.Stopwatch.StartNew();
 
+        // 普通（非重载/非静默）过滤：捕获选中行锚点，过滤后固定回原屏幕位置
+        (int anchorDocRow, int anchorOffset) = keep.HasValue ? (-1, 0) : _listView.CaptureAnchor();
+
         try
         {
             var rows = await FilterEngine.ApplyFilterAsync(_doc, spec, _marked,
@@ -617,6 +620,12 @@ public partial class frmMain : Form
             else if (keep.HasValue)
             {
                 _listView.RestoreView(keep.Value);
+            }
+            else if (anchorDocRow >= 0)
+            {
+                // 把选中行（或最近存活行）固定回原屏幕位置
+                _listView.PinAnchor(anchorDocRow, anchorOffset);
+                _lastVsb = TopRow();
             }
         }
         catch (OperationCanceledException) { }
