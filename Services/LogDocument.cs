@@ -208,7 +208,7 @@ public sealed class LogDocument : IDisposable
         Size = new FileInfo(Path).Length;
         OpenMap();
         progress?.Report((0.0, "扫描行…"));
-        var part = ScanRange(Path, 0, Size, join, progress, ct);
+        var part = ScanRange(Path, 0, Size, join, false, progress, ct);
         ct.ThrowIfCancellationRequested();
         Assemble(new[] { part }, baseYear, progress);
         IndexedSize = Size;
@@ -222,10 +222,14 @@ public sealed class LogDocument : IDisposable
         public int[] Pids; public int[] Tids;
         public byte[] Lvls; public int[] TagIds; public byte[] Flags;
         public List<byte[]> LocalTags;
+        /// <summary>本批开头若干行属于「上一批末尾那条记录」的续行（跨批次合并）。</summary>
+        public int CarryLines;
+        /// <summary>这些续行结束处的绝对文件偏移。</summary>
+        public long CarryEndOff;
     }
 
-    static ScanPart ScanRange(string path, long start, long end, bool join,
-        IProgress<(double, string)>? progress, CancellationToken ct)
+    static ScanPart ScanRange(string path, long start, long end, bool join, bool prevHeadDoc = false,
+        IProgress<(double, string)>? progress = null, CancellationToken ct = default)
     {
         var offs = new List<long>();
         var lens = new List<int>();
@@ -242,8 +246,12 @@ public sealed class LogDocument : IDisposable
         var tagList = new List<byte[]>();
 
         int prev = -1;
-        bool prevHead = false;
+        // 续行状态跨批次传递：本批第一行如果属于上一批末尾那条记录，要并回去，
+        // 否则多行日志（崩溃堆栈）会在批次边界被切成年两条记录。
+        bool prevHead = prevHeadDoc;
         int joined = 0;
+        int carryLines = 0;
+        long carryEndOff = 0;
 
         using var f = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
         long fileSize = f.Length;
@@ -252,13 +260,15 @@ public sealed class LogDocument : IDisposable
 
         if (start > 0)
         {
-            // 对齐到换行
-            byte[] probe = new byte[1];
-            f.Position = start;
-            int r = f.Read(probe, 0, 1);
-            if (r > 0 && probe[0] != (byte)'\n')
+            // 对齐到整行：start 应当是某个 '\n' 之后的第一字节。
+            // 判断依据是 start 前一个字节是不是换行；用 start 自身的首字节判断会错——
+            // 那正好是下一行的行首字符，于是被误判为「切在行中间」，
+            // 白白跳掉一整行（增量追加时每次都会吞掉新内容的第一行）。
+            f.Position = start - 1;
+            int prevByte = f.ReadByte();
+            if (prevByte != '\n')
             {
-                // 找下一个换行
+                // 确实切在行中间：向后找到下一个换行，从下一行行首开始
                 f.Position = start;
                 int b = f.ReadByte();
                 while (b >= 0 && b != '\n') b = f.ReadByte();
@@ -304,7 +314,17 @@ public sealed class LogDocument : IDisposable
             int lineLen = rawLen;
             if (lineLen > 0 && data[pos + lineLen - 1] == 13) lineLen--;
 
-            long currentOff = start + pos;
+            // 文件首行的 UTF-8 BOM：剥掉再解析。
+            // 否则首行（含「----- timezone:…」这类头部）会被整行当成「未知」记录。
+            int lineOff = pos;
+            if (pos == 0 && lineLen >= 3 &&
+                data[0] == 0xEF && data[1] == 0xBB && data[2] == 0xBF)
+            {
+                lineOff = 3;
+                lineLen -= 3;
+            }
+
+            long currentOff = start + lineOff;
 
             if (lineLen == 0)
             {
@@ -314,13 +334,30 @@ public sealed class LogDocument : IDisposable
                 continue;
             }
 
-            ReadOnlySpan<byte> line = data.AsSpan(pos, lineLen);
+            ReadOnlySpan<byte> line = data.AsSpan(lineOff, lineLen);
+
+            // 横幅行（--------- beginning of main / ----- timezone:Asia/Kuala_Lumpur 等）
+            // 不是日志记录：不进索引，也不打断续行合并，与实时采集的过滤规则保持一致
+            if (LogParser.IsBanner(line))
+            {
+                pos = nl >= 0 ? nl + 1 : data.Length;
+                continue;
+            }
 
             // 续行合并
-            if (join && prev >= 0 && prevHead && joined < MAX_JOIN && !LogParser.LooksLikeNewRecord(line))
+            if (join && prevHead && joined < MAX_JOIN && !LogParser.LooksLikeNewRecord(line))
             {
-                lens[prev] = (int)((currentOff + lineLen) - offs[prev]);
-                flags[prev] = (byte)(flags[prev] | FLAG_MULTILINE);
+                if (prev >= 0)
+                {
+                    lens[prev] = (int)((currentOff + lineLen) - offs[prev]);
+                    flags[prev] = (byte)(flags[prev] | FLAG_MULTILINE);
+                }
+                else
+                {
+                    // prev < 0：并回「上一批末尾那条记录」（由 Append 写回列存储）
+                    carryLines++;
+                    carryEndOff = currentOff + lineLen;
+                }
                 joined++;
                 pos = nl >= 0 ? nl + 1 : data.Length;
                 continue;
@@ -382,7 +419,8 @@ public sealed class LogDocument : IDisposable
             Within = within.ToArray(), Years = years.ToArray(),
             Pids = pids.ToArray(), Tids = tids.ToArray(),
             Lvls = lvls.ToArray(), TagIds = tagIds.ToArray(), Flags = flags.ToArray(),
-            LocalTags = tagList
+            LocalTags = tagList,
+            CarryLines = carryLines, CarryEndOff = carryEndOff
         };
     }
 
@@ -571,7 +609,10 @@ public sealed class LogDocument : IDisposable
         var now = DateTime.Now;
         int validIdx = Array.FindIndex(within, w => w >= 0);
         if (validIdx < 0) return now.Year;
+        // within 用「闰年日序」编码（见 MDAYS），比较基准必须换算到同一编码，
+        // 否则非闰年的 3 月之后整体差一天，"今天"的日志会被判成去年。
         long todayWithin = (now.DayOfYear - 1) * LogParser.DAY_MS;
+        if (!LogParser.IsLeap(now.Year) && now.DayOfYear > 59) todayWithin += LogParser.DAY_MS;
         long first = within[validIdx];
         return first - todayWithin > LogParser.DAY_MS ? now.Year - 1 : now.Year;
     }
@@ -631,6 +672,9 @@ public sealed class LogDocument : IDisposable
         return Append(newSize, progress, ct);
     }
 
+    /// <summary>文档末行是否是一条「还能继续吸收续行」的记录（有时间戳或级别）。</summary>
+    bool PrevRowJoinable() => _n > 0 && (_ts[_n - 1] >= 0 || _lvl[_n - 1] > 0);
+
     string Append(long newSize, IProgress<(double, string)>? progress, CancellationToken ct)
     {
         progress?.Report((0.0, "追加新内容…"));
@@ -641,13 +685,28 @@ public sealed class LogDocument : IDisposable
         if (newSize <= IndexedSize)
             return "unchanged";
 
-        var part = ScanRange(Path, IndexedSize, newSize, Join, progress, ct);
+        var part = ScanRange(Path, IndexedSize, newSize, Join, PrevRowJoinable(), progress, ct);
+        if (ct.IsCancellationRequested) return "unchanged";
+
+        // 跨批次续行：本批开头的续行并回上一批末尾那条记录，
+        // 否则多行日志会在批次边界被切成两条（只影响列存储，文本本体不动）
+        if (part.CarryLines > 0 && _n > 0)
+        {
+            _lens[_n - 1] = (int)(part.CarryEndOff - _offs[_n - 1]);
+            _flags[_n - 1] |= FLAG_MULTILINE;
+        }
+
         if (part.Offs.Length == 0)
         {
             IndexedSize = newSize; Size = newSize;
+            if (part.CarryLines > 0)
+            {
+                // 整批都是续行：末行被拉长了，必须重映射才能读到新增字节
+                OpenMap();
+                return "appended";
+            }
             return "unchanged";
         }
-        if (ct.IsCancellationRequested) return "unchanged";
 
         // 重映射 tag
         var remap = new int[part.LocalTags.Count + 1];

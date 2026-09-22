@@ -81,9 +81,9 @@ public sealed class LogcatStream
                 return;
             }
 
-            // 打开输出文件
+            // 打开输出文件（UTF-8 不带 BOM：带 BOM 会让首行解析失败）
             using var fs = new FileStream(_outputPath, FileMode.Append, FileAccess.Write, FileShare.Read);
-            using var writer = new StreamWriter(fs, Encoding.UTF8);
+            using var writer = new StreamWriter(fs, new UTF8Encoding(false));
 
             var pending = new List<string>();
             var nextEmit = DateTimeOffset.UtcNow.AddSeconds(BATCH_INTERVAL);
@@ -93,7 +93,8 @@ public sealed class LogcatStream
             {
                 if (ct.IsCancellationRequested) break;
                 if (string.IsNullOrWhiteSpace(line)) continue;
-                if (line.StartsWith("---------") || line.StartsWith("beginning of") || line.StartsWith("switch to"))
+                // 横幅行不去采集：--------- beginning of main、----- timezone:Asia/Kuala_Lumpur 等
+                if (LogParser.IsBanner(line) || line.StartsWith("beginning of") || line.StartsWith("switch to"))
                     continue;
 
                 pending.Add(line);

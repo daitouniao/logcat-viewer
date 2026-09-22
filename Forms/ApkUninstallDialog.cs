@@ -458,7 +458,7 @@ public sealed class ApkUninstallDialog : Form
     void CopyOutput()
     {
         if (_txtOut.TextLength == 0) { Status("没有输出可复制"); return; }
-        Clipboard.SetText(_txtOut.Text);
+        ClipboardHelper.SetText(_txtOut.Text);
         Status("输出已复制到剪贴板");
     }
 

@@ -30,7 +30,7 @@ public static class LogParser
     public const long LEAP_BOUNDARY = 60 * DAY_MS;
 
     // ── 时间戳缓存 ──
-    static readonly Dictionary<long, int> _tsCache = new(4_000_000);
+    static readonly Dictionary<long, long> _tsCache = new(4_000_000);
     static readonly Dictionary<long, (long within, int year)> _tsCacheY = new(4_000_000);
     const int CACHE_LIMIT = 4_000_000;
 
@@ -318,7 +318,7 @@ public static class LogParser
 
         lock (_tsCache)
         {
-            if (_tsCache.TryGetValue(key, out int hit))
+            if (_tsCache.TryGetValue(key, out long hit))
                 return (hit, -1);
         }
 
@@ -334,7 +334,7 @@ public static class LogParser
             lock (_tsCache)
             {
                 if (_tsCache.Count < CACHE_LIMIT)
-                    _tsCache[key] = (int)within;
+                    _tsCache[key] = within;
             }
             return (within, year);
         }
@@ -406,6 +406,33 @@ public static class LogParser
         return (Encoding.UTF8.GetString(line[start..sp2]), sp2 + 1);
     }
 
+    // ── 横幅行判定 ──
+    /// <summary>
+    /// 判定一行是否为 logcat 分段横幅 / ROM 自报头。
+    /// 典型：<c>--------- beginning of main</c>、<c>--------- switch to system</c>、
+    /// <c>----- timezone:Asia/Kuala_Lumpur</c>。
+    /// 这类行不是日志记录：不参与索引，也不参与续行合并。
+    /// </summary>
+    public static bool IsBanner(ReadOnlySpan<byte> line)
+    {
+        int d = 0;
+        while (d < line.Length && line[d] == DASH) d++;
+        if (d < 5) return false;
+        return d >= line.Length || line[d] == SP || line[d] == TAB;
+    }
+
+    /// <inheritdoc cref="IsBanner(ReadOnlySpan{byte})"/>
+    public static bool IsBanner(string line)
+    {
+        int i = 0;
+        if (line.Length > 0 && line[0] == '\uFEFF') i = 1;   // 文本读取器可能带出 BOM
+        int d = 0;
+        while (i + d < line.Length && line[i + d] == '-') d++;
+        if (d < 5) return false;
+        int j = i + d;
+        return j >= line.Length || line[j] == ' ' || line[j] == '\t';
+    }
+
     // ── 续行判定 ──
     /// <summary>
     /// 判定一行是否像「一条新记录的开头」。
@@ -415,6 +442,7 @@ public static class LogParser
     {
         int n = line.Length;
         if (n == 0) return true;
+        if (IsBanner(line)) return true;
         byte c = line[0];
         if (c == SP || c == TAB) return false;
         if (c == LBRACKET) return true;

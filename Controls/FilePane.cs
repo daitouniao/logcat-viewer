@@ -409,8 +409,7 @@ public abstract class FilePane : UserControl
 
     static void TrySetClipboard(string text)
     {
-        try { Clipboard.SetText(text); }
-        catch { /* 剪贴板被占用时忽略 */ }
+        Services.ClipboardHelper.SetText(text); // 内部已重试并吞掉最终失败
     }
 
     // ── 重命名 ──

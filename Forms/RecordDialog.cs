@@ -42,7 +42,7 @@ public class RecordDialog : Form
 
         var btnClose = new Button { Text = "关闭", DialogResult = DialogResult.OK, Width = 80 };
         var btnCopy = new Button { Text = "复制", Width = 80 };
-        btnCopy.Click += (_, _) => Clipboard.SetText(_text.Text);
+        btnCopy.Click += (_, _) => logcat.Services.ClipboardHelper.SetText(_text.Text);
 
         btnPanel.Controls.Add(btnClose);
         btnPanel.Controls.Add(btnCopy);

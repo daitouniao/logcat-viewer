@@ -494,7 +494,7 @@ public class CommandDialog : Form
         menu.Items.Add("填入命令框", null, (_, _) => FillFromSelection());
         if (cmdText.Length > 0)
             menu.Items.Add("直接执行", null, (_, _) => { FillFromSelection(); Run(); });
-        menu.Items.Add("复制命令", null, (_, _) => { if (cmdText.Length > 0) Clipboard.SetText(cmdText); });
+        menu.Items.Add("复制命令", null, (_, _) => { if (cmdText.Length > 0) ClipboardHelper.SetText(cmdText); });
         menu.Items.Add(new ToolStripSeparator());
 
         if (fav != null)
@@ -872,7 +872,7 @@ public class CommandDialog : Form
     void CopyOutput()
     {
         if (_txtOut.TextLength == 0) { SetStatus("没有输出可复制"); return; }
-        Clipboard.SetText(_txtOut.Text);
+        ClipboardHelper.SetText(_txtOut.Text);
         SetStatus("输出已复制到剪贴板");
     }
 

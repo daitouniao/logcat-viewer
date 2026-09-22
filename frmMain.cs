@@ -890,8 +890,7 @@ public partial class frmMain : Form
     {
         if (docRows.Length == 0) return;
         var text = string.Join("\n", docRows.Select(dr => _listView.FullText(dr)));
-        Clipboard.SetText(text);
-        ShowStatus($"已复制 {docRows.Length} 行");
+        ShowStatus(ClipboardHelper.SetText(text) ? $"已复制 {docRows.Length} 行" : "复制失败：剪贴板被其他程序占用");
     }
 
     void CopyRowsFormatted(int[] modelRows)
@@ -908,7 +907,7 @@ public partial class frmMain : Form
                 cells.Add(item.SubItems[c].Text);
             lines.Add(string.Join("\t", cells));
         }
-        Clipboard.SetText(string.Join("\n", lines));
+        ClipboardHelper.SetText(string.Join("\n", lines));
         ShowStatus($"已复制 {modelRows.Length} 行");
     }
 
