@@ -1172,7 +1172,6 @@ public partial class frmMain : Form
         {
             _adbManager = new AdbManager(_logger);
             _adbManager.DevicesChanged += (_, devices) => Invoke(() => OnDevicesChanged(devices));
-            _adbManager.Error += (_, msg) => Invoke(() => _lblMsg.Text = msg);
             _adbManager.StartMonitor();
             await AdbRefresh();
             SetAdbButtons(true);

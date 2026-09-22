@@ -25,7 +25,6 @@ public sealed class AdbManager : IDisposable
     readonly Dictionary<string, bool> _rootCache = new();
 
     public event EventHandler<List<DeviceInfo>>? DevicesChanged;
-    public event EventHandler<string>? Error;
 
     public AdbManager(ILogger logger)
     {

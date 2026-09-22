@@ -658,7 +658,7 @@ public sealed class LogDocument : IDisposable
         int head = (int)Math.Min(IndexedSize, 1 << 16);
         byte[] headBuf = new byte[head];
         using (var f = new FileStream(Path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
-            f.Read(headBuf, 0, head);
+            f.ReadExactly(headBuf);
 
         byte[] oldHead = new byte[head];
         _view!.ReadArray(0, oldHead, 0, head);
