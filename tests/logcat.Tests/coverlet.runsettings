@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RunSettings>
+  <DataCollectionRunSettings>
+    <DataCollectors>
+      <DataCollector friendlyName="XPlat Code Coverage">
+        <Configuration>
+          <Format>cobertura</Format>
+
+          <!-- 只统计被测主程序集 -->
+          <Include>[logcat]*</Include>
+
+          <!--
+            覆盖率口径说明：只统计可单测的业务逻辑层，排除两类代码——
+            1) UI 层：Forms / Controls / frmMain / Program。WinForms 控件的构造、布局、
+               事件绑定依赖消息泵与 STA 线程，单测成本极高且收益很低，行业惯例是交给
+               UI 自动化或人工验收，不计入单测覆盖率。
+            2) 系统/设备集成层：
+               - AdbManager 需要真实 adb server 与已连接设备，只测了 ShellQuote/AdbArgs 两个纯函数；
+               - LogcatStream 需要真实设备流；
+               - ClipboardHelper 依赖 Windows 剪贴板（共享资源，且需要 UI 线程）；
+               - StartupLog 固定写入 %LOCALAPPDATA%，测试会污染用户数据。
+            另外排除 WinForms SDK 源生成的 ApplicationConfiguration（框架样板，无业务逻辑）。
+          -->
+          <Exclude>[logcat]logcat.ApplicationConfiguration,[logcat]logcat.Forms.*,[logcat]logcat.Controls.*,[logcat]logcat.frmMain,[logcat]logcat.Program,[logcat]logcat.Services.AdbManager,[logcat]logcat.Services.LogcatStream,[logcat]logcat.Services.ClipboardHelper,[logcat]logcat.Services.StartupLog</Exclude>
+
+          <!-- 双保险：按源文件路径再排除一次（防止重命名后类型级规则失配） -->
+          <ExcludeByFile>**/Forms/*.cs,**/Controls/*.cs,**/frmMain.cs,**/frmMain.Designer.cs,**/Program.cs</ExcludeByFile>
+
+          <!-- 自动属性是编译器生成的样板，但这里保持默认统计，避免显得虚高 -->
+          <SkipAutoProps>false</SkipAutoProps>
+          <SingleHit>false</SingleHit>
+        </Configuration>
+      </DataCollector>
+    </DataCollectors>
+  </DataCollectionRunSettings>
+</RunSettings>

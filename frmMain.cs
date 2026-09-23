@@ -249,10 +249,10 @@ public partial class frmMain : Form
             ApplyWindowGeometry();
             LayoutDeviceCombo();
         };
+        // 停靠布局按 Z 序从后往前占位：主工具栏最先占 Top，第二行工具条占其下，状态栏占 Bottom，
+        // 列表（Fill）放 Z 序最前、最后布局拿剩余空间——否则工具条会叠在列表上，把表头行（Time/Tag/Message 列头）盖住
+        _toolStrip.SendToBack();
         _listView.BringToFront();
-        _statusStrip.BringToFront();
-        // 让第二行工具栏位于主工具栏下方（同为 Top 停靠，索引越低越靠内/靠下）
-        _toolStrip2.BringToFront();
 
         // ── 定时器 ──
         _autoTimer.Tick += (_, _) => { _autoTimer.Stop(); ApplyFilter(); };

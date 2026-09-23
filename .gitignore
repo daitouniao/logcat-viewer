@@ -93,6 +93,7 @@ PublishScripts/
 coverage*.json
 coverage*.xml
 coverage*.info
+coverage*.html
 
 ## ReSharper / tooling
 _ReSharper*/

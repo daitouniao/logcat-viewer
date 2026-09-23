@@ -11,7 +11,8 @@ public sealed class FavoritesStore
 {
     const int MaxPerList = 60;
 
-    sealed class StoreData
+    /// <summary>internal：供单元测试构造不落盘的实例（见 InternalsVisibleTo）。</summary>
+    internal sealed class StoreData
     {
         public List<FavoriteDir> Remote { get; set; } = new();
         public List<FavoriteDir> Local { get; set; } = new();
@@ -52,7 +53,8 @@ public sealed class FavoritesStore
     /// <summary>收藏内容发生变化（增删、改名、清空）后触发。</summary>
     public event EventHandler? Changed;
 
-    FavoritesStore(StoreData data) => _data = data;
+    /// <summary>internal：供单元测试构造不落盘的实例（见 InternalsVisibleTo）。</summary>
+    internal FavoritesStore(StoreData data) => _data = data;
 
     // ── 加载 / 保存 ──
 
@@ -102,7 +104,8 @@ public sealed class FavoritesStore
         Changed?.Invoke(this, EventArgs.Empty);
     }
 
-    static void SeedDefaults(FavoritesStore store)
+    /// <summary>写入预置收藏目录。internal：供单元测试直接注入初始数据。</summary>
+    internal static void SeedDefaults(FavoritesStore store)
     {
         foreach (var p in new[] { "/sdcard", "/sdcard/Download", "/sdcard/Android/data", "/data/local/tmp" })
             store.Add(true, p);

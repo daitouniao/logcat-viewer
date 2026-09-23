@@ -16,7 +16,8 @@ public sealed class CommandStore
     /// <summary>未指定分类时的归属。</summary>
     public const string FallbackCategory = "shell";
 
-    sealed class StoreData
+    /// <summary>internal：供单元测试构造不落盘的实例（见 InternalsVisibleTo）。</summary>
+    internal sealed class StoreData
     {
         public List<string> Categories { get; set; } = new();
         public List<CommandEntry> Favorites { get; set; } = new();
@@ -47,7 +48,8 @@ public sealed class CommandStore
     /// <summary>收藏或历史发生变化后触发，供界面刷新。</summary>
     public event EventHandler? Changed;
 
-    CommandStore(StoreData data) => _data = data;
+    /// <summary>internal：供单元测试构造不落盘的实例（见 InternalsVisibleTo）。</summary>
+    internal CommandStore(StoreData data) => _data = data;
 
     // ── 加载 / 保存 ──
 
@@ -225,7 +227,8 @@ public sealed class CommandStore
         new(CommandKind.Adb, "adb", "forward --list", "查看端口转发列表"),
     ];
 
-    static void Seed(StoreData data)
+    /// <summary>写入内置命令库。internal：供单元测试直接注入初始数据。</summary>
+    internal static void Seed(StoreData data)
     {
         foreach (var cat in new[] { "shell", "dumpsys", "应用与包", "日志与异常", "adb" })
             data.Categories.Add(cat);

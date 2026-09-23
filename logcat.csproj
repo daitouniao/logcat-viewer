@@ -8,7 +8,7 @@
     <UseWindowsForms>true</UseWindowsForms>
     <ImplicitUsings>enable</ImplicitUsings>
     <!-- 版本号唯一来源：发布时只改这里，显示约定为 V<Version>（见 Services/AppInfo.cs） -->
-    <Version>0.0.5</Version>
+    <Version>0.0.6</Version>
     <!-- InformationalVersion 不追加 git commit 元数据，保证「属性-详细信息」里显示干净的 0.02 -->
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <!-- 许可与版权信息，写入程序集特性（exe 右键「属性 - 详细信息」可见） -->
@@ -28,6 +28,19 @@
     <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.11" />
     <PackageReference Include="Microsoft.Extensions.Logging.Console" Version="10.0.11" />
     <PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="10.0.11" />
+  </ItemGroup>
+
+  <!-- 单元测试工程位于 tests/ 子目录：默认 glob 会把它当作本工程的源码，必须排除 -->
+  <ItemGroup>
+    <Compile Remove="tests/**" />
+    <None Remove="tests/**" />
+    <EmbeddedResource Remove="tests/**" />
+    <Content Remove="tests/**" />
+  </ItemGroup>
+
+  <!-- 仅向测试程序集开放 internal 成员（用于构造不落盘的存储实例），不改变运行时可见性 -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="logcat.Tests" />
   </ItemGroup>
 
 </Project>

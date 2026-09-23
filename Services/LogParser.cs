@@ -44,7 +44,8 @@ public static class LogParser
 
     // ── 回退正则 ──
     const string DATE = @"(?:(\d{4})-)?(\d{2})-(\d{2}) ";
-    const string TIME = @"(\d{2}):(\d{2}):(\d{2})[.,](\d{3})";
+    // 小数秒：3 位（ms）/ 6 位（usec）/ 9 位（nsec），logcat -v usec/nsec 时出现
+    const string TIME = @"(\d{2}):(\d{2}):(\d{2})[.,](\d{1,9})";
 
     static readonly Regex ReLong = new(
         @"^\[\s*" + DATE + TIME + @"\s+(?:(\d+):\s*)?(\d+)?\s*([VDIWEFA])/([^\]]*?)\s*\]\s?(.*)$",
@@ -93,17 +94,28 @@ public static class LogParser
             int year = -1;
             int p = 0;
 
-            if (n >= 19 && line[2] == DASH && line[5] == SP
+            // 头部：mm-dd hh:mm:ss.<1~9位小数秒>（3位=ms，6位=usec，9位=nsec）
+            if (n >= 16 && line[2] == DASH && line[5] == SP
                 && line[8] == COLON && line[11] == COLON && line[14] == DOT)
             {
-                (ts, year) = TsMmdd(line);
-                p = 18;
+                int f = 15;
+                while (f < n && line[f] >= ZERO && line[f] <= NINE) f++;
+                if (f > 15)
+                {
+                    (ts, year) = TsMmdd(line, f);
+                    p = f;
+                }
             }
-            else if (n >= 24 && line[4] == DASH && line[7] == DASH && line[10] == SP
+            else if (n >= 21 && line[4] == DASH && line[7] == DASH && line[10] == SP
                      && line[13] == COLON && line[16] == COLON && line[19] == DOT)
             {
-                (ts, year) = TsYyyy(line);
-                p = 23;
+                int f = 20;
+                while (f < n && line[f] >= ZERO && line[f] <= NINE) f++;
+                if (f > 20)
+                {
+                    (ts, year) = TsYyyy(line, f);
+                    p = f;
+                }
             }
 
             // 跳过字段间空白
@@ -214,7 +226,7 @@ public static class LogParser
             int? y = m.Groups[1].Success ? int.Parse(m.Groups[1].Value) : null;
             int mo = int.Parse(m.Groups[2].Value), d = int.Parse(m.Groups[3].Value);
             int h = int.Parse(m.Groups[4].Value), mi = int.Parse(m.Groups[5].Value);
-            int s = int.Parse(m.Groups[6].Value), ms = int.Parse(m.Groups[7].Value);
+            int s = int.Parse(m.Groups[6].Value), ms = NormMs(m.Groups[7].Value);
             long within; int year;
             try { (within, year) = MsOf(y, mo, d, h, mi, s, ms); }
             catch { within = -1; year = -1; }
@@ -233,7 +245,7 @@ public static class LogParser
             int? y = m.Groups[1].Success ? int.Parse(m.Groups[1].Value) : null;
             int mo = int.Parse(m.Groups[2].Value), d = int.Parse(m.Groups[3].Value);
             int h = int.Parse(m.Groups[4].Value), mi = int.Parse(m.Groups[5].Value);
-            int s = int.Parse(m.Groups[6].Value), ms = int.Parse(m.Groups[7].Value);
+            int s = int.Parse(m.Groups[6].Value), ms = NormMs(m.Groups[7].Value);
             long within; int year;
             try { (within, year) = MsOf(y, mo, d, h, mi, s, ms); }
             catch { within = -1; year = -1; }
@@ -253,7 +265,7 @@ public static class LogParser
             int? y = m.Groups[1].Success ? int.Parse(m.Groups[1].Value) : null;
             int mo = int.Parse(m.Groups[2].Value), d = int.Parse(m.Groups[3].Value);
             int h = int.Parse(m.Groups[4].Value), mi = int.Parse(m.Groups[5].Value);
-            int s = int.Parse(m.Groups[6].Value), ms = int.Parse(m.Groups[7].Value);
+            int s = int.Parse(m.Groups[6].Value), ms = NormMs(m.Groups[7].Value);
             long within; int year;
             try { (within, year) = MsOf(y, mo, d, h, mi, s, ms); }
             catch { within = -1; year = -1; }
@@ -310,11 +322,41 @@ public static class LogParser
     }
 
     // ── 时间戳解析 ──
-    static (long within, int year) TsMmdd(ReadOnlySpan<byte> line)
+    /// <summary>小数秒 [start, end) 截断为毫秒：不足 3 位右侧补零，超出 3 位截断。</summary>
+    static int FracToMs(ReadOnlySpan<byte> line, int start, int end)
     {
-        long key = 0;
-        for (int i = 0; i < 18 && i < line.Length; i++)
-            key = key * 256 + line[i];
+        int ms = 0;
+        for (int i = start, scale = 100; i < end && scale > 0; i++, scale /= 10)
+            ms += (line[i] - ZERO) * scale;
+        return ms;
+    }
+
+    static int NormMs(string frac)
+    {
+        int ms = 0;
+        for (int i = 0; i < 3; i++)
+            ms = ms * 10 + (i < frac.Length ? frac[i] - '0' : 0);
+        return ms;
+    }
+
+    static (long within, int year) TsMmdd(ReadOnlySpan<byte> line, int fracEnd)
+    {
+        int mo = (line[0] - ZERO) * 10 + (line[1] - ZERO);
+        int d = (line[3] - ZERO) * 10 + (line[4] - ZERO);
+        int h = (line[6] - ZERO) * 10 + (line[7] - ZERO);
+        int mi = (line[9] - ZERO) * 10 + (line[10] - ZERO);
+        int s = (line[12] - ZERO) * 10 + (line[13] - ZERO);
+        int ms = FracToMs(line, 15, fracEnd);
+
+        if (mo < 1 || mo > 12 || d < 1 || d > 31 || h > 23 || mi > 59 || s > 60)
+            throw new ParseException("bad mmdd timestamp");
+
+        // 缓存键必须覆盖全部时间字段。早期实现是把 line[0..fracEnd) 按 key = key * 256 + b
+        // 累加成 long：前缀有 18~21 字节，而 long 只有 64 位，高位被截断后键实际只由末尾
+        // 8 字节（"分钟个位:秒.毫秒"）决定，于是 09-23 18:06:48.123 与 09-24 18:06:48.123
+        // 会命中同一条缓存，时间戳被错算成先出现的那一行；越界行也因为命中脏缓存而不抛异常。
+        // 改为按字段拼接：各字段位段互不重叠，不可能碰撞。
+        long key = (((((long)mo * 32 + d) * 24 + h) * 60 + mi) * 60 + s) * 1000 + ms;
 
         lock (_tsCache)
         {
@@ -322,33 +364,30 @@ public static class LogParser
                 return (hit, -1);
         }
 
-        try
+        var (within, year) = MsOf(null, mo, d, h, mi, s, ms);
+        lock (_tsCache)
         {
-            int mo = (line[0] - ZERO) * 10 + (line[1] - ZERO);
-            int d = (line[3] - ZERO) * 10 + (line[4] - ZERO);
-            int h = (line[6] - ZERO) * 10 + (line[7] - ZERO);
-            int mi = (line[9] - ZERO) * 10 + (line[10] - ZERO);
-            int s = (line[12] - ZERO) * 10 + (line[13] - ZERO);
-            int ms = (line[15] - ZERO) * 100 + (line[16] - ZERO) * 10 + (line[17] - ZERO);
-            var (within, year) = MsOf(null, mo, d, h, mi, s, ms);
-            lock (_tsCache)
-            {
-                if (_tsCache.Count < CACHE_LIMIT)
-                    _tsCache[key] = within;
-            }
-            return (within, year);
+            if (_tsCache.Count < CACHE_LIMIT)
+                _tsCache[key] = within;
         }
-        catch
-        {
-            throw new ParseException("bad mmdd timestamp");
-        }
+        return (within, year);
     }
 
-    static (long within, int year) TsYyyy(ReadOnlySpan<byte> line)
+    static (long within, int year) TsYyyy(ReadOnlySpan<byte> line, int fracEnd)
     {
-        long key = 0;
-        for (int i = 0; i < 23 && i < line.Length; i++)
-            key = key * 256 + line[i];
+        int y = (line[0] - ZERO) * 1000 + (line[1] - ZERO) * 100 + (line[2] - ZERO) * 10 + (line[3] - ZERO);
+        int mo = (line[5] - ZERO) * 10 + (line[6] - ZERO);
+        int d = (line[8] - ZERO) * 10 + (line[9] - ZERO);
+        int h = (line[11] - ZERO) * 10 + (line[12] - ZERO);
+        int mi = (line[14] - ZERO) * 10 + (line[15] - ZERO);
+        int s = (line[17] - ZERO) * 10 + (line[18] - ZERO);
+        int ms = FracToMs(line, 20, fracEnd);
+
+        if (mo < 1 || mo > 12 || d < 1 || d > 31 || h > 23 || mi > 59 || s > 60)
+            throw new ParseException("bad yyyy timestamp");
+
+        // 同上：按字段拼接缓存键，避免高位截断造成的碰撞。
+        long key = ((((((long)y * 100 + mo) * 32 + d) * 24 + h) * 60 + mi) * 60 + s) * 1000 + ms;
 
         lock (_tsCacheY)
         {
@@ -356,27 +395,13 @@ public static class LogParser
                 return hit;
         }
 
-        try
+        var result = MsOf(y, mo, d, h, mi, s, ms);
+        lock (_tsCacheY)
         {
-            int y = (line[0] - ZERO) * 1000 + (line[1] - ZERO) * 100 + (line[2] - ZERO) * 10 + (line[3] - ZERO);
-            int mo = (line[5] - ZERO) * 10 + (line[6] - ZERO);
-            int d = (line[8] - ZERO) * 10 + (line[9] - ZERO);
-            int h = (line[11] - ZERO) * 10 + (line[12] - ZERO);
-            int mi = (line[14] - ZERO) * 10 + (line[15] - ZERO);
-            int s = (line[17] - ZERO) * 10 + (line[18] - ZERO);
-            int ms = (line[20] - ZERO) * 100 + (line[21] - ZERO) * 10 + (line[22] - ZERO);
-            var result = MsOf(y, mo, d, h, mi, s, ms);
-            lock (_tsCacheY)
-            {
-                if (_tsCacheY.Count < CACHE_LIMIT)
-                    _tsCacheY[key] = result;
-            }
-            return result;
+            if (_tsCacheY.Count < CACHE_LIMIT)
+                _tsCacheY[key] = result;
         }
-        catch
-        {
-            throw new ParseException("bad yyyy timestamp");
-        }
+        return result;
     }
 
     static (long within, int year) MsOf(int? y, int mo, int d, int h, int mi, int s, int ms)
