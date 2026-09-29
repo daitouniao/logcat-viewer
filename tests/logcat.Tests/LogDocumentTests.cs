@@ -605,6 +605,33 @@ public class LogDocumentTests
             Text(doc.LineBytes(0)));
     }
 
+    /// <summary>
+    /// LastAppendCarried：实时采集增量过滤据此决定是否回退全量。
+    /// 纯尾部追加（无续行并回）为 false；批次起点出现续行为 true（末记录 message 变了）。
+    /// </summary>
+    [Fact]
+    public void Reload_跨批次续行时报告Carry()
+    {
+        using var tmp = new TempLogFile(Line(T1, 'I', "Tag", "a"));
+        using var doc = LogDocument.Build(tmp.Path);
+
+        // 普通追加：无 carry
+        tmp.Append(Line(T2, 'I', "Tag", "b"));
+        Assert.Equal("appended", doc.Reload());
+        Assert.False(doc.LastAppendCarried);
+        Assert.Equal(2, doc.RowCount);
+
+        // 批次起点是续行：并回上一条记录，carry = true
+        tmp.Append("    at Foo.bar(Foo.java:1)\n");
+        Assert.Equal("appended", doc.Reload());
+        Assert.True(doc.LastAppendCarried);
+        Assert.Equal(2, doc.RowCount);
+
+        // 未变化：保持上次的值，调用方只在 kind == "appended" 时读取
+        Assert.Equal("unchanged", doc.Reload());
+        Assert.True(doc.LastAppendCarried);
+    }
+
     /// <summary>整批都是续行时也要返回 appended，且新字节必须可读（需要重映射）。</summary>
     [Fact]
     public void Reload_整批续行时新内容可读()

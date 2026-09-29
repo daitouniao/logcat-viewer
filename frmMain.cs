@@ -13,6 +13,8 @@ public partial class frmMain : Form
     FilterSpec _spec = new();
     HashSet<int> _marked = new();
     double _indexMs, _filterMs;
+    // 最近一次全量过滤完成时的文档行数；实时采集增量过滤（FilterTail）从此行号起判定
+    int _filterDocRows;
     bool _join = true;
     int _fontPt = 10;
     string _newlineVis = "↵";
@@ -23,6 +25,11 @@ public partial class frmMain : Form
     int _workerGen;
     bool _programScroll;
     int _lastVsb = -1;
+
+    // ── 文档互斥 ──
+    // LogDocument 非线程安全：后台 Append/Reload（写）与 ApplyFilter/导出（读）必须串行，
+    // 否则过滤会读到换数组瞬间的混合列存储。UI 渲染读不在锁内（由 MakeItem 的 try-catch 兜底）。
+    readonly SemaphoreSlim _docBusy = new(1, 1);
 
     // ── ADB ──
     AdbManager? _adbManager;
@@ -61,7 +68,6 @@ public partial class frmMain : Form
 
     // 定时器
     readonly System.Windows.Forms.Timer _autoTimer = new() { Interval = 400 };
-    readonly System.Windows.Forms.Timer _flushTimer = new() { Interval = 250 };
     readonly System.Windows.Forms.Timer _adbReloadTimer = new() { Interval = 1000 };
     readonly System.Windows.Forms.Timer _adbStatTimer = new() { Interval = 300 };
 
@@ -160,7 +166,7 @@ public partial class frmMain : Form
         {
             btnDeviceOps,
             new ToolStripButton("▶ 开始采集", null, (_, _) => AdbStartCapture()) { Enabled = false },
-            new ToolStripButton("■ 停止采集", null, (_, _) => AdbStopCapture()) { Enabled = false },
+            new ToolStripButton("■ 停止采集", null, (_, _) => _ = AdbStopCaptureAsync()) { Enabled = false },
             new ToolStripSeparator(),
             btnRefresh,
             new ToolStripLabel("设备:"),
@@ -256,7 +262,6 @@ public partial class frmMain : Form
 
         // ── 定时器 ──
         _autoTimer.Tick += (_, _) => { _autoTimer.Stop(); ApplyFilter(); };
-        _flushTimer.Tick += (_, _) => FlushModelRows();
         _adbReloadTimer.Tick += (_, _) => AdbAutoReload();
         _adbStatTimer.Tick += (_, _) => AdbUpdateStat();
 
@@ -520,14 +525,22 @@ public partial class frmMain : Form
 
     async void StartIndex(string path)
     {
+        // 采集与打开文件互斥：打开新文件前先停掉采集，避免 AdbAutoReload
+        // 在 _doc 置空的窗口期把采集临时文件重新顶上来
+        if (_adbCapturing)
+            await AdbStopCaptureAsync();
+
         StopWorker();
-        _doc?.Close();
-        _doc = null;
-        _marked.Clear();
         _listView.SetDocument(null);
         Text = $"{AppInfo.Title} — {System.IO.Path.GetFileName(path)}";
         _lblFile.Text = path;
         _lblStat.Text = "";
+
+        // 等待在途的 Append/过滤结束后再关旧文档（mmap 一关后台扫描就会炸）
+        await _docBusy.WaitAsync();
+        try { _doc?.Close(); _doc = null; }
+        finally { _docBusy.Release(); }
+        _marked.Clear();
 
         var cts = new CancellationTokenSource();
         _ctsWorker = cts;
@@ -583,11 +596,19 @@ public partial class frmMain : Form
 
         try
         {
-            string kind = await Task.Run(() => _doc.Reload(join: _join,
-                progress: new Progress<(double, string)>(p =>
-                {
-                    if (_workerGen == gen) { _pbar.Value = (int)(p.Item1 * 100); _lblMsg.Text = p.Item2; }
-                }), ct: cts.Token), cts.Token);
+            string kind;
+            await _docBusy.WaitAsync(cts.Token);
+            try
+            {
+                var doc = _doc;
+                if (doc == null) return;
+                kind = await Task.Run(() => doc.Reload(join: _join,
+                    progress: new Progress<(double, string)>(p =>
+                    {
+                        if (_workerGen == gen) { _pbar.Value = (int)(p.Item1 * 100); _lblMsg.Text = p.Item2; }
+                    }), ct: cts.Token), cts.Token);
+            }
+            finally { _docBusy.Release(); }
 
             if (_workerGen != gen) return;
             if (kind == "unchanged") { ShowStatus("文件无变化"); return; }
@@ -625,13 +646,24 @@ public partial class frmMain : Form
 
         try
         {
-            var rows = await FilterEngine.ApplyFilterAsync(_doc, spec, _marked,
-                quiet ? null : new Progress<(double, string)>(p =>
-                {
-                    if (_workerGen == gen) { _pbar.Value = (int)(p.Item1 * 100); _lblMsg.Text = p.Item2; }
-                }), cts.Token);
+            int[] rows;
+            int filteredDocRows = -1;
+            await _docBusy.WaitAsync(cts.Token);
+            try
+            {
+                var doc = _doc;
+                if (doc == null) return;
+                rows = await FilterEngine.ApplyFilterAsync(doc, spec, _marked,
+                    quiet ? null : new Progress<(double, string)>(p =>
+                    {
+                        if (_workerGen == gen) { _pbar.Value = (int)(p.Item1 * 100); _lblMsg.Text = p.Item2; }
+                    }), cts.Token);
+                filteredDocRows = doc.RowCount;
+            }
+            finally { _docBusy.Release(); }
 
             if (_workerGen != gen) return;
+            _filterDocRows = filteredDocRows;
             sw.Stop();
             _filterMs = sw.Elapsed.TotalMilliseconds;
             _listView.SetRows(rows);
@@ -658,6 +690,33 @@ public partial class frmMain : Form
         {
             if (_workerGen == gen && !quiet) { _pbar.Visible = false; _lblMsg.Text = ""; }
         }
+    }
+
+    /// <summary>
+    /// 实时采集增量过滤：过滤条件全部逐行独立判定、append 只在尾部加行，
+    /// 旧行的匹配结果永不变化，因此只需对 [_filterDocRows, RowCount) 调 FilterTail
+    /// 并 AppendRows——不重算旧行、不清虚拟列表缓存，每秒开销从 O(全量) 降到 O(新增行)。
+    /// 末行被续行拉长（LastAppendCarried，message 内容可能变化）或文档重建时，调用方回退全量。
+    /// </summary>
+    async Task ApplyIncremental(LogDocument doc)
+    {
+        int start = _filterDocRows;
+        int n = doc.RowCount;
+        if (n < start) { await ApplyFilter(quiet: true); return; }   // 状态不一致，回退全量
+        if (n == start) { UpdateStat(); return; }                    // 无新行（如整批续行之外的情况）
+
+        int[] rows;
+        await _docBusy.WaitAsync();
+        try { rows = await Task.Run(() => FilterEngine.FilterTail(doc, _spec, start, _marked)); }
+        finally { _docBusy.Release(); }
+
+        _filterDocRows = n;
+        if (rows.Length > 0)
+        {
+            _listView.AppendRows(rows);
+            if (_chkToolbarFollow.Checked) ScrollBottom();
+        }
+        UpdateStat();
     }
 
     FilterSpec CollectSpec()
@@ -781,8 +840,16 @@ public partial class frmMain : Form
         _pbar.Visible = true;
         try
         {
-            int n = await FilterEngine.ExportRowsAsync(_doc, rows, dlg.FileName, _singleLineExport,
-                new Progress<(double, string)>(p => { _pbar.Value = (int)(p.Item1 * 100); _lblMsg.Text = p.Item2; }));
+            int n;
+            await _docBusy.WaitAsync();
+            try
+            {
+                var doc = _doc;
+                if (doc == null) { _pbar.Visible = false; return; }
+                n = await FilterEngine.ExportRowsAsync(doc, rows, dlg.FileName, _singleLineExport,
+                    new Progress<(double, string)>(p => { _pbar.Value = (int)(p.Item1 * 100); _lblMsg.Text = p.Item2; }));
+            }
+            finally { _docBusy.Release(); }
             ShowStatus($"已导出 {n:N0} 行 → {dlg.FileName}");
         }
         catch (Exception ex) { ShowError($"导出失败：{ex.Message}"); }
@@ -996,12 +1063,6 @@ public partial class frmMain : Form
         _lblStat.Text = $"总 {total:N0} 条 | 命中 {_listView.Rows.Length:N0} | 标记 {_marked.Count:N0} | 索引 {_indexMs:F0} ms | 过滤 {_filterMs:F0} ms";
     }
 
-    void FlushModelRows()
-    {
-        // 增量追加的 flush 逻辑（实时采集用）
-        UpdateStat();
-    }
-
     void ApplyFont(int pt)
     {
         _fontPt = pt;
@@ -1057,10 +1118,16 @@ public partial class frmMain : Form
     protected override void OnFormClosing(FormClosingEventArgs e)
     {
         StopWorker();
-        if (_adbCapturing) AdbStopCapture();
+        // 同步等待采集任务退出（上限 2s），否则 SaveSettings/关窗先走，
+        // LogcatStream 的 Stopped 回调会打在已释放的句柄上
+        try { AdbStopCaptureAsync().Wait(TimeSpan.FromSeconds(2)); }
+        catch { /* 超时/包装异常不阻断关窗 */ }
+        // 等待在途的 Append/过滤结束（上限 2s），再关 mmap
+        try { _docBusy.Wait(TimeSpan.FromSeconds(2)); } catch { }
         _adbManager?.Dispose();
         SaveSettings();
         _doc?.Close();
+        _docBusy.Dispose();
         base.OnFormClosing(e);
     }
 
@@ -1171,7 +1238,7 @@ public partial class frmMain : Form
         try
         {
             _adbManager = new AdbManager(_logger);
-            _adbManager.DevicesChanged += (_, devices) => Invoke(() => OnDevicesChanged(devices));
+            _adbManager.DevicesChanged += (_, devices) => SafeInvoke(() => OnDevicesChanged(devices));
             _adbManager.StartMonitor();
             await AdbRefresh();
             SetAdbButtons(true);
@@ -1250,15 +1317,19 @@ public partial class frmMain : Form
         var serial = SelectedSerial();
         if (serial == null || _adbManager == null) return;
 
+        // 采集与打开文件互斥（另一方向）：开始采集先取消在途的建索引/过滤，
+        // StartIndex 里未完成的 BuildAsync 会被 gen 守卫丢弃，不会回头覆盖 _doc
+        StopWorker();
+
         _adbTempPath = System.IO.Path.Combine(
             System.IO.Path.GetTempPath(),
             $"logcat_live_{DateTime.Now:yyyyMMdd_HHmmss}.log");
 
         // 重置旧文档状态：采集时 AdbAutoReload 必须走首次加载，
         // 否则会对上一个打开的文件做增量 Reload，实时内容永远不更新
-        StopWorker();
-        _doc?.Close();
-        _doc = null;
+        await _docBusy.WaitAsync();
+        try { _doc?.Close(); _doc = null; }
+        finally { _docBusy.Release(); }
         _marked.Clear();
         _adbIndexing = false;
         _listView.SetDocument(null);
@@ -1266,13 +1337,13 @@ public partial class frmMain : Form
         _streamThread = new LogcatStream(_adbManager, serial, _adbTempPath, _logger);
         _streamThread.LinesReceived += lines =>
         {
-            _adbLiveCount += lines.Count;
+            Interlocked.Add(ref _adbLiveCount, lines.Count);
         };
-        _streamThread.ErrorOccurred += msg => Invoke(() =>
+        _streamThread.ErrorOccurred += msg => SafeInvoke(() =>
         {
             _lblMsg.Text = msg;
         });
-        _streamThread.Stopped += () => Invoke(() =>
+        _streamThread.Stopped += () => SafeInvoke(() =>
         {
             _adbCapturing = false;
             _adbReloadTimer.Stop();
@@ -1297,12 +1368,15 @@ public partial class frmMain : Form
         AdbAutoReload();
     }
 
-    async void AdbStopCapture()
+    /// <summary>停止采集并等待采集任务退出。可 await；关窗时用 Wait(超时) 同步等待。</summary>
+    async Task AdbStopCaptureAsync()
     {
-        if (_streamThread != null)
+        var stream = _streamThread;
+        _streamThread = null;
+        if (stream != null)
         {
-            await _streamThread.StopAsync();
-            _streamThread = null;
+            try { await stream.StopAsync(); }
+            catch { /* 退出时的清理异常不阻断关窗 */ }
         }
         _adbCapturing = false;
         _adbReloadTimer.Stop();
@@ -1352,16 +1426,16 @@ public partial class frmMain : Form
             {
                 if (_doc == null)
                 {
-                    // 首次加载
+                    // 首次加载（构建新文档对象，不触碰共享 _doc，无需锁）
                     if (_workerGen == _adbGen) return;
-                    var cts = new CancellationTokenSource();
-                    _ctsWorker = cts;
+                    var cts0 = new CancellationTokenSource();
+                    _ctsWorker = cts0;
                     int gen = ++_workerGen;
                     _adbGen = gen;
                     _adbIndexing = true;
 
                     var doc = await LogDocument.BuildAsync(_adbTempPath, _join,
-                        new Progress<(double, string)>(), cts.Token);
+                        new Progress<(double, string)>(), cts0.Token);
                     if (_workerGen != gen) { _adbIndexing = false; return; }
                     _doc = doc;
                     _listView.SetDocument(doc);
@@ -1373,22 +1447,42 @@ public partial class frmMain : Form
                 {
                     // 增量追加
                     if (_adbIndexing) return;
+                    var doc = _doc;
+                    // 防御：doc 必须还是本次采集的临时文件（采集期间不允许打开其他文件）
+                    if (doc == null || doc.Path != _adbTempPath) return;
                     var cts = new CancellationTokenSource();
+                    _ctsWorker = cts; // 放入 _ctsWorker，Escape 可取消在途 append
                     int gen = ++_workerGen;
                     _adbGen = gen;
-                    string kind = await Task.Run(() =>
-                        _doc.Reload(join: _join,
-                            progress: new Progress<(double, string)>(),
-                            ct: cts.Token), cts.Token);
+                    string kind;
+                    await _docBusy.WaitAsync(cts.Token);
+                    try
+                    {
+                        kind = await Task.Run(() =>
+                            doc.Reload(join: _join,
+                                progress: new Progress<(double, string)>(),
+                                ct: cts.Token), cts.Token);
+                    }
+                    finally { _docBusy.Release(); }
                     if (_workerGen != gen) return;
                     if (kind != "unchanged")
                     {
-                        // 同一文档实例，无需 SetDocument 重置列表；静默刷新避免闪屏
-                        var snap = _listView.CaptureView();
-                        await ApplyFilter(snap, quiet: true);
+                        if (kind == "appended" && !doc.LastAppendCarried)
+                        {
+                            // 纯尾部追加：增量过滤（旧行结果不变，只判新行）
+                            await ApplyIncremental(doc);
+                        }
+                        else
+                        {
+                            // rebuilt（文件重写）或末行被续行拉长（message 变了，匹配结果可能翻转）：
+                            // 回退全量。同一文档实例无需 SetDocument，静默刷新避免闪屏
+                            var snap = _listView.CaptureView();
+                            await ApplyFilter(snap, quiet: true);
+                        }
                     }
                 }
             }
+            catch (OperationCanceledException) { /* Escape/停采集取消，属正常流程 */ }
             catch (Exception ex)
             {
                 _logger.LogWarning("ADB 增量同步失败: {0}", ex.Message);
@@ -1462,6 +1556,17 @@ public partial class frmMain : Form
 
     // ── 辅助 ──
     void ShowStatus(string text) => _statusStrip.Items.OfType<ToolStripStatusLabel>().First(l => l == _lblMsg).Text = text;
+
+    /// <summary>后台线程安全投递到 UI 线程：BeginInvoke 非阻塞，句柄未建/正在销毁时静默丢弃。</summary>
+    void SafeInvoke(Action action)
+    {
+        try
+        {
+            if (IsHandleCreated && !IsDisposed && !Disposing)
+                BeginInvoke(action);
+        }
+        catch { /* 窗口正在关闭 */ }
+    }
 
     void ShowError(string text)
     {

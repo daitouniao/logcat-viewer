@@ -71,6 +71,12 @@ public sealed class LogDocument : IDisposable
 
     public bool IsMultiline(int row) => (_flags[row] & FLAG_MULTILINE) != 0;
 
+    /// <summary>
+    /// 最近一次 Append 是否发生了跨批次续行合并（末记录被拉长、message 内容变化）。
+    /// 实时采集的增量过滤据此决定是否回退全量：carry 意味着末行的 Msg 匹配结果可能翻转。
+    /// </summary>
+    public bool LastAppendCarried { get; private set; }
+
     // ── 容量管理 ──
     void SetColumns(long[] offs, int[] lens, int[] moff, long[] ts, int[] pid, int[] tid,
                     byte[] lvl, int[] tagId, byte[] flags)
@@ -687,6 +693,7 @@ public sealed class LogDocument : IDisposable
 
         var part = ScanRange(Path, IndexedSize, newSize, Join, PrevRowJoinable(), progress, ct);
         if (ct.IsCancellationRequested) return "unchanged";
+        LastAppendCarried = part.CarryLines > 0;
 
         // 跨批次续行：本批开头的续行并回上一批末尾那条记录，
         // 否则多行日志会在批次边界被切成两条（只影响列存储，文本本体不动）

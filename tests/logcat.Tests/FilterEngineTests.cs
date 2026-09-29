@@ -691,6 +691,39 @@ public class FilterEngineTests
     }
 
     [Fact]
+    public void 仅标记行与分钟tag消息同时生效()
+    {
+        using var tmp = new TempLogFile(Data);
+        using var doc = LogDocument.Build(tmp.Path);
+
+        // 标记行 {0,1,3,5}；tag 用 OR 列表、msg 用 OR 列表，让每个条件都各自剔除不同的行
+        var marked = new HashSet<int> { 0, 1, 3, 5 };
+        var spec = new FilterSpec
+        {
+            MarkedOnly = true,
+            Minutes = new[] { 0 },                          // 剔除行 5（18:01）
+            Tags = new[] { "ActivityManager", "DebugTag" }, // 剔除行 3（NetworkService）
+            MsgOp = "or",
+            Msg = new[] { "start", "time" },                // 剔除行 5（"another" 不含 start/time）
+        };
+
+        // 全量：分钟 0 → {0,1,3}，tag → {0,1}，msg → {0,1}
+        Assert.Equal(new[] { 0, 1 }, Apply(doc, spec, marked));
+
+        // 逐个去掉条件，结果都应变宽，证明四个条件确实同时参与过滤
+        Assert.Equal(new[] { 0, 1, 3, 5 }, Apply(doc, new FilterSpec { MarkedOnly = true }, marked));
+        Assert.Equal(new[] { 0, 1, 3 },
+            Apply(doc, new FilterSpec { MarkedOnly = true, Minutes = spec.Minutes }, marked));
+        Assert.Equal(new[] { 0, 1, 5 },
+            Apply(doc, new FilterSpec { MarkedOnly = true, Tags = spec.Tags }, marked));
+        Assert.Equal(new[] { 0, 1, 3 },
+            Apply(doc, new FilterSpec { MarkedOnly = true, MsgOp = "or", Msg = spec.Msg }, marked));
+
+        // 增量路径（FilterTail）与全量结果一致
+        Assert.Equal(new[] { 0, 1 }, FilterEngine.FilterTail(doc, spec, 0, marked));
+    }
+
+    [Fact]
     public void 增量FilterTail与全量ApplyFilter结果一致()
     {
         using var tmp = new TempLogFile(Data);
