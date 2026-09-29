@@ -18,6 +18,8 @@ public class RunAsDialog : Form
 
     public RunAsDialog(IEnumerable<string> favorites, string defaultRelay)
     {
+        AutoScaleDimensions = new SizeF(96F, 96F);
+        AutoScaleMode = AutoScaleMode.Dpi;
         Text = "run-as 模式";
         Size = new Size(480, 240);
         StartPosition = FormStartPosition.CenterParent;

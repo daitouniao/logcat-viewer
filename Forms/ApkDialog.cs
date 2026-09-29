@@ -43,6 +43,8 @@ public sealed class ApkDialog : Form
 
     public ApkDialog(AdbManager manager, string serial, bool isRoot)
     {
+        AutoScaleDimensions = new SizeF(96F, 96F);
+        AutoScaleMode = AutoScaleMode.Dpi;
         _manager = manager;
         _serial = serial;
         _isRoot = isRoot;

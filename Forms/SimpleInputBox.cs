@@ -8,6 +8,8 @@ public static class SimpleInputBox
     {
         var form = new Form
         {
+            AutoScaleDimensions = new SizeF(96F, 96F),
+            AutoScaleMode = AutoScaleMode.Dpi,
             Text = title,
             Size = new Size(460, 175),
             StartPosition = FormStartPosition.CenterParent,

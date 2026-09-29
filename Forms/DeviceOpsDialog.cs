@@ -25,6 +25,8 @@ public class DeviceOpsDialog : Form
 
     public DeviceOpsDialog(AdbManager manager, Func<string?> serialProvider, Func<bool> rootProvider)
     {
+        AutoScaleDimensions = new SizeF(96F, 96F);
+        AutoScaleMode = AutoScaleMode.Dpi;
         _manager = manager;
         _serialProvider = serialProvider;
         _rootProvider = rootProvider;

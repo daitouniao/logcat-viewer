@@ -13,6 +13,8 @@ public class FilterDialog : Form
     /// <param name="applyAll">Ctrl+Enter 时触发，交回主窗体应用过滤。</param>
     public FilterDialog(Control filterPanel, Action? applyAll = null)
     {
+        AutoScaleDimensions = new SizeF(96F, 96F);
+        AutoScaleMode = AutoScaleMode.Dpi;
         _applyAll = applyAll;
 
         Text = "过滤设置";

@@ -22,6 +22,8 @@ public class CommandEditDialog : Form
 
     public CommandEditDialog(CommandEntry? entry)
     {
+        AutoScaleDimensions = new SizeF(96F, 96F);
+        AutoScaleMode = AutoScaleMode.Dpi;
         Text = entry == null ? "新建收藏命令" : "编辑收藏命令";
         Size = new Size(620, 300);
         StartPosition = FormStartPosition.CenterParent;

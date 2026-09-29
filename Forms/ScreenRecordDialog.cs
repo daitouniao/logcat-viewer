@@ -20,6 +20,8 @@ public class ScreenRecordDialog : Form
 
     public ScreenRecordDialog(AdbManager manager, string serial, bool startRecording = false)
     {
+        AutoScaleDimensions = new SizeF(96F, 96F);
+        AutoScaleMode = AutoScaleMode.Dpi;
         _manager = manager;
         _serial = serial;
         Text = $"录屏 — {serial}";

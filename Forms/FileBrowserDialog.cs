@@ -29,6 +29,8 @@ public class FileBrowserDialog : Form
     public FileBrowserDialog(AdbManager manager, string serial, bool isRoot = false,
                              string startPath = "/sdcard", string localStartPath = "")
     {
+        AutoScaleDimensions = new SizeF(96F, 96F);
+        AutoScaleMode = AutoScaleMode.Dpi;
         Text = $"文件浏览 — {serial}{(isRoot ? " [root]" : "")}";
         Size = new Size(1440, 820);
         MinimumSize = new Size(920, 540);

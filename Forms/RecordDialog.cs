@@ -11,6 +11,8 @@ public class RecordDialog : Form
 
     public RecordDialog(string text, string title)
     {
+        AutoScaleDimensions = new SizeF(96F, 96F);
+        AutoScaleMode = AutoScaleMode.Dpi;
         Text = title;
         Size = new Size(1000, 620);
         StartPosition = FormStartPosition.CenterParent;

@@ -61,6 +61,8 @@ public class CommandDialog : Form
     /// <param name="rootProvider">取该设备是否已检测到 root，仅用于提示。</param>
     public CommandDialog(AdbManager manager, Func<string?> serialProvider, Func<bool> rootProvider)
     {
+        AutoScaleDimensions = new SizeF(96F, 96F);
+        AutoScaleMode = AutoScaleMode.Dpi;
         _manager = manager;
         _serialProvider = serialProvider;
         _rootProvider = rootProvider;

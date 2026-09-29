@@ -16,6 +16,8 @@ public class ScreenShotDialog : Form
 
     public ScreenShotDialog(AdbManager manager, string serial)
     {
+        AutoScaleDimensions = new SizeF(96F, 96F);
+        AutoScaleMode = AutoScaleMode.Dpi;
         _manager = manager;
         _serial = serial;
         Text = $"截图 — {serial}";
