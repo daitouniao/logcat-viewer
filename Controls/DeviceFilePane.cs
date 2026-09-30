@@ -531,6 +531,13 @@ public sealed class DeviceFilePane : FilePane
 
     static readonly Regex OwnerRegex = new(@"^\d+:\d+$", RegexOptions.Compiled);
 
+    /// <summary>
+    /// 打开下载落地的本地文件：File.Create 默认 FileShare.None，外部进程正在读该文件时会报占用，
+    /// 这里放开共享读（FileShare.Read），写入仍独占。
+    /// </summary>
+    static FileStream OpenDownloadTarget(string localFile) =>
+        new(localFile, FileMode.Create, FileAccess.ReadWrite, FileShare.Read);
+
     /// <summary>下载设备文件到本机指定文件。</summary>
     public async Task PullFileAsync(string remotePath, string localFile)
     {
@@ -539,7 +546,7 @@ public sealed class DeviceFilePane : FilePane
 
         if (!NeedsRelay(remotePath))
         {
-            using var fs = File.Create(localFile);
+            using var fs = OpenDownloadTarget(localFile);
             await _manager.PullAsync(_serial, remotePath, fs);
             return;
         }
@@ -551,7 +558,7 @@ public sealed class DeviceFilePane : FilePane
             // cp 落地的中转文件沿用源权限（常为 0600），属主是提权身份（root 或应用），
             // 不放开读权限的话 sync 依旧取不到；chmod 与清理也必须用同样的身份执行。
             await ShellBestEffortAsync($"chmod a+r '{tmp}'", elevated: true);
-            using (var fs = File.Create(localFile))
+            using (var fs = OpenDownloadTarget(localFile))
                 await _manager.PullAsync(_serial, tmp, fs);
         }
         finally

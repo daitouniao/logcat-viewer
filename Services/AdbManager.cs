@@ -263,7 +263,9 @@ public sealed class AdbManager : IDisposable
     {
         var device = FindDevice(serial);
         using var sync = new SyncService(new AdbSocket(), device);
-        using var fs = File.OpenRead(localPath);
+        // 共享模式放宽为 ReadWrite：外部进程（编辑器、下载中等）以写方式持有文件时也能上传，
+        // 读到的可能只是写入中途的快照，对上传场景可接受。
+        using var fs = new FileStream(localPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
         sync.Push(fs, remotePath, PushFileMode, DateTimeOffset.Now);
     }
 
