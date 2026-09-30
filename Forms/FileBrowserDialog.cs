@@ -114,8 +114,8 @@ public class FileBrowserDialog : Form
         // ── 事件接线 ──
         _remote.TransferSelectionRequested += (_, _) => _ = TransferSelectionAsync(toDevice: false);
         _local.TransferSelectionRequested += (_, _) => _ = TransferSelectionAsync(toDevice: true);
-        _remote.PeerPathsDropped += (_, a) => _ = TransferPathsAsync(a, toDevice: false);
-        _local.PeerPathsDropped += (_, a) => _ = TransferPathsAsync(a, toDevice: true);
+        _remote.PeerPathsDropped += (_, a) => _ = TransferPathsAsync(a, toDevice: true);
+        _local.PeerPathsDropped += (_, a) => _ = TransferPathsAsync(a, toDevice: false);
         _remote.FilesDropped += (_, a) => _ = TransferPathsAsync(a, toDevice: true);
         _local.FilesDropped += (_, a) => _ = CopyLocalFilesAsync(a);
         _remote.PathChanged += (_, _) => UpdateTransferLabels();

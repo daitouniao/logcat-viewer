@@ -32,6 +32,8 @@ public abstract class FilePane : UserControl
 {
     protected const string DeviceDragFormat = "logcat.DevicePaths";
     protected const string LocalDragFormat = "logcat.LocalPaths";
+    /// <summary>跨面板拖放时附带源基准目录的格式（后缀拼接在各面板格式之后）。</summary>
+    protected const string BaseDirFormatSuffix = ".BaseDir";
 
     protected readonly ListView List = null!;
     protected readonly ComboBox CboFav = null!;
@@ -593,7 +595,10 @@ public abstract class FilePane : UserControl
     {
         var paths = SelectedPaths;
         if (paths.Count == 0) return;
-        List.DoDragDrop(new DataObject(DragFormat, paths.ToArray()), DragDropEffects.Copy);
+        var data = new DataObject(DragFormat, paths.ToArray());
+        // 附带源基准目录，接收方才能还原拖入文件夹的相对结构
+        data.SetData(DragFormat + BaseDirFormatSuffix, CurrentPath);
+        List.DoDragDrop(data, DragDropEffects.Copy);
     }
 
     void OnDragEnter(object? sender, DragEventArgs e)
@@ -611,15 +616,43 @@ public abstract class FilePane : UserControl
         if (e.Data.GetDataPresent(PeerDragFormat) &&
             e.Data.GetData(PeerDragFormat) is string[] peer && peer.Length > 0)
         {
-            PeerPathsDropped?.Invoke(this, new PathsDroppedArgs(peer, CurrentPath, target));
+            var peerBase = e.Data.GetData(PeerDragFormat + BaseDirFormatSuffix) as string;
+            PeerPathsDropped?.Invoke(this, new PathsDroppedArgs(peer, peerBase ?? CurrentPath, target));
             return;
         }
 
         if (e.Data.GetDataPresent(DataFormats.FileDrop) &&
             e.Data.GetData(DataFormats.FileDrop) is string[] files && files.Length > 0)
         {
-            FilesDropped?.Invoke(this, new PathsDroppedArgs(files, CurrentPath, target));
+            // 资源管理器拖入时源目录取拖动文件的公共父目录，子目录结构得以保留
+            FilesDropped?.Invoke(this, new PathsDroppedArgs(files, CommonLocalDir(files), target));
         }
+    }
+
+    /// <summary>计算若干本机路径的公共父目录；无法确定时返回空串（退化为只取文件名）。</summary>
+    static string CommonLocalDir(IReadOnlyList<string> paths)
+    {
+        var dirs = paths.Select(p =>
+        {
+            var d = Directory.Exists(p) ? p.TrimEnd('\\', '/') : Path.GetDirectoryName(p) ?? "";
+            return d.Length == 0 ? "" : d.TrimEnd('\\', '/');
+        }).ToList();
+
+        if (dirs.Count == 0) return "";
+        if (dirs.Count == 1) return dirs[0];
+
+        var common = dirs[0];
+        foreach (var d in dirs.Skip(1))
+        {
+            int len = Math.Min(common.Length, d.Length);
+            int i = 0;
+            while (i < len && char.ToLowerInvariant(common[i]) == char.ToLowerInvariant(d[i])) i++;
+            common = common[..i];
+            if (common.Length == 0) return "";
+        }
+        // 截到最后一个目录分隔符，避免切在路径中间（如 "C:\Pic" 与 "C:\Pics"）
+        int cut = common.LastIndexOfAny(['\\', '/']);
+        return cut <= 0 ? "" : common[..cut];
     }
 
     /// <summary>拖放到某个目录项上时进入该目录，否则落到当前目录。</summary>
