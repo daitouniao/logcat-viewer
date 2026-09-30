@@ -148,8 +148,9 @@ public class CommandDialog : Form
     static Button NewButton(string text, int width) => new()
     {
         Text = text,
-        Width = width,
-        Height = 25,
+        // AutoSize + MinimumSize：宽度随文字自适应，高 DPI 缩放下不裁字；width 保留为最小宽度
+        AutoSize = true,
+        MinimumSize = new Size(width, 25),
         Margin = new Padding(2, 2, 0, 0),
     };
 

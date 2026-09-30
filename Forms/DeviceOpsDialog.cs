@@ -42,6 +42,10 @@ public class DeviceOpsDialog : Form
     protected override void OnShown(EventArgs e)
     {
         base.OnShown(e);
+        // WinForms 不会随 DPI 放大 TabControl 的页签内边距，高缩放屏上文字会贴边甚至被裁，
+        // 这里按当前 DPI 显式补齐（默认值 6,3 是 96 DPI 基准）
+        _tabs.Padding = new Point(6 * _tabs.DeviceDpi / 96, 3 * _tabs.DeviceDpi / 96);
+
         // 窗口首次打开就把所有页签建齐，无设备时跳过设备相关页（等入口再建，会提示选设备）。
         EnsurePage(PageKind.Command);   // 命令窗口不要求选设备，始终可建
         if (!string.IsNullOrEmpty(_serialProvider()))

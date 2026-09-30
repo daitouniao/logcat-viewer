@@ -149,13 +149,13 @@ public sealed class ApkUninstallDialog : Form
         rowPkg.Controls.Add(new Label { Text = "应用包名:", AutoSize = true, Margin = new Padding(0, 7, 4, 0) });
         _cboPkg = new ComboBox { Width = 300, DropDownStyle = ComboBoxStyle.DropDown, Margin = new Padding(0, 4, 4, 0) };
         rowPkg.Controls.Add(_cboPkg);
-        var btnFavPkg = new Button { Text = "★ 收藏", Size = new Size(60, 25), Margin = new Padding(0, 3, 4, 0) };
+        var btnFavPkg = new Button { Text = "★ 收藏", AutoSize = true, MinimumSize = new Size(60, 25), Margin = new Padding(0, 3, 4, 0) };
         btnFavPkg.Click += (_, _) => FavPkg();
         rowPkg.Controls.Add(btnFavPkg);
-        var btnUnfavPkg = new Button { Text = "☆ 移除", Size = new Size(60, 25), Margin = new Padding(0, 3, 4, 0) };
+        var btnUnfavPkg = new Button { Text = "☆ 移除", AutoSize = true, MinimumSize = new Size(60, 25), Margin = new Padding(0, 3, 4, 0) };
         btnUnfavPkg.Click += (_, _) => UnfavPkg();
         rowPkg.Controls.Add(btnUnfavPkg);
-        _btnRefreshApps = new Button { Text = "↻ 刷新列表", Size = new Size(92, 25), Margin = new Padding(8, 3, 0, 0) };
+        _btnRefreshApps = new Button { Text = "↻ 刷新列表", AutoSize = true, MinimumSize = new Size(92, 25), Margin = new Padding(8, 3, 0, 0) };
         _btnRefreshApps.Click += async (_, _) => await RefreshAppsAsync();
         rowPkg.Controls.Add(_btnRefreshApps);
         grid.Controls.Add(rowPkg, 0, 0);
@@ -181,7 +181,7 @@ public sealed class ApkUninstallDialog : Form
 
         // 行3：卸载按钮 + 提示
         var rowAct = new FlowLayoutPanel { Dock = DockStyle.Fill, WrapContents = false, Margin = Padding.Empty };
-        _btnUninstall = new Button { Text = "卸载输入的包名", Size = new Size(150, 30), Margin = new Padding(0, 5, 10, 0) };
+        _btnUninstall = new Button { Text = "卸载输入的包名", AutoSize = true, MinimumSize = new Size(150, 30), Margin = new Padding(0, 5, 10, 0) };
         _btnUninstall.Click += (_, _) => DoUninstall();
         rowAct.Controls.Add(_btnUninstall);
         rowAct.Controls.Add(new Label

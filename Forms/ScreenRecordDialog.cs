@@ -43,11 +43,11 @@ public class ScreenRecordDialog : Form
             Height = 40,
             FlowDirection = FlowDirection.LeftToRight
         };
-        _btnRecStart = new Button { Text = "开始录屏", Width = 100 };
+        _btnRecStart = new Button { Text = "开始录屏", AutoSize = true, MinimumSize = new Size(100, 25) };
         _btnRecStart.Click += async (_, _) => await StartRecording();
-        _btnRecStop = new Button { Text = "停止录屏", Width = 100, Enabled = false };
+        _btnRecStop = new Button { Text = "停止录屏", AutoSize = true, MinimumSize = new Size(100, 25), Enabled = false };
         _btnRecStop.Click += async (_, _) => await StopRecording();
-        _btnRecPull = new Button { Text = "拉取到本地…", Width = 120, Enabled = false };
+        _btnRecPull = new Button { Text = "拉取到本地…", AutoSize = true, MinimumSize = new Size(120, 25), Enabled = false };
         _btnRecPull.Click += OnPullRecording;
         recBtnPanel.Controls.Add(_btnRecStart);
         recBtnPanel.Controls.Add(_btnRecStop);

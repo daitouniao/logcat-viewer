@@ -74,19 +74,19 @@ public class FileBrowserDialog : Form
             Margin = Padding.Empty,
         };
 
-        _btnDownload = new Button { Text = "⬅ 下载到本机", Width = 110, Height = 26, Margin = new Padding(3, 5, 0, 0) };
+        _btnDownload = new Button { Text = "⬅ 下载到本机", AutoSize = true, MinimumSize = new Size(110, 26), Margin = new Padding(3, 5, 0, 0) };
         _btnDownload.Click += (_, _) => _ = TransferSelectionAsync(toDevice: false);
         bar.Controls.Add(_btnDownload);
 
-        _btnUpload = new Button { Text = "上传到设备 ➡", Width = 110, Height = 26, Margin = new Padding(3, 5, 0, 0) };
+        _btnUpload = new Button { Text = "上传到设备 ➡", AutoSize = true, MinimumSize = new Size(110, 26), Margin = new Padding(3, 5, 0, 0) };
         _btnUpload.Click += (_, _) => _ = TransferSelectionAsync(toDevice: true);
         bar.Controls.Add(_btnUpload);
 
-        var btnRefreshAll = new Button { Text = "刷新两栏", Width = 86, Height = 26, Margin = new Padding(3, 5, 0, 0) };
+        var btnRefreshAll = new Button { Text = "刷新两栏", AutoSize = true, MinimumSize = new Size(86, 26), Margin = new Padding(3, 5, 0, 0) };
         btnRefreshAll.Click += (_, _) => { _ = _remote.RefreshAsync(); _ = _local.RefreshAsync(); };
         bar.Controls.Add(btnRefreshAll);
 
-        var btnClose = new Button { Text = "关闭", Width = 70, Height = 26, Margin = new Padding(3, 5, 0, 0) };
+        var btnClose = new Button { Text = "关闭", AutoSize = true, MinimumSize = new Size(70, 26), Margin = new Padding(3, 5, 0, 0) };
         btnClose.Click += (_, _) => Close();
         bar.Controls.Add(btnClose);
 

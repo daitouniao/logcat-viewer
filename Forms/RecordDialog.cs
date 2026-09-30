@@ -42,8 +42,8 @@ public class RecordDialog : Form
             FlowDirection = FlowDirection.RightToLeft
         };
 
-        var btnClose = new Button { Text = "关闭", DialogResult = DialogResult.OK, Width = 80 };
-        var btnCopy = new Button { Text = "复制", Width = 80 };
+        var btnClose = new Button { Text = "关闭", DialogResult = DialogResult.OK, AutoSize = true, MinimumSize = new Size(80, 25) };
+        var btnCopy = new Button { Text = "复制", AutoSize = true, MinimumSize = new Size(80, 25) };
         btnCopy.Click += (_, _) => logcat.Services.ClipboardHelper.SetText(_text.Text);
 
         btnPanel.Controls.Add(btnClose);

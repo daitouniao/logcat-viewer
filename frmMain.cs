@@ -326,17 +326,18 @@ public partial class frmMain : Form
             _lvlBoxes[i].CheckedChanged += (_, _) => OnFilterChanged();
             if (i > 0) lvlPanel.Controls.Add(_lvlBoxes[i]);
         }
-        var btnAll = new Button { Text = "全选", Width = 50, Height = 25 };
+        // AutoSize + MinimumSize：按钮宽度随文字自适应，任何 DPI/字体下都不会裁字
+        var btnAll = new Button { Text = "全选", AutoSize = true, MinimumSize = new Size(50, 25) };
         btnAll.Click += (_, _) => { for (int i = 1; i < 8; i++) _lvlBoxes[i].Checked = true; };
-        var btnNone = new Button { Text = "清空", Width = 50, Height = 25 };
+        var btnNone = new Button { Text = "清空", AutoSize = true, MinimumSize = new Size(50, 25) };
         btnNone.Click += (_, _) => { for (int i = 1; i < 8; i++) _lvlBoxes[i].Checked = false; };
         lvlPanel.Controls.Add(btnAll);
         lvlPanel.Controls.Add(btnNone);
 
         // 应用/重置 与选项合并到级别行
-        var btnApply = new Button { Text = "应用  (Ctrl+Enter)", Width = 140, Height = 25 };
+        var btnApply = new Button { Text = "应用  (Ctrl+Enter)", AutoSize = true, MinimumSize = new Size(140, 25) };
         btnApply.Click += (_, _) => ApplyFilter();
-        var btnReset = new Button { Text = "重置", Width = 60, Height = 25 };
+        var btnReset = new Button { Text = "重置", AutoSize = true, MinimumSize = new Size(60, 25) };
         btnReset.Click += (_, _) => ResetFilter();
         _chkAuto = new CheckBox { Text = "自动应用", AutoSize = true, Checked = true };
         lvlPanel.Controls.Add(new Label { Text = "    ", AutoSize = true });
@@ -409,7 +410,9 @@ public partial class frmMain : Form
         out CheckBox ckRe, out CheckBox ckCase, out CheckBox ckEx,
         string placeholder, string defaultOp, bool forTag, ToolStripTextBox? syncBox = null)
     {
-        panel.Controls.Add(new Label { Text = label, AutoSize = true, Width = 62, Padding = new Padding(0, 4, 0, 0) });
+        // 固定列宽（AutoSize=false）：原写法 AutoSize=true 会被文字实际宽度覆盖，
+        // 「Tag」比「Message」窄，导致两行的下拉框、复选框列不对齐
+        panel.Controls.Add(new Label { Text = label, AutoSize = false, Width = 62, Height = 25, TextAlign = ContentAlignment.MiddleLeft });
         ed = new TextBox { Width = 280 };
         ed.PlaceholderText = placeholder;
         var box = ed;
@@ -419,11 +422,11 @@ public partial class frmMain : Form
 
         // 收藏：▾ 从收藏选择，★ 收藏/移除当前内容
         var favTip = new ToolTip();
-        var btnFavPick = new Button { Text = "▾", Width = 28, Height = 25, Margin = new Padding(2, 0, 0, 0) };
+        var btnFavPick = new Button { Text = "▾", AutoSize = true, MinimumSize = new Size(28, 25), Margin = new Padding(2, 0, 0, 0) };
         favTip.SetToolTip(btnFavPick, "从收藏中选择");
         btnFavPick.Click += (_, _) => ShowFilterFavMenu(btnFavPick, box, forTag);
         panel.Controls.Add(btnFavPick);
-        var btnFavToggle = new Button { Text = "★", Width = 28, Height = 25, Margin = new Padding(2, 0, 0, 0) };
+        var btnFavToggle = new Button { Text = "★", AutoSize = true, MinimumSize = new Size(28, 25), Margin = new Padding(2, 0, 0, 0) };
         favTip.SetToolTip(btnFavToggle, "收藏当前内容（已收藏则移除）");
         btnFavToggle.Click += (_, _) => ToggleFilterFav(box, forTag);
         panel.Controls.Add(btnFavToggle);

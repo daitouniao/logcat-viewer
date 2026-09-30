@@ -37,9 +37,9 @@ public class ScreenShotDialog : Form
             Height = 40,
             FlowDirection = FlowDirection.LeftToRight
         };
-        _btnShot = new Button { Text = "截图", Width = 80 };
+        _btnShot = new Button { Text = "截图", AutoSize = true, MinimumSize = new Size(80, 25) };
         _btnShot.Click += async (_, _) => await TakeScreenshot();
-        _btnSaveShot = new Button { Text = "保存…", Width = 80, Enabled = false };
+        _btnSaveShot = new Button { Text = "保存…", AutoSize = true, MinimumSize = new Size(80, 25), Enabled = false };
         _btnSaveShot.Click += OnSaveScreenshot;
         shotBtnPanel.Controls.Add(_btnShot);
         shotBtnPanel.Controls.Add(_btnSaveShot);
