@@ -32,6 +32,7 @@ public sealed class DeviceFilePane : FilePane
         _manager = manager;
         _serial = serial;
         _isRoot = isRoot;
+        UpdateRunAsUi();
     }
 
     // ── 列与行 ──
@@ -140,16 +141,13 @@ public sealed class DeviceFilePane : FilePane
 
     protected override void OnLoadFailed(string path, Exception ex)
     {
-        if (ex is PermissionException && !_isRoot && RunAsPackage == null)
+        // 只在 /data/data/*（run-as 唯一能救场的范围）引导进入 run-as，
+        // 其他路径失败多半是输错或需要 root，弹 run-as 只会打扰
+        if (ex is PermissionException && !_isRoot && RunAsPackage == null &&
+            path.StartsWith("/data/data/", StringComparison.Ordinal))
         {
-            var r = MessageBox.Show(this,
-                $"无法访问 {path}\n\n是否使用 run-as 模式？\n（需要目标应用为可调试版本）",
-                "权限不足", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
-            if (r == DialogResult.Yes)
-            {
-                _ = ApplyRunAsAsync();
-                return;
-            }
+            _ = ApplyRunAsAsync(path);
+            return;
         }
         base.OnLoadFailed(path, ex);
     }
@@ -233,7 +231,8 @@ public sealed class DeviceFilePane : FilePane
         bar.Controls.Add(btnRename);
 
         _btnRunAs = NewBarButton("run-as…", 72);
-        _btnRunAs.Click += (_, _) => _ = OnRunAsAsync();
+        _btnRunAs.AutoSize = true;   // 显示当前包名时宽度可变
+        _btnRunAs.Click += (_, _) => OnModeButtonClicked();
         bar.Controls.Add(_btnRunAs);
     }
 
@@ -280,43 +279,98 @@ public sealed class DeviceFilePane : FilePane
         }
     }
 
-    // ── run-as ──
+    // ── 模式切换（root / run-as）──
 
-    async Task OnRunAsAsync()
+    /// <summary>
+    /// run-as 按钮点击：未启用时直接弹设置对话框；已启用时弹模式下拉菜单
+    /// （退出 / 切换包名），免确认框，root 机退出即回到 root 模式。
+    /// </summary>
+    void OnModeButtonClicked()
     {
-        if (RunAsPackage != null)
+        if (RunAsPackage == null)
         {
-            if (!Confirm($"当前 run-as 包：{RunAsPackage}\n\n是否清除 run-as 模式？", "run-as")) return;
-            RunAsPackage = null;
-            _btnRunAs.Text = "run-as…";
-            NavigateTo("/sdcard");
+            _ = ApplyRunAsAsync(null);
             return;
         }
-        await ApplyRunAsAsync();
+
+        var menu = new ContextMenuStrip();
+        menu.Items.Add(_isRoot ? "回到 root 模式" : "退出 run-as 模式", null,
+            (_, _) => ExitRunAs());
+        menu.Items.Add("切换包名…", null, (_, _) => _ = ApplyRunAsAsync(null));
+
+        var visited = FavoritesStore.Default.RunAsPackages;
+        if (visited.Count > 0)
+        {
+            menu.Items.Add(new ToolStripSeparator());
+            foreach (var pkg in visited)
+            {
+                if (pkg == RunAsPackage) continue;
+                var p = pkg;   // 闭包捕获
+                menu.Items.Add(p, null, (_, _) => SwitchRunAsPackage(p));
+            }
+        }
+        menu.Show(_btnRunAs, new Point(0, _btnRunAs.Height));
     }
 
-    async Task ApplyRunAsAsync()
+    /// <summary>退出 run-as：不弹确认框。受限目录回 /sdcard，其余原地刷新。</summary>
+    void ExitRunAs()
     {
-        // 不再主动扫描可调试应用（逐包 dumpsys 又慢又打扰），
-        // 直接弹出对话框：从访问过的包名收藏中选择或手动输入，并设置中转目录。
+        RunAsPackage = null;
+        UpdateRunAsUi();
+        if (CurrentPath == "/data/data" ||
+            CurrentPath.StartsWith("/data/data/", StringComparison.Ordinal))
+            NavigateTo("/sdcard");
+        else
+            _ = RefreshAsync();
+    }
+
+    /// <summary>免弹窗直接切换到某个访问过的包名。</summary>
+    void SwitchRunAsPackage(string pkg)
+    {
+        RunAsPackage = pkg;
+        RememberRunAs(pkg);
+        UpdateRunAsUi();
+        NavigateTo($"/data/data/{pkg}");
+    }
+
+    /// <summary>更新按钮文字与面板标题，让当前身份模式一目了然。</summary>
+    void UpdateRunAsUi()
+    {
+        _btnRunAs.Text = RunAsPackage == null ? "run-as…" : $"run-as: {RunAsPackage}";
+        Box.Text = $"Android 设备 — {_serial}{(_isRoot ? "  [root]" : "")}" +
+                   (RunAsPackage == null ? "" : $"  [run-as: {RunAsPackage}]");
+    }
+
+    /// <summary>
+    /// 进入 run-as 模式。targetPath 非空表示由权限失败触发，成功后直接打开原路径
+    /// （而不是固定跳 /data/data/包名）；弹出前用最近用过的包名预填，回车即生效。
+    /// </summary>
+    async Task ApplyRunAsAsync(string? targetPath)
+    {
         using var dlg = new RunAsDialog(FavoritesStore.Default.RunAsPackages, RunAsRelayDir);
-        if (dlg.ShowDialog(this) != DialogResult.OK) return;
+        if (dlg.ShowDialog(this) != DialogResult.OK)
+            return;
 
         RunAsPackage = dlg.Package;
         RunAsRelayDir = dlg.RelayDir;
-        _btnRunAs.Text = $"run-as: {RunAsPackage}";
+        RememberRunAs(dlg.Package);
+        UpdateRunAsUi();
+        NavigateTo(targetPath ?? $"/data/data/{dlg.Package}");
+    }
 
-        // 记住包名收藏与中转目录，下次直接复用
-        if (FavoritesStore.Default.AddRunAsPackage(RunAsPackage))
-            FavoritesStore.Default.Save();
+    /// <summary>记住包名收藏（置顶）与中转目录，下次直接复用。</summary>
+    void RememberRunAs(string pkg)
+    {
+        var fav = FavoritesStore.Default;
+        fav.RemoveRunAsPackage(pkg);   // 先移除再插入，让最近用的包排最前
+        if (fav.AddRunAsPackage(pkg))
+            fav.Save();
         var s = logcat.Services.AppSettings.Default;
         if (s.LastRunAsRelayDir != RunAsRelayDir)
         {
             s.LastRunAsRelayDir = RunAsRelayDir;
             s.Save();
         }
-
-        NavigateTo($"/data/data/{RunAsPackage}");
     }
 
     // ── 文件操作 ──

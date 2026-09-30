@@ -42,6 +42,8 @@ public abstract class FilePane : UserControl
     protected readonly ProgressBar Pbar = null!;
     protected readonly Button BtnFav = null!;
     protected readonly Button BtnUnfav = null!;
+    /// <summary>面板外框，子类可改标题以展示当前模式（如 run-as 包名）。</summary>
+    protected readonly GroupBox Box = null!;
 
     CancellationTokenSource? _cts;
     bool _favEventSuppressed;
@@ -79,7 +81,7 @@ public abstract class FilePane : UserControl
     {
         Dock = DockStyle.Fill;
 
-        var box = new GroupBox
+        var box = Box = new GroupBox
         {
             Text = caption,
             Dock = DockStyle.Fill,

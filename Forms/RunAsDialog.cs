@@ -41,6 +41,9 @@ public class RunAsDialog : Form
             Width = 340,
         };
         foreach (var p in favorites) _cboPkg.Items.Add(p);
+        // 预填最近用过的包名（收藏按最近在前排序），通常直接回车即可
+        if (_cboPkg.Items.Count > 0 && _cboPkg.Items[0] is string recent)
+            _cboPkg.Text = recent;
 
         var btnRemove = new Button
         {
@@ -100,5 +103,7 @@ public class RunAsDialog : Form
         Controls.AddRange(new Control[] { lblPkg, _cboPkg, btnRemove, lblRelay, _txtRelay, hint, btnOk, btnCancel });
         AcceptButton = btnOk;
         CancelButton = btnCancel;
+        ActiveControl = _cboPkg;
+        _cboPkg.SelectAll();
     }
 }
