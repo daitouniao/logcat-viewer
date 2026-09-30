@@ -258,6 +258,13 @@ public class FileBrowserDialog : Form
                 }
             }
 
+            // 上传完成后在设备端 sync 落盘，避免数据还在页缓存里就重启/拔线；失败不影响传输结果
+            if (toDevice && ok > 0)
+            {
+                SetStatus($"({files.Count}/{files.Count}) 正在 sync 刷写到存储…");
+                await _remote.SyncAsync();
+            }
+
             SetStatus($"传输完成：成功 {ok} 个{(failed > 0 ? $"，失败 {failed} 个" : "")}");
             if (errors.Length > 0)
                 MessageBox.Show(this, errors.ToString(), "传输结果",

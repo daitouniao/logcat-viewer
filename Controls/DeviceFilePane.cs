@@ -567,6 +567,13 @@ public sealed class DeviceFilePane : FilePane
         }
     }
 
+    /// <summary>
+    /// 在设备上执行 sync，把页缓存里的数据刷写到存储。
+    /// push 完成只代表数据到达设备内核，掉电/重启/拔线前未必已落盘。
+    /// 全局刷写无需提权；失败仅忽略（部分设备 shell 无 sync 或超时），由调用方决定是否提示。
+    /// </summary>
+    public Task SyncAsync() => ShellBestEffortAsync("sync", 120);
+
     /// <summary>上传本机文件到设备指定路径。</summary>
     public async Task PushFileAsync(string localFile, string remotePath)
     {
