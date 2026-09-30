@@ -50,6 +50,10 @@ public sealed class AppSettings
     public string LastLocalPath { get; set; } = "";
     public string LastRunAsRelayDir { get; set; } = "/sdcard/Download";
 
+    // ── 文件浏览列宽（设备端 / 本机面板各一组，元素为各列宽度，按列序对应）──
+    public List<int> DevicePaneColumnWidths { get; set; } = new();
+    public List<int> LocalPaneColumnWidths { get; set; } = new();
+
     // ── 安装/卸载窗口选项 ──
     public bool ApkInstallViaPm { get; set; }
     public string ApkInstallFlags { get; set; } = "-r";

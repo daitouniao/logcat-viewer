@@ -170,6 +170,8 @@ public abstract class FilePane : UserControl
             Font = new Font("Consolas", 10),
         };
         CreateColumns(List);
+        ApplySavedColumnWidths();
+        List.ColumnWidthChanged += OnColumnWidthChanged;
         List.DoubleClick += (_, _) => ActivateSelected();
         List.KeyDown += OnListKeyDown;
         List.ItemDrag += OnItemDrag;
@@ -212,6 +214,56 @@ public abstract class FilePane : UserControl
         list.Columns.Add("名称", 250);
         list.Columns.Add("大小", 90, HorizontalAlignment.Right);
         list.Columns.Add("修改日期", 140);
+    }
+
+    // ── 列宽持久化 ──
+    // 列宽按面板类型（设备端/本机端）分别记入 settings.json，
+    // 事件里只更新内存，防抖 400ms 后才写盘；对话框/主窗关闭时的
+    // SaveLastPaths / SaveSettings 也会整体 s.Save()，多一层兜底。
+
+    System.Windows.Forms.Timer? _widthSaveTimer;
+
+    List<int> ColumnWidthsSetting
+    {
+        get => IsRemote ? AppSettings.Default.DevicePaneColumnWidths
+                        : AppSettings.Default.LocalPaneColumnWidths;
+        set
+        {
+            if (IsRemote) AppSettings.Default.DevicePaneColumnWidths = value;
+            else AppSettings.Default.LocalPaneColumnWidths = value;
+        }
+    }
+
+    void ApplySavedColumnWidths()
+    {
+        var saved = ColumnWidthsSetting;
+        for (int i = 0; i < List.Columns.Count && i < saved.Count; i++)
+            if (saved[i] > 0) List.Columns[i].Width = saved[i];
+    }
+
+    void OnColumnWidthChanged(object? sender, ColumnWidthChangedEventArgs e)
+    {
+        ColumnWidthsSetting = List.Columns.Cast<ColumnHeader>()
+            .Select(c => c.Width).ToList();
+
+        // 拖动调宽时事件高频触发，停顿 400ms 再落盘
+        if (_widthSaveTimer == null)
+        {
+            _widthSaveTimer = new System.Windows.Forms.Timer { Interval = 400 };
+            _widthSaveTimer.Tick += (_, _) =>
+            {
+                _widthSaveTimer!.Stop();
+                AppSettings.Default.Save();
+            };
+        }
+        _widthSaveTimer.Stop();
+        _widthSaveTimer.Start();
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing) _widthSaveTimer?.Dispose();
+        base.Dispose(disposing);
     }
 
     protected virtual string[] GetRow(FileEntry e) => new[]
