@@ -1,3 +1,5 @@
+using logcat.Services;
+
 namespace logcat.Forms;
 
 /// <summary>
@@ -8,6 +10,7 @@ namespace logcat.Forms;
 public class FilterDialog : Form
 {
     readonly Action? _applyAll;
+    readonly Control _filterPanel;
 
     /// <param name="filterPanel">主窗体已构建好的过滤面板控件。</param>
     /// <param name="applyAll">Ctrl+Enter 时触发，交回主窗体应用过滤。</param>
@@ -16,6 +19,7 @@ public class FilterDialog : Form
         AutoScaleDimensions = new SizeF(96F, 96F);
         AutoScaleMode = AutoScaleMode.Dpi;
         _applyAll = applyAll;
+        _filterPanel = filterPanel;
 
         Text = "过滤设置";
         ShowInTaskbar = false;
@@ -28,6 +32,20 @@ public class FilterDialog : Form
         filterPanel.Dock = DockStyle.Fill;
         Controls.Add(filterPanel);
 
+        // 高缩放屏（150%）下行高/字体变大，固定高度会裁掉底部行；
+        // 显示与 DPI 切换后都按面板实测的期望尺寸重设窗口
+        Shown += (_, _) =>
+        {
+            DpiDiag.Log("FilterDialog.Shown", this);
+            LogPanelFit("Shown");
+        };
+        DpiChanged += (_, e) =>
+        {
+            DpiDiag.Write($"FilterDialog.DpiChanged dpi→{DeviceDpi} suggested={e.SuggestedRectangle} bounds={Bounds}");
+            // 推迟到系统缩放与布局完成后再量，否则量到的是缩放前的旧值
+            BeginInvoke(() => PositionAboveOwner());
+        };
+
         // 主窗体的 Ctrl+Enter 只在主窗体获得焦点时生效，焦点在本窗口时补一份
         KeyDown += (_, e) =>
         {
@@ -35,9 +53,10 @@ public class FilterDialog : Form
         };
     }
 
-    /// <summary>贴到主窗口顶部并水平居中，避免遮住日志列表的可视区域。</summary>
+    /// <summary>按过滤面板实测的期望尺寸撑开窗口（只放大不缩小），再贴到主窗口顶部居中。</summary>
     public void PositionAboveOwner()
     {
+        FitToContent();
         if (Owner == null) return;
         var b = Owner.Bounds;
         int x = b.X + (b.Width - Width) / 2;
@@ -46,6 +65,51 @@ public class FilterDialog : Form
         x = Math.Clamp(x, wa.Left, Math.Max(wa.Left, wa.Right - Width));
         y = Math.Clamp(y, wa.Top, Math.Max(wa.Top, wa.Bottom - Height));
         Location = new Point(x, y);
+    }
+
+    /// <summary>窗口高度改为「面板内容实际需要的高度」，宽度不够时也放大；已够则不动。</summary>
+    void FitToContent()
+    {
+        try
+        {
+            // GroupBox 非 AutoSize 时 GetPreferredSize 只返回占位值（实测 6x22），
+            // 不能用它；改为按内部 TableLayoutPanel 里各行的实际底边推算需要的高度，
+            // 行本身是 AutoSize，其高度始终跟随字体/DPI，是可靠的量测来源
+            if (_filterPanel.Controls.Count == 0) return;
+            var tlp = _filterPanel.Controls[0];
+
+            int contentBottom = 0, contentRight = 0;
+            foreach (Control row in tlp.Controls)
+            {
+                contentBottom = Math.Max(contentBottom, row.Bottom + row.Margin.Bottom);
+                int rowRight = 0;
+                foreach (Control c in row.Controls) rowRight += c.Width + c.Margin.Horizontal;
+                contentRight = Math.Max(contentRight, rowRight + tlp.Left);
+            }
+            // 加上 GroupBox 的标题/内边距（用实际差值推算，不依赖常量）
+            int needPanelH = tlp.Top + contentBottom + (_filterPanel.Height - tlp.Bottom);
+            int needPanelW = contentRight + (_filterPanel.Width - tlp.Right);
+            // 面板 Dock=Fill 占满客户区，客户区需要的尺寸 = 面板需要的尺寸
+            var nonClient = Size - ClientSize;
+            int w = Math.Max(ClientSize.Width, needPanelW + (ClientSize.Width - _filterPanel.Width));
+            int h = Math.Max(ClientSize.Height, needPanelH + (ClientSize.Height - _filterPanel.Height));
+            if (w != ClientSize.Width || h != ClientSize.Height)
+                Size = new Size(w + nonClient.Width, h + nonClient.Height);
+            DpiDiag.Write($"FilterDialog.Fit: client={ClientSize} needPanel={needPanelW}x{needPanelH}");
+        }
+        catch (Exception ex)
+        {
+            DpiDiag.Write($"FilterDialog.FitToContent 异常: {ex.Message}");
+        }
+    }
+
+    void LogPanelFit(string when)
+    {
+        try
+        {
+            DpiDiag.Write($"FilterDialog.{when}: client={ClientSize} panelActual={_filterPanel.Size}");
+        }
+        catch { /* 诊断不影响主流程 */ }
     }
 
     // 用户点关闭按钮只是收起窗口，控件实例仍要留给主窗体继续使用

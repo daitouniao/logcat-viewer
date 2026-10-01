@@ -44,6 +44,10 @@ public abstract class FilePane : UserControl
     protected readonly Button BtnUnfav = null!;
     /// <summary>面板外框，子类可改标题以展示当前模式（如 run-as 包名）。</summary>
     protected readonly GroupBox Box = null!;
+    readonly TableLayoutPanel TlpGrid = null!;
+    readonly FlowLayoutPanel FavBar = null!;
+    readonly FlowLayoutPanel PathBar = null!;
+    readonly FlowLayoutPanel BtnBar = null!;
 
     CancellationTokenSource? _cts;
     bool _favEventSuppressed;
@@ -89,23 +93,23 @@ public abstract class FilePane : UserControl
         };
         Controls.Add(box);
 
-        // 用 TableLayoutPanel 划分布局，避免依赖 Dock 的 z 序语义（Top/Top/Fill/Bottom 混用时
-        // 停靠顺序不确定，容易出现上方工具条压住列表的问题）
-        var grid = new TableLayoutPanel
+        // 行高用 AutoSize 而非写死的绝对值：绝对行高在高 DPI（150%）/嵌入 TabPage 的缩放链路里
+        // 不会被重算，工具栏会被裁掉一截；AutoSize 让行高始终跟随控件实测高度。
+        var grid = TlpGrid = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
             ColumnCount = 1,
             RowCount = 4,
         };
         grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        grid.RowStyles.Add(new RowStyle(SizeType.Absolute, 34));    // 收藏栏
-        grid.RowStyles.Add(new RowStyle(SizeType.Absolute, 34));    // 路径栏
+        grid.RowStyles.Add(new RowStyle(SizeType.AutoSize));    // 收藏栏
+        grid.RowStyles.Add(new RowStyle(SizeType.AutoSize));    // 路径栏
         grid.RowStyles.Add(new RowStyle(SizeType.Percent, 100));    // 文件列表
-        grid.RowStyles.Add(new RowStyle(SizeType.Absolute, 36));    // 操作栏
+        grid.RowStyles.Add(new RowStyle(SizeType.AutoSize));    // 操作栏
         box.Controls.Add(grid);
 
         // ── 收藏栏 ──
-        var favBar = NewBar();
+        var favBar = FavBar = NewBar();
         favBar.Controls.Add(NewBarLabel("收藏:"));
         CboFav = new ComboBox
         {
@@ -128,7 +132,7 @@ public abstract class FilePane : UserControl
         grid.Controls.Add(favBar, 0, 0);
 
         // ── 路径栏 ──
-        var pathBar = NewBar();
+        var pathBar = PathBar = NewBar();
         pathBar.Controls.Add(NewBarLabel("路径:"));
         EdPath = new TextBox
         {
@@ -182,7 +186,7 @@ public abstract class FilePane : UserControl
         grid.Controls.Add(List, 0, 2);
 
         // ── 操作栏 ──
-        var btnBar = NewBar();
+        var btnBar = BtnBar = NewBar();
         BuildButtons(btnBar);
 
         LblStat = new Label
@@ -205,6 +209,45 @@ public abstract class FilePane : UserControl
 
         Favorites.Changed += (_, _) => RefreshFavCombo();
         RefreshFavCombo();
+
+        // 面板变窄（分栏拖动、小窗、高 DPI 缩放）时收缩下拉框/路径框，保证最右侧按钮不被裁出视野
+        Resize += (_, _) => FitBarWidths();
+    }
+
+    /// <summary>把收藏下拉框、路径输入框的宽度钳制到本条工具栏的剩余空间内（上限仍是原设计宽度）。</summary>
+    void FitBarWidths()
+    {
+        ClampBarChild(FavBar, CboFav, min: 100, max: 300);
+        ClampBarChild(PathBar, EdPath, min: 100, max: 300);
+    }
+
+    static void ClampBarChild(FlowLayoutPanel bar, Control child, int min, int max)
+    {
+        if (bar.Width <= 0) return;
+        int others = 0;
+        foreach (Control c in bar.Controls)
+            if (c != child) others += c.Width + c.Margin.Horizontal;
+        int avail = bar.ClientSize.Width - bar.Padding.Horizontal - child.Margin.Horizontal - others;
+        child.Width = Math.Clamp(avail, min, max);
+    }
+
+    /// <summary>诊断用：三条工具栏的实际宽度 vs 内容期望宽度、网格行高快照。</summary>
+    internal string DescribeLayout()
+    {
+        try
+        {
+            var rows = string.Join(",", TlpGrid.RowStyles.Cast<RowStyle>()
+                .Select(r => r.SizeType == SizeType.Absolute ? $"abs:{r.Height}" : r.SizeType.ToString().ToLower()));
+            return $"pane={Width}x{Height} rows=[{rows}] {DescribeBar("收藏栏", FavBar)} {DescribeBar("路径栏", PathBar)} {DescribeBar("操作栏", BtnBar)}";
+        }
+        catch (Exception ex) { return "DescribeLayout异常:" + ex.Message; }
+    }
+
+    static string DescribeBar(string name, FlowLayoutPanel bar)
+    {
+        int prefW = 0;
+        foreach (Control c in bar.Controls) prefW += c.Width + c.Margin.Horizontal;
+        return $"{name}(bar={bar.Width},pref≈{prefW})";
     }
 
     // ── 子类扩展点 ──

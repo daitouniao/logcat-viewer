@@ -12,6 +12,7 @@ public class FileBrowserDialog : Form
 {
     readonly DeviceFilePane _remote;
     readonly LocalFilePane _local;
+    readonly SplitContainer _split = null!;
     readonly Label _lblStat;
     readonly ProgressBar _pbar;
     readonly Button _btnDownload;
@@ -40,7 +41,7 @@ public class FileBrowserDialog : Form
         // ── 左右两栏 ──
         // 注意：Panel1MinSize / Panel2MinSize / SplitterDistance 必须等布局完成后再设置，
         // 构造期控件还是默认尺寸，设置最小尺寸会让 SplitterDistance 越界并抛异常。
-        var split = new SplitContainer
+        var split = _split = new SplitContainer
         {
             Dock = DockStyle.Fill,
             Orientation = Orientation.Vertical,
@@ -60,7 +61,8 @@ public class FileBrowserDialog : Form
         };
         root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 38));
+        // 行高 AutoSize 而非写死：绝对行高在 150% 高 DPI / 嵌入 TabPage 缩放链路里不会被重算，会裁掉底栏
+        root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         root.Controls.Add(split, 0, 0);
         Controls.Add(root);
 
@@ -142,6 +144,28 @@ public class FileBrowserDialog : Form
             _local.NavigateTo(localStartPath);
             UpdateTransferLabels();
         };
+
+        Shown += (_, _) =>
+        {
+            DpiDiag.Log($"FileBrowserDialog.Shown({(TopLevel ? "独立窗口" : "嵌入页签")})", this);
+            LogLayout("Shown");
+        };
+        DpiChanged += (_, e) =>
+        {
+            DpiDiag.Write($"FileBrowserDialog.DpiChanged dpi→{DeviceDpi} suggested={e.SuggestedRectangle} bounds={Bounds}");
+            BeginInvoke(() => LogLayout("DpiChanged后"));
+        };
+    }
+
+    void LogLayout(string when)
+    {
+        try
+        {
+            DpiDiag.Write($"FileBrowserDialog.{when}: split={_split.Width}x{_split.Height} " +
+                          $"panel1={_split.Panel1.Width} panel2={_split.Panel2.Width} " +
+                          $"remote[{_remote.DescribeLayout()}] local[{_local.DescribeLayout()}]");
+        }
+        catch (Exception ex) { DpiDiag.Write($"FileBrowserDialog.LogLayout 异常: {ex.Message}"); }
     }
 
     void UpdateTransferLabels()

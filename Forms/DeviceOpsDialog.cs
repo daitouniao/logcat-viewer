@@ -39,6 +39,11 @@ public class DeviceOpsDialog : Form
         StartPosition = FormStartPosition.Manual;
         Controls.Add(_tabs);
         FormClosing += OnHostFormClosing;
+        DpiChanged += (_, e) =>
+        {
+            DpiDiag.Write($"DeviceOpsDialog.DpiChanged dpi→{DeviceDpi} suggested={e.SuggestedRectangle} bounds={Bounds}");
+            BeginInvoke(() => DpiFix.Apply(this));
+        };
     }
 
     protected override void OnLoad(EventArgs e)
@@ -66,6 +71,7 @@ public class DeviceOpsDialog : Form
         // WinForms 不会随 DPI 放大 TabControl 的页签内边距，高缩放屏上文字会贴边甚至被裁，
         // 这里按当前 DPI 显式补齐（默认值 6,3 是 96 DPI 基准）
         _tabs.Padding = new Point(6 * _tabs.DeviceDpi / 96, 3 * _tabs.DeviceDpi / 96);
+        DpiDiag.Log("DeviceOpsDialog.OnShown", this);
 
         // 窗口首次打开就把所有页签建齐，无设备时跳过设备相关页（等入口再建，会提示选设备）。
         EnsurePage(PageKind.Command);   // 命令窗口不要求选设备，始终可建
@@ -77,6 +83,7 @@ public class DeviceOpsDialog : Form
             EnsurePage(PageKind.ApkInstall);
             EnsurePage(PageKind.ApkUninstall);
         }
+        DpiFix.Apply(this);
     }
 
     static string Title(PageKind kind) => kind switch
@@ -156,6 +163,8 @@ public class DeviceOpsDialog : Form
         _pages[kind] = (page, form);
         form.FormClosed += (_, _) => RemovePage(kind);
         form.Show();
+        // 嵌入页签的缩放链路不保证重算 TLP 绝对行高，显示后按内容实测兜底撑大
+        DpiFix.Apply(form);
         return form;
     }
 

@@ -1210,6 +1210,7 @@ public partial class frmMain : Form
             var cur = Screen.FromPoint(Location);
             int idx = System.Array.IndexOf(Screen.AllScreens, cur);
             StartupLog.Write($"应用后实际：Location={Location} Size={Size} State={WindowState} 所在屏[{idx}] Primary={cur.Primary}");
+            DpiDiag.Log("frmMain.几何应用后", this);
         }));
     }
 
