@@ -78,10 +78,32 @@ gh repo edit daitouniao/logcat-viewer `
 git add <files>
 git commit -m "..."
 git push origin master      # GitHub 主仓库
-git push gitcode master     # GitCode 国内镜像（可选）
+git push gitcode master     # GitCode 国内镜像（见下方 4.3 的限制）
 ```
 
 两处都推送可保持镜像同步；也可以只推 `origin`。
+
+### 3.1 ⚠️ GitCode 现在拒收推送（需在网页上处理）
+
+**现象**：`git push gitcode master` 报
+
+```
+remote: <CH.00905403> This operation is not allowed because the repository is an image repository.
+fatal: ... error: 403
+```
+
+**说明**：这不是 git 或证书问题，是 GitCode 把该仓库判定为**镜像仓库
+（image repository）**并因此拒绝直接推送。注意改名前的第一次推送是成功的
+（`cc120ea..1490b74`），说明这个状态是**改名过程中**变化的。
+
+**处理**（二选一，都需在 GitCode 网页操作）：
+
+1. 在仓库设置里把「镜像仓库」关掉 / 改为普通仓库，之后即可正常推送；
+2. 或干脆把 GitCode 定位为**只读镜像**：在 GitCode 网页上配置成从 GitHub 定时同步，
+   此后只推 GitHub，GitCode 自动跟随。
+
+**当前状态**：GitHub 已是最新（`f5bfb7d`），GitCode 停在 `1490b74`，
+落后一个文档提交。因为差的只是 `docs/PUBLISHING.md`，不影响使用者，不急于处理。
 
 ## 4. 环境问题记录（已解决）
 
