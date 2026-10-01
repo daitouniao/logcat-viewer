@@ -34,9 +34,30 @@ public class DeviceOpsDialog : Form
         Text = "设备操作";
         Size = new Size(1160, 760);
         MinimumSize = new Size(920, 600);
-        StartPosition = FormStartPosition.CenterParent;
+        // CenterParent 只对模态 ShowDialog 生效，Show(owner) 非模态会落到系统默认位置（常在主屏），
+        // 改为 Manual 并在 OnLoad 按主窗口所在屏幕居中，保证弹出窗口跟随主窗口
+        StartPosition = FormStartPosition.Manual;
         Controls.Add(_tabs);
         FormClosing += OnHostFormClosing;
+    }
+
+    protected override void OnLoad(EventArgs e)
+    {
+        base.OnLoad(e);
+        CenterOverOwner();
+    }
+
+    /// <summary>以主窗口为中心居中显示，并夹取到主窗口所在屏幕的工作区内（多屏时跟随主窗口所在屏）。</summary>
+    void CenterOverOwner()
+    {
+        if (Owner == null) return;
+        var b = Owner.Bounds;
+        int x = b.X + (b.Width - Width) / 2;
+        int y = b.Y + (b.Height - Height) / 2;
+        var wa = Screen.FromControl(Owner).WorkingArea;
+        x = Math.Clamp(x, wa.Left, Math.Max(wa.Left, wa.Right - Width));
+        y = Math.Clamp(y, wa.Top, Math.Max(wa.Top, wa.Bottom - Height));
+        Location = new Point(x, y);
     }
 
     protected override void OnShown(EventArgs e)
