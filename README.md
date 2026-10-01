@@ -191,13 +191,15 @@ Controls/
   DeviceFilePane.cs     设备端文件面板
   LocalFilePane.cs      本机端文件面板
 Forms/
-  DeviceOpsDialog.cs    设备操作总窗口（截图/录屏/文件浏览共用一页、APK、命令合并为页签）
+  DeviceOpsDialog.cs    设备操作总窗口（截图/录屏/文件浏览/APK 安装·卸载/命令合并为页签）
   FileBrowserDialog.cs  设备 ↔ 本机双栏文件管理器（设备操作窗口的文件浏览页）
-  ApkDialog.cs          APK 安装 / 卸载（双通道、已装应用列表、路径与包名收藏，设备操作窗口的 APK 页）
+  ApkInstallDialog.cs   APK 安装（adb install / pm install 双通道、路径收藏）
+  ApkUninstallDialog.cs APK 卸载（已装应用列表、包名收藏）
   FilterDialog.cs       过滤设置的非模态悬浮窗口（承载主窗体的过滤面板）
   CommandDialog.cs      命令窗口（分类列表、收藏、历史、执行与输出，设备操作窗口的命令页）
   CommandEditDialog.cs  收藏条目的新建 / 编辑
-  ScreenCaptureDialog.cs 截图 / 录屏（设备操作窗口的屏幕捕获页）
+  ScreenShotDialog.cs   截图页（设备操作窗口）
+  ScreenRecordDialog.cs 录屏页（设备操作窗口）
   RecordDialog.cs       单条记录详情
   RunAsDialog.cs        run-as 包名选择
   SimpleInputBox.cs     简易输入对话框
@@ -208,6 +210,9 @@ Models/
   FavoriteDir.cs        收藏目录
   CommandEntry.cs       收藏命令 / 执行记录 / 通道枚举
 Services/
+  DpiDiag.cs            高 DPI 布局诊断打点（写入 startup.log [DPI] 段）
+  DpiFix.cs             高 DPI 布局兜底（显示后按内容实测撑大装不下的 TLP 绝对行与固定高停靠栏）
+  StartupLog.cs         启动诊断日志（%LOCALAPPDATA%\logcat\startup.log，多屏几何与 DPI 排查用）
   LogDocument.cs        列式索引文档（mmap、并行建索引、增量 Reload）
   LogParser.cs          行解析（六种格式 + 续行判定）
   FilterEngine.cs       过滤引擎（预筛 → message 匹配 → 导出）
