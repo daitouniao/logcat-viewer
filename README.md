@@ -1,6 +1,6 @@
 # logcat viewer
 
-[![Version: V0.0.9](https://img.shields.io/badge/version-V0.0.9-green)](logcat.csproj)
+[![Version: V0.1.0](https://img.shields.io/badge/version-V0.1.0-green)](logcat.csproj)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
 [![Platform: Windows](https://img.shields.io/badge/platform-Windows-lightgrey)](#requirements)
 
@@ -17,14 +17,14 @@ A Windows desktop viewer for Android logs (`logcat`). Built with WinForms on .NE
 
 Most logcat viewers choke on large captures. This one keeps the text on disk (mmap) and only the fixed-width columns in memory, so a multi-GB log file opens without loading it into RAM and scrolls at a stable frame rate.
 
-| | |
-|---|---|
-| **Instant open on huge files** | Memory-mapped + parallel block indexing, with a cancellable progress bar |
-| **Virtual list** | Only visible rows are rendered, so scrolling stays smooth at 10M+ rows |
-| **Six formats auto-detected** | `threadtime` / `time` / `long` / `brief` / `tag` / `ymd`, via a byte-level fast path with regex fallback |
-| **Multi-line joining** | Stack traces and wrapped messages fold back into their parent record (toggleable) |
-| **Level colours** | V/D/I/W/E/F/A colour-coded |
-| **Full record view** | Double-click a row (`Enter`) to see the untruncated original text |
+|                                |                                                                                                          |
+| ------------------------------ | -------------------------------------------------------------------------------------------------------- |
+| **Instant open on huge files** | Memory-mapped + parallel block indexing, with a cancellable progress bar                                 |
+| **Virtual list**               | Only visible rows are rendered, so scrolling stays smooth at 10M+ rows                                   |
+| **Six formats auto-detected**  | `threadtime` / `time` / `long` / `brief` / `tag` / `ymd`, via a byte-level fast path with regex fallback |
+| **Multi-line joining**         | Stack traces and wrapped messages fold back into their parent record (toggleable)                        |
+| **Level colours**              | V/D/I/W/E/F/A colour-coded                                                                               |
+| **Full record view**           | Double-click a row (`Enter`) to see the untruncated original text                                        |
 
 ## Features
 
@@ -48,12 +48,12 @@ Most logcat viewers choke on large captures. This one keeps the text on disk (mm
 
 ### ADB device features
 
-| Feature | Description |
-| --- | --- |
-| Refresh devices | Enumerates online devices; hot-plug is monitored automatically |
+| Feature              | Description                                                                                                                                                                                                                                                                            |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Refresh devices      | Enumerates online devices; hot-plug is monitored automatically                                                                                                                                                                                                                         |
 | Start / stop capture | Streams `logcat` to a temp file and syncs incrementally into the list, following the tail. Capture and filtering/export are mutually excluded on the document (serialised access), and pure tail appends only re-filter the new rows — per-second cost drops from O(total) to O(added) |
-| Save log | Saves the current capture as a `.log` file |
-| Device operations | One drop-down entry point (screenshot / screen record / file browser / install-uninstall APK / command window), all merged into a single tabbed "Device operations" window |
+| Save log             | Saves the current capture as a `.log` file                                                                                                                                                                                                                                             |
+| Device operations    | One drop-down entry point (screenshot / screen record / file browser / install-uninstall APK / command window), all merged into a single tabbed "Device operations" window                                                                                                             |
 
 ### Device operations window
 
@@ -139,20 +139,20 @@ The scope is defined in `tests/logcat.Tests/coverlet.runsettings` and excludes t
 
 ## Keyboard shortcuts
 
-| Shortcut | Action |
-| --- | --- |
-| `Ctrl+O` | Open a log file |
-| `F5` | Reload (incremental; skipped if the file is unchanged) |
-| `Ctrl+E` | Export current result |
-| `Ctrl+Enter` | Apply filter |
-| `Ctrl+F` | Open the filter window and focus the Message box |
-| `Ctrl+C` | Copy selected rows |
-| `Ctrl+Shift+C` | Open the command window |
-| `F2` / `Shift+F2` | Previous / next mark |
-| `F3` / `Shift+F3` | Find next / previous in results (non-regex mode) |
-| `M` | Mark the current row |
-| `Enter` | View the full record for the current row |
-| `Esc` | Stop the current task and clear the selection |
+| Shortcut          | Action                                                 |
+| ----------------- | ------------------------------------------------------ |
+| `Ctrl+O`          | Open a log file                                        |
+| `F5`              | Reload (incremental; skipped if the file is unchanged) |
+| `Ctrl+E`          | Export current result                                  |
+| `Ctrl+Enter`      | Apply filter                                           |
+| `Ctrl+F`          | Open the filter window and focus the Message box       |
+| `Ctrl+C`          | Copy selected rows                                     |
+| `Ctrl+Shift+C`    | Open the command window                                |
+| `F2` / `Shift+F2` | Previous / next mark                                   |
+| `F3` / `Shift+F3` | Find next / previous in results (non-regex mode)       |
+| `M`               | Mark the current row                                   |
+| `Enter`           | View the full record for the current row               |
+| `Esc`             | Stop the current task and clear the selection          |
 
 You can also drag a log file straight onto the window.
 
