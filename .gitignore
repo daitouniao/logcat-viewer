@@ -118,5 +118,6 @@ desktop.ini
 *.bak
 *.swp
 
-## 沙箱内跑 dotnet test 用的临时目录（把 TMP/TEMP 指到工作区内可绕开 %TEMP% 写入限制）
+## 测试临时文件目录（TempRoot 写在项目内，绕开 %TEMP% 的沙箱/权限限制）
 .tmp-test/
+tests/logcat.Tests/tmp/
