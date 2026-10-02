@@ -408,16 +408,24 @@ public static class LogParser
         return result;
     }
 
+    /// <summary>
+    /// 解析括号内的 pid。真实 logcat 的 brief/time 格式会把 pid 右对齐，
+    /// 如 "D/Tag( 1798):"，括号内可能带前导填充空格，需跳过后再解析。
+    /// </summary>
     static int TryParseInt(ReadOnlySpan<byte> span)
     {
+        int i = 0;
+        while (i < span.Length && span[i] == SP) i++;
         int result = 0;
-        for (int i = 0; i < span.Length; i++)
+        bool any = false;
+        for (; i < span.Length; i++)
         {
             byte b = span[i];
             if (b < ZERO || b > NINE) return -1;
             result = result * 10 + (b - ZERO);
+            any = true;
         }
-        return result;
+        return any ? result : -1;
     }
 
     public static bool IsLeap(int year) =>

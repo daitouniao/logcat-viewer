@@ -270,6 +270,42 @@ public class LogParserTests
     }
 
     [Fact]
+    public void brief格式_pid右对齐带填充空格()
+    {
+        // 真实 logcat -v brief 的 pid 是右对齐的：括号内有前导空格
+        const string line = "I/ActivityManager( 1234): msg";
+        var r = Parse(line);
+        Assert.Equal(1234, r.Pid);
+        Assert.Equal(-1, r.Tid);
+        Assert.Equal(LogParser.LVL_I, r.Level);
+        Assert.Equal("ActivityManager", r.Tag);
+        Assert.Equal("msg", line[r.MsgOffset..]);
+    }
+
+    [Fact]
+    public void time格式_级别斜杠tag右对齐pid()
+    {
+        // mm-dd 时间 + brief 式 "L/Tag( pid): msg"
+        const string line = "09-26 18:25:06.960 D/ImageView( 1798): xxxx";
+        var r = Parse(line);
+        Assert.Equal(-1, r.Year);              // mm-dd 格式行内无年份
+        Assert.Equal(LogParser.LVL_D, r.Level);
+        Assert.Equal("ImageView", r.Tag);
+        Assert.Equal(1798, r.Pid);
+        Assert.Equal("xxxx", line[r.MsgOffset..]);
+    }
+
+    [Fact]
+    public void brief格式_括号内全是空格时pid未知()
+    {
+        const string line = "I/Tag(    ): msg";
+        var r = Parse(line);
+        Assert.Equal(-1, r.Pid);
+        Assert.Equal("Tag", r.Tag);
+        Assert.Equal("msg", line[r.MsgOffset..]);
+    }
+
+    [Fact]
     public void brief格式_无pid()
     {
         const string line = "W/SomeTag: hi";
