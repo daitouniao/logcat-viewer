@@ -171,9 +171,10 @@ git config --global http.sslBackend schannel
 
 ### 4.2 `dotnet test` 在沙箱内大面积失败（环境限制，非代码缺陷）
 
-**现象**：在 DSH 沙箱里 `dotnet test` 会报约 90 个失败（全量 321 个用例中，96 处用到临时文件），全部是
+**现象**：在 DSH 沙箱里 `dotnet test` 会报大量失败（全量 340 个用例中，凡是经
+`TempLogFile` / `TempStoreFile` 落临时文件的用例全挂，约 110 个），全部是
 `UnauthorizedAccessException: Access to the path 'C:\Users\...\Temp\logcat-tests\*.log' is denied`，
-失败点集中在 `TempLogFile` 构造函数（`TestHelpers.cs:23`）。
+失败点集中在 `TempLogFile` 构造函数的 `File.WriteAllBytes`（`TestHelpers.cs`）。
 
 **根因**：DSH 沙箱对**测试宿主子进程**限制了对 `%TEMP%` 的写入，
 而普通 PowerShell 进程写同一路径是成功的。已用对照实验确认：
