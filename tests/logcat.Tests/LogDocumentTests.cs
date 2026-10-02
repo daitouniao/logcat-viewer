@@ -262,14 +262,37 @@ public class LogDocumentTests
     // ── 读取辅助 ──
 
     [Fact]
-    public void HeaderBytes取message之前的头部且不超过23字节()
+    public void HeaderBytes只取时间戳部分()
     {
-        using var tmp = new TempLogFile(Line(T1, 'E', "Tag", "crash"));
+        // threadtime 行头部还含 pid/tid，Time 列只应显示时间戳（曾把 PID 带进 Time 列）
+        // 用多位 PID（如 1444）而非 Threadtime 默认的 1，确保时间戳被截断在 PID 之前
+        using var tmp = new TempLogFile("09-23 18:00:00.000  1444  2272 E CameraService: crash\n");
         using var doc = LogDocument.Build(tmp.Path);
 
         var header = doc.HeaderBytes(0);
-        Assert.Equal(23, header.Length);
-        Assert.Equal("09-23 18:00:00.000  1  ", Text(header));
+        Assert.Equal("09-23 18:00:00.000", Text(header));
+        // 确认 PID 本身解析正确（与 HeaderBytes 互不干扰）
+        Assert.Equal(1444, doc.Pid[0]);
+        Assert.Equal(2272, doc.Tid[0]);
+    }
+
+    [Fact]
+    public void HeaderBytes支持yyyy格式()
+    {
+        using var tmp = new TempLogFile("2026-09-23 18:00:00.000  1  2 I Tag: a\n");
+        using var doc = LogDocument.Build(tmp.Path);
+
+        Assert.Equal("2026-09-23 18:00:00.000", Text(doc.HeaderBytes(0)));
+    }
+
+    [Fact]
+    public void HeaderBytes保留高精度小数秒()
+    {
+        // usec/nsec 格式的小数秒超出 TsToText 的 3 位毫秒，须原样返回
+        using var tmp = new TempLogFile("09-23 18:00:00.000123  1  2 I Tag: a\n");
+        using var doc = LogDocument.Build(tmp.Path);
+
+        Assert.Equal("09-23 18:00:00.000123", Text(doc.HeaderBytes(0)));
     }
 
     [Fact]

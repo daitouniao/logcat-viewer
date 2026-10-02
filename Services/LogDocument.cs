@@ -171,15 +171,30 @@ public sealed class LogDocument : IDisposable
         return buf;
     }
 
+    /// <summary>
+    /// 行首时间戳的原始字节（保留 1~9 位小数秒精度）。
+    /// threadtime 行的头部还含 pid/tid/级别/tag，这里只截到小数秒末位；
+    /// 行首不是时间戳（如 brief 的 E/Tag 形式）返回空，由调用方回退 TsToText。
+    /// </summary>
     public byte[] HeaderBytes(int row)
     {
         if (_view == null) return Array.Empty<byte>();
         int mo = _moff[row];
-        if (mo <= 1) return Array.Empty<byte>();
-        int len = Math.Min(mo - 1, 23);
+        int len = Math.Min(mo, 40);   // yyyy-MM-dd HH:mm:ss.fffffffff 最长 33 字节
+        if (len <= 0) return Array.Empty<byte>();
         byte[] buf = new byte[len];
         _view.ReadArray(_offs[row], buf, 0, len);
-        return buf;
+
+        int dot = len > 14 && buf[2] == 45 && buf[5] == 32 && buf[14] == 46 ? 14
+                : len > 19 && buf[4] == 45 && buf[7] == 45 && buf[19] == 46 ? 19 : -1;
+        if (dot < 0) return Array.Empty<byte>();
+        int end = dot + 1;
+        while (end < len && buf[end] >= 48 && buf[end] <= 57) end++;
+        if (end == dot + 1) return Array.Empty<byte>();
+        if (end == len) return buf;
+        var ts = new byte[end];
+        Array.Copy(buf, ts, end);
+        return ts;
     }
 
     public string Decode(byte[] bytes) => Encoding.UTF8.GetString(bytes);
