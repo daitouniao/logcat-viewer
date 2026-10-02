@@ -180,7 +180,7 @@ dotnet test tests/logcat.Tests/logcat.Tests.csproj --collect:"XPlat Code Coverag
 python tests/coverage-report.py     # 输出 tests/coverage-report.html
 ```
 
-当前状态：**343 个用例全部通过**，行覆盖率 **98.56%**（3,414 / 3,464 行）。
+当前状态：**345 个用例全部通过**，行覆盖率 **98.56%**（3,432 / 3,482 行），分支覆盖率 **88.49%**（1000 / 1130 分支）。
 
 覆盖率口径见 `tests/logcat.Tests/coverlet.runsettings`，只统计可单测的业务逻辑层，排除两类代码：
 
@@ -262,7 +262,7 @@ Services/
   AppInfo.cs            产品名与版本号（读取程序集 InformationalVersion，标题与关于对话框共用）
 tests/
   coverage-report.py      覆盖率报告生成（coverlet 的 cobertura XML → 可读 HTML）
-  logcat.Tests/           xUnit 测试工程（340 个用例：日志解析 / 列式索引 / 过滤引擎 / 持久化存储）
+  logcat.Tests/           xUnit 测试工程（345 个用例：日志解析 / 列式索引 / 过滤引擎 / 持久化存储）
     coverlet.runsettings  覆盖率统计口径（Include / Exclude 规则）
 LICENSE                 Apache-2.0 全文
 THIRD-PARTY-NOTICES.md  第三方库与工具链的许可声明

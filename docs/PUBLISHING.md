@@ -169,9 +169,9 @@ git config --global http.sslBackend schannel
 `schannel` 是 Windows 原生 TLS 后端，直接使用系统证书库。
 **不要**用 `http.sslVerify=false` 绕过——那会关闭校验，等于对中间人攻击不设防。
 
-### 4.2 `dotnet test` 在沙箱内大面积失败（环境限制，非代码缺陷）
+### 4.2 `dotnet test` 临时文件写入失败（已修复）
 
-**现象**：在 DSH 沙箱里 `dotnet test` 会报大量失败（全量 343 个用例中，凡是经
+**现象**：在 DSH 沙箱里 `dotnet test` 会报大量失败（全量 345 个用例中，凡是经
 `TempLogFile` / `TempStoreFile` 落临时文件的用例全挂，约 110 个），全部是
 `UnauthorizedAccessException: Access to the path 'C:\Users\...\Temp\logcat-tests\*.log' is denied`，
 失败点集中在 `TempLogFile` 构造函数的 `File.WriteAllBytes`（`TestHelpers.cs`）。
@@ -183,17 +183,49 @@ git config --global http.sslBackend schannel
 - 在测试宿主内写工作区 `obj\` → ✅ 成功
 - 在 PowerShell 里写 `%TEMP%\logcat-tests\` → ✅ 成功
 
-**结论**：**不是代码缺陷，也不是测试写错了**，是运行环境的沙箱边界。
-`TempLogFile` 的写法（GUID 文件名 + `File.WriteAllBytes`）本身完全正确。
+**解法**：修改 `TempRoot` 使用项目目录而非 `%TEMP%`：
 
-**解法（已验证，无需改代码）**：把临时目录指到工作区内，`Path.GetTempPath()` 随之改变，
-`TempLogFile` 不再触碰 `%TEMP%`，沙箱内可以全绿：
-
-```powershell
-$env:TMP  = "D:\01.0.Code\C#\logcat\.tmp-test"
-$env:TEMP = $env:TMP
-dotnet test tests/logcat.Tests/logcat.Tests.csproj
+```csharp
+// TestHelpers.cs
+static readonly string s_tempRoot = System.IO.Path.Combine(
+    AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", "..",
+    "tests", "logcat.Tests", "tmp");
+public static readonly string Dir = System.IO.Path.GetFullPath(s_tempRoot);
 ```
 
-`.tmp-test/` 是临时产物，已加入 `.gitignore`。
-在 DSH 之外的普通终端里跑测试则不需要这一步。
+临时文件会写入 `tests/logcat.Tests/tmp/`，无需改环境变量。
+
+### 4.3 coverlet 覆盖率收集器失败（已修复）
+
+**现象**：`dotnet test --collect:"XPlat Code Coverage"` 生成的覆盖率报告中所有行都是 `hits="0"`，
+最终覆盖率显示 0%，但测试本身全部通过。
+
+**根因**：coverlet 6.0.4 在 .NET 10 上存在兼容性问题，且测试宿主子进程无法在
+`%TEMP%` 中创建锁文件（`.lock` 后缀），导致覆盖率数据无法正确收集。
+
+**解法**：
+
+1. 更新 coverlet.collector 到 10.1.0（支持 .NET 10）
+
+```powershell
+dotnet add tests/logcat.Tests/logcat.Tests.csproj package coverlet.collector --version 10.1.0
+```
+
+2. 设置 TEMP 环境变量到可写目录，或在代码中修改 `TempRoot`（见 4.2）
+
+**验证命令**：
+
+```powershell
+$env:TMP = "D:\01.0.Code\C#\logcat\tests\logcat.Tests\tmp"
+$env:TEMP = $env:TMP
+dotnet test tests/logcat.Tests/logcat.Tests.csproj --collect:"XPlat Code Coverage" --settings tests/logcat.Tests/coverlet.runsettings
+python tests/coverage-report.py
+```
+
+正常输出：`行覆盖率 98.56% (3,432/3,482)，分支覆盖率 88.49% (1000/1130)`
+
+验证覆盖率报告生成：
+```powershell
+dotnet tool install -g dotnet-reportgenerator-globaltool  # 如未安装
+reportgenerator -reports:"tests/logcat.Tests/TestResults/<guid>/coverage.cobertura.xml" -targetdir:"coverage-report" -reporttypes:"Html;TextSummary"
+```
