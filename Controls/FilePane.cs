@@ -799,7 +799,14 @@ public abstract class FilePane : UserControl
     {
         Dock = DockStyle.Fill,
         FlowDirection = FlowDirection.LeftToRight,
-        WrapContents = false,
+        // 允许换行：面板被拖窄时，宁可工具栏变两行（AutoSize 行会跟着长高），
+        // 也不能把最右侧的按钮裁掉——WrapContents=false 时超出部分直接不可见。
+        WrapContents = true,
+        // AutoSize 必开：TableLayoutPanel 的 AutoSize 行是按子控件的「实际高度」撑开的，
+        // 未开 AutoSize 的 FlowLayoutPanel 会带着 WinForms 默认高度 100 参与测量，
+        // 于是每条工具栏行都被撑成 100px（内容只需 30px），行间留下大片空白。
+        AutoSize = true,
+        AutoSizeMode = AutoSizeMode.GrowAndShrink,
         Padding = new Padding(3, 0, 0, 0),
         Margin = Padding.Empty,
     };

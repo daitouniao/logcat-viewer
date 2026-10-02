@@ -71,7 +71,11 @@ public class FileBrowserDialog : Form
         {
             Dock = DockStyle.Fill,
             FlowDirection = FlowDirection.LeftToRight,
-            WrapContents = false,
+            // 同 NewBar()：允许换行，避免状态文字变长时把右侧控件挤出可视区
+            WrapContents = true,
+            // 同上：AutoSize 行按实际高度测量，不打开 AutoSize 会按默认高度 100 撑开底栏
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
             Padding = new Padding(4, 0, 0, 0),
             Margin = Padding.Empty,
         };

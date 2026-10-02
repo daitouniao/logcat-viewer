@@ -145,6 +145,21 @@ public class CommandDialog : Form
         Padding = new Padding(0),
     };
 
+    /// <summary>
+    /// 窄窗口下允许换行的工具栏，必须配 AutoSize 行使用：换行后行高会跟着变高，
+    /// 最右侧控件不会被裁掉（WrapContents=false 时超出部分直接不可见）。
+    /// </summary>
+    static FlowLayoutPanel NewWrapFlow() => new()
+    {
+        Dock = DockStyle.Fill,
+        FlowDirection = FlowDirection.LeftToRight,
+        WrapContents = true,
+        AutoSize = true,
+        AutoSizeMode = AutoSizeMode.GrowAndShrink,
+        Margin = Padding.Empty,
+        Padding = new Padding(0),
+    };
+
     static Button NewButton(string text, int width) => new()
     {
         Text = text,
@@ -244,9 +259,12 @@ public class CommandDialog : Form
     {
         var grid = NewGrid(1, 5);
         grid.RowStyles.Add(new RowStyle(SizeType.Absolute, 32));
-        grid.RowStyles.Add(new RowStyle(SizeType.Absolute, 30));
-        // 这一行要放 25 高的按钮，留 28 才不会被裁
-        grid.RowStyles.Add(new RowStyle(SizeType.Absolute, 28));
+        // 选项行：控件多，窄窗口下宁可换行也不能裁掉最右侧的「跟随输出」，
+        // 所以行改 AutoSize，并让 rowOpt 开 AutoSize + WrapContents（必须配套，否则行高测不准）
+        grid.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        // 提示 + 输出按钮行：按钮实测 27 高（含上边距 29），而 rowTools 自带的 Padding(4) 还会再吃掉 8px，
+        // 原来的 28 只留给按钮 20px，底部被裁掉 9px；补到 34 并去掉内层多余的 padding
+        grid.RowStyles.Add(new RowStyle(SizeType.Absolute, 34));
         grid.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         grid.RowStyles.Add(new RowStyle(SizeType.Absolute, 24));
         host.Controls.Add(grid);
@@ -280,8 +298,8 @@ public class CommandDialog : Form
         rowCmd.Controls.Add(_btnStop, 2, 0);
         grid.Controls.Add(rowCmd, 0, 0);
 
-        // 选项行
-        var rowOpt = NewFlow();
+        // 选项行（窄窗口下换行，不裁掉最右侧的「跟随输出」）
+        var rowOpt = NewWrapFlow();
         _cboKind = new ComboBox
         {
             DropDownStyle = ComboBoxStyle.DropDownList,
@@ -314,6 +332,8 @@ public class CommandDialog : Form
 
         // 提示 + 输出操作按钮：右侧宽度不够，按钮不能跟选项行挤在一起
         var rowTools = NewGrid(2, 1);
+        // 内层不再重复加 padding：外层 grid 已经留了 4px，这里再扣一圈会把 27 高的按钮压成 20px
+        rowTools.Padding = Padding.Empty;
         // 不给 RowStyle 时 TableLayoutPanel 会把行算成 AutoSize，靠 Fill 撞高的 label 会被压成 0 高
         rowTools.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         rowTools.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
