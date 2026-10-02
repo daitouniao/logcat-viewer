@@ -472,6 +472,26 @@ public class LogParserTests
         Assert.False(LooksNew(line));
     }
 
+    // ── 慢路径回退 ──
+
+    /// <summary>
+    /// 只有「行首为 '['」才会走慢路径正则；连方括号形式也不匹配时返回空结果，
+    /// 由调用方按续行 / 正文处理。其余格式（日期起首、级别起首）都由快速路径处理。
+    /// </summary>
+    [Fact]
+    public void 方括号开头但格式不匹配时返回空结果()
+    {
+        var r = Parse("[ 这不是一条方括号记录");
+
+        Assert.Equal(-1, r.WithinMs);
+        Assert.Equal(-1, r.Year);
+        Assert.Equal(-1, r.Pid);
+        Assert.Equal(-1, r.Tid);
+        Assert.Equal(LogParser.LVL_UNKNOWN, r.Level);
+        Assert.Equal("", r.Tag);
+        Assert.Equal(0, r.MsgOffset);
+    }
+
     // ── IsLeap ──
 
     [Theory]

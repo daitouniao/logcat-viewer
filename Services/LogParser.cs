@@ -43,24 +43,15 @@ public static class LogParser
     };
 
     // ── 回退正则 ──
+    // 只在「行首为 '['」时走到这里（见 ParseLine），所以只需要 threadtime 方括号形式这一条规则。
+    // 原先还有 ReThread / ReTime / ReBrief 三条（日期起首、级别起首），但那个形态由快速路径
+    // 直接处理、永远走不到慢路径，属于死代码，已删除。
     const string DATE = @"(?:(\d{4})-)?(\d{2})-(\d{2}) ";
     // 小数秒：3 位（ms）/ 6 位（usec）/ 9 位（nsec），logcat -v usec/nsec 时出现
     const string TIME = @"(\d{2}):(\d{2}):(\d{2})[.,](\d{1,9})";
 
     static readonly Regex ReLong = new(
         @"^\[\s*" + DATE + TIME + @"\s+(?:(\d+):\s*)?(\d+)?\s*([VDIWEFA])/([^\]]*?)\s*\]\s?(.*)$",
-        RegexOptions.Compiled | RegexOptions.Singleline);
-
-    static readonly Regex ReThread = new(
-        @"^" + DATE + TIME + @"\s+(\d+)\s+(\d+)\s+([VDIWEFA])\s+(.*)$",
-        RegexOptions.Compiled | RegexOptions.Singleline);
-
-    static readonly Regex ReTime = new(
-        @"^" + DATE + TIME + @"\s+([VDIWEFA])/(.*)$",
-        RegexOptions.Compiled | RegexOptions.Singleline);
-
-    static readonly Regex ReBrief = new(
-        @"^([VDIWEFA])/(.*)$",
         RegexOptions.Compiled | RegexOptions.Singleline);
 
     // ── 解析结果 ──
@@ -239,85 +230,9 @@ public static class LogParser
             return new ParseResult(within, year, pid, tid, lvl, tag, msgOff);
         }
 
-        m = ReThread.Match(text);
-        if (m.Success)
-        {
-            int? y = m.Groups[1].Success ? int.Parse(m.Groups[1].Value) : null;
-            int mo = int.Parse(m.Groups[2].Value), d = int.Parse(m.Groups[3].Value);
-            int h = int.Parse(m.Groups[4].Value), mi = int.Parse(m.Groups[5].Value);
-            int s = int.Parse(m.Groups[6].Value), ms = NormMs(m.Groups[7].Value);
-            long within; int year;
-            try { (within, year) = MsOf(y, mo, d, h, mi, s, ms); }
-            catch { within = -1; year = -1; }
-            int pid = int.Parse(m.Groups[8].Value);
-            int tid = int.Parse(m.Groups[9].Value);
-            int lvl = _lc.TryGetValue((byte)m.Groups[10].Value[0], out var lv) ? lv : 0;
-            string rest = m.Groups[11].Value;
-            byte[] restBytes = Encoding.UTF8.GetBytes(rest);
-            var (tag, mo2) = SplitTagMsg(restBytes, 0, restBytes.Length);
-            int prefixLen = n - rest.Length;
-            return new ParseResult(within, year, pid, tid, lvl, tag, prefixLen + mo2);
-        }
-
-        m = ReTime.Match(text);
-        if (m.Success)
-        {
-            int? y = m.Groups[1].Success ? int.Parse(m.Groups[1].Value) : null;
-            int mo = int.Parse(m.Groups[2].Value), d = int.Parse(m.Groups[3].Value);
-            int h = int.Parse(m.Groups[4].Value), mi = int.Parse(m.Groups[5].Value);
-            int s = int.Parse(m.Groups[6].Value), ms = NormMs(m.Groups[7].Value);
-            long within; int year;
-            try { (within, year) = MsOf(y, mo, d, h, mi, s, ms); }
-            catch { within = -1; year = -1; }
-            int lvl = _lc.TryGetValue((byte)m.Groups[8].Value[0], out var lv) ? lv : 0;
-            string rest = m.Groups[9].Value;
-            int bIdx = rest.IndexOf('(');
-            string tag = bIdx > 0 ? rest[..bIdx] : rest;
-            int pid = -1;
-            int off = n;
-            if (bIdx > 0)
-            {
-                int eIdx = rest.IndexOf(')', bIdx);
-                if (eIdx > 0)
-                {
-                    pid = TryParseInt(rest[(bIdx + 1)..eIdx]);
-                    off = (n - rest.Length) + eIdx + 1;
-                    if (off < n && line[off] == COLON)
-                    {
-                        off++;
-                        if (off < n && line[off] == SP) off++;
-                    }
-                }
-            }
-            return new ParseResult(within, year, pid, -1, lvl, tag, off);
-        }
-
-        m = ReBrief.Match(text);
-        if (m.Success)
-        {
-            int lvl = _lc.TryGetValue((byte)m.Groups[1].Value[0], out var lv) ? lv : 0;
-            string rest = m.Groups[2].Value;
-            int bIdx = rest.IndexOf('(');
-            string tag = bIdx > 0 ? rest[..bIdx] : rest;
-            int pid = -1;
-            int off = n;
-            if (bIdx > 0)
-            {
-                int eIdx = rest.IndexOf(')', bIdx);
-                if (eIdx > 0)
-                {
-                    pid = TryParseInt(rest[(bIdx + 1)..eIdx]);
-                    off = (n - rest.Length) + eIdx + 1;
-                    if (off < n && line[off] == COLON)
-                    {
-                        off++;
-                        if (off < n && line[off] == SP) off++;
-                    }
-                }
-            }
-            return new ParseResult(-1, -1, pid, -1, lvl, tag, off);
-        }
-
+        // 其余形态（日期起首的 threadtime / time / brief）都由快速路径处理并 return，
+        // 走到慢路径时只剩「方括号」形式能匹配，因此这里只有 ReLong 一条规则，
+        // 不匹配说明这行不是日志记录（返回空结果由调用方按续行/正文处理）。
         return new ParseResult(-1, -1, -1, -1, LVL_UNKNOWN, "", 0);
     }
 
@@ -503,11 +418,6 @@ public static class LogParser
             result = result * 10 + (b - ZERO);
         }
         return result;
-    }
-
-    static int TryParseInt(string s)
-    {
-        return int.TryParse(s.Trim(), out int v) ? v : -1;
     }
 
     public static bool IsLeap(int year) =>

@@ -111,6 +111,32 @@ dotnet publish -c Release   # publish
 
 You can also open `logcat.slnx` / `logcat.csproj` directly in Visual Studio.
 
+## Tests
+
+Log parsing, the columnar index (including incremental append and line-boundary alignment), the filter
+engine and the persistence stores are covered by xUnit tests. The UI and device/system-integration layers
+are intentionally excluded from the coverage scope.
+
+```powershell
+# run the suite
+dotnet test tests/logcat.Tests/logcat.Tests.csproj
+
+# run with coverage (coverlet -> cobertura), then render a readable report
+dotnet test tests/logcat.Tests/logcat.Tests.csproj --collect:"XPlat Code Coverage" --settings tests/logcat.Tests/coverlet.runsettings
+python tests/coverage-report.py     # writes tests/coverage-report.html
+```
+
+Current status: **340 tests, all passing**; **98.55%** line coverage (3,406 / 3,456 lines).
+
+The scope is defined in `tests/logcat.Tests/coverlet.runsettings` and excludes two groups:
+
+- **UI layer** — `Forms` / `Controls` / `frmMain` / `Program`, plus `DpiFix` / `DpiDiag` (high-DPI layout fallback and diagnostics): WinForms construction and layout depend on a message pump and STA threads, so unit-testing them is costly and low-value.
+- **Device / system integration layer** — `AdbManager` (needs a real adb server and device), `LogcatStream` (device stream), `ClipboardHelper` (Windows clipboard), `StartupLog` (writes into the user profile).
+
+> In a restricted sandbox (some IDE-managed terminals) the test host may be denied writes to `%TEMP%`, which
+> fails many tests. Point the temp directory into the workspace instead:
+> `TMP=<dir inside the repo> TEMP=<same> dotnet test ...` — see [`docs/PUBLISHING.md`](docs/PUBLISHING.md).
+
 ## Keyboard shortcuts
 
 | Shortcut | Action |

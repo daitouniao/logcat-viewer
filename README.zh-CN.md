@@ -31,6 +31,7 @@ Windows 桌面端 Android 日志（logcat）查看器。基于 WinForms，使用
   - [快速开始](#快速开始)
     - [环境要求](#环境要求)
     - [构建与运行](#构建与运行)
+  - [单元测试](#单元测试)
   - [快捷键](#快捷键)
   - [过滤语法](#过滤语法)
   - [目录结构](#目录结构)
@@ -165,6 +166,30 @@ dotnet publish -c Release   # 发布
 
 也可直接用 Visual Studio 打开 `logcat.slnx` / `logcat.csproj`。
 
+## 单元测试
+
+日志解析、列式索引（含增量追加与行边界对齐）、过滤引擎、各类持久化存储都有 xUnit 测试覆盖；
+UI 层与设备 / 系统集成层不在单测口径内（口径见下）。
+
+```powershell
+# 跑全量测试
+dotnet test tests/logcat.Tests/logcat.Tests.csproj
+
+# 跑测试并采集覆盖率（coverlet → cobertura），再生成可读报告
+dotnet test tests/logcat.Tests/logcat.Tests.csproj --collect:"XPlat Code Coverage" --settings tests/logcat.Tests/coverlet.runsettings
+python tests/coverage-report.py     # 输出 tests/coverage-report.html
+```
+
+当前状态：**340 个用例全部通过**，行覆盖率 **98.55%**（3,406 / 3,456 行）。
+
+覆盖率口径见 `tests/logcat.Tests/coverlet.runsettings`，只统计可单测的业务逻辑层，排除两类代码：
+
+- **UI 层**：`Forms` / `Controls` / `frmMain` / `Program`，以及 `DpiFix` / `DpiDiag`（高 DPI 布局兜底与诊断打点）——WinForms 控件的构造与布局依赖消息泵与 STA 线程，DPI 兜底要有真实窗口与缩放链路才有意义，单测成本高、收益低；
+- **系统 / 设备集成层**：`AdbManager`（需真实 adb 与设备）、`LogcatStream`（需设备流）、`ClipboardHelper`（Windows 剪贴板）、`StartupLog`（固定写用户目录）。
+
+> 在受限沙箱（部分 IDE 的托管终端）里，测试宿主可能被拒绝写入 `%TEMP%`，导致大量用例失败。
+> 把临时目录指到工作区内即可：`TMP=<工作区内目录> TEMP=<同> dotnet test ...`，详见 [`docs/PUBLISHING.md`](docs/PUBLISHING.md)。
+
 ## 快捷键
 
 | 快捷键            | 功能                                      |
@@ -235,6 +260,10 @@ Services/
   CommandStore.cs       命令分类 / 收藏 / 历史持久化 + 内置命令库
   AppSettings.cs        用户级设置（窗口几何、显示选项、上次路径、安装/卸载窗口选项，JSON 持久化到 %LOCALAPPDATA%\logcat\settings.json）
   AppInfo.cs            产品名与版本号（读取程序集 InformationalVersion，标题与关于对话框共用）
+tests/
+  coverage-report.py      覆盖率报告生成（coverlet 的 cobertura XML → 可读 HTML）
+  logcat.Tests/           xUnit 测试工程（340 个用例：日志解析 / 列式索引 / 过滤引擎 / 持久化存储）
+    coverlet.runsettings  覆盖率统计口径（Include / Exclude 规则）
 LICENSE                 Apache-2.0 全文
 THIRD-PARTY-NOTICES.md  第三方库与工具链的许可声明
 DISCLAIMER.md           免责声明全文

@@ -10,7 +10,6 @@ namespace logcat.Services;
 /// </summary>
 public sealed class LogDocument : IDisposable
 {
-    const int BLOCK = 1 << 23;          // 8 MB per scan chunk
     const int MAX_JOIN = 200;           // 单条记录最多合并续行数
     const byte FLAG_MULTILINE = 0x01;
     const int YEAR_LO = -5, YEAR_HI = 55;
@@ -216,12 +215,13 @@ public sealed class LogDocument : IDisposable
         progress?.Report((0.0, "扫描行…"));
         var part = ScanRange(Path, 0, Size, join, false, progress, ct);
         ct.ThrowIfCancellationRequested();
-        Assemble(new[] { part }, baseYear, progress);
+        Assemble(part, baseYear, progress);
         IndexedSize = Size;
     }
 
     // ── 扫描 ──
-    struct ScanPart
+    /// <summary>internal：单元测试直接验证区间扫描的行边界对齐（见 InternalsVisibleTo）。</summary>
+    internal struct ScanPart
     {
         public long[] Offs; public int[] Lens; public int[] Moff;
         public long[] Within; public int[] Years;
@@ -234,7 +234,12 @@ public sealed class LogDocument : IDisposable
         public long CarryEndOff;
     }
 
-    static ScanPart ScanRange(string path, long start, long end, bool join, bool prevHeadDoc = false,
+    /// <summary>
+    /// 扫描 [start, end) 区间并按行切分。两端都对齐到行边界：start 落在行中间时跳到下一行行首
+    /// （前半段已由上一批索引），end 落在行中间时回退到该行行首（不完整行留待下次追加）。
+    /// internal：单元测试直接验证对齐语义（见 InternalsVisibleTo）。
+    /// </summary>
+    internal static ScanPart ScanRange(string path, long start, long end, bool join, bool prevHeadDoc = false,
         IProgress<(double, string)>? progress = null, CancellationToken ct = default)
     {
         var offs = new List<long>();
@@ -285,10 +290,21 @@ public sealed class LogDocument : IDisposable
 
         if (end < fileSize)
         {
-            f.Position = end;
-            int b = f.ReadByte();
-            while (b >= 0 && b != '\n') b = f.ReadByte();
-            end = b < 0 ? fileSize : f.Position;
+            // 对齐到整行：end 应当是「某个 '\n' 之后的第一字节」。
+            // 若 end 落在行中间，说明尾段是没写完的不完整行 —— 回退到该行行首，留待下次追加。
+            // 不能向后推进到下一个换行：那会把 Append 里 TrimPartial 刚裁掉的残行又读回来，
+            // 使「完整行 + 末尾残行」与「只写残行」两种写入形态得出不同结果。
+            f.Position = end - 1;
+            if (f.ReadByte() != '\n')
+            {
+                long q = -1;
+                for (long p = end - 1; p >= start; p--)
+                {
+                    f.Position = p;
+                    if (f.ReadByte() == '\n') { q = p; break; }
+                }
+                end = q >= 0 ? q + 1 : start;
+            }
         }
 
         if (start >= end) return EmptyPart();
@@ -440,11 +456,11 @@ public sealed class LogDocument : IDisposable
     };
 
     // ── 组装 ──
-    void Assemble(ScanPart[] parts, int? baseYear, IProgress<(double, string)>? progress)
+    // 只有「单分片」一种形态：DoBuild 一次 ScanRange(0, Size) 扫完整个文件。
+    // 曾经的多分片合并（按 BLOCK 分块扫描 + 拼接数组 + 全局 tag 重映射）已随分块方案一起删除。
+    void Assemble(ScanPart part, int? baseYear, IProgress<(double, string)>? progress)
     {
-        // 过滤空分区
-        var valid = parts.Where(p => p.Offs.Length > 0).ToArray();
-        if (valid.Length == 0)
+        if (part.Offs.Length == 0)
         {
             SetColumns(Array.Empty<long>(), Array.Empty<int>(), Array.Empty<int>(),
                        Array.Empty<long>(), Array.Empty<int>(), Array.Empty<int>(),
@@ -455,69 +471,26 @@ public sealed class LogDocument : IDisposable
 
         progress?.Report((0.95, "合并索引…"));
 
-        // 合并 tag 字典
-        var globalTagIndex = new Dictionary<string, int>();
-        var globalTags = new List<string>();
-        var remaps = new int[valid.Length][];
-
-        for (int pi = 0; pi < valid.Length; pi++)
+        // tag 字典：单分片下分区内的局部 id 就是全局 id（ScanRange 按出现顺序从 0 编号），无需重映射
+        var tagIndex = new Dictionary<string, int>();
+        var tags = new List<string>(part.LocalTags.Count);
+        for (int i = 0; i < part.LocalTags.Count; i++)
         {
-            var local = valid[pi].LocalTags;
-            var remap = new int[local.Count + 1];
-            remap[0] = -1;
-            for (int i = 0; i < local.Count; i++)
-            {
-                string name = Encoding.UTF8.GetString(local[i]);
-                if (!globalTagIndex.TryGetValue(name, out int g))
-                {
-                    g = globalTags.Count;
-                    globalTagIndex[name] = g;
-                    globalTags.Add(name);
-                }
-                remap[i + 1] = g;
-            }
-            remaps[pi] = remap;
+            string name = Encoding.UTF8.GetString(part.LocalTags[i]);
+            if (tagIndex.TryAdd(name, tags.Count)) tags.Add(name);
         }
-
-        // 拼接数组
-        long[] offs = Concat(valid.Select(p => p.Offs).ToArray());
-        int[] lens = Concat(valid.Select(p => p.Lens).ToArray());
-        int[] moff = Concat(valid.Select(p => p.Moff).ToArray());
-        long[] withinArr = Concat(valid.Select(p => p.Within).ToArray());
-        int[] yearsArr = Concat(valid.Select(p => p.Years).ToArray());
-        int[] pidArr = Concat(valid.Select(p => p.Pids).ToArray());
-        int[] tidArr = Concat(valid.Select(p => p.Tids).ToArray());
-        byte[] lvlArr = ConcatByte(valid.Select(p => p.Lvls).ToArray());
-        byte[] flagsArr = ConcatByte(valid.Select(p => p.Flags).ToArray());
-
-        // 映射 tag id
-        int totalLen = offs.Length;
-        int[] tagId = new int[totalLen];
-        int offset = 0;
-        for (int pi = 0; pi < valid.Length; pi++)
-        {
-            var localTagIds = valid[pi].TagIds;
-            var remap = remaps[pi];
-            for (int i = 0; i < localTagIds.Length; i++)
-            {
-                int lid = localTagIds[i];
-                tagId[offset + i] = lid >= 0 ? remap[lid + 1] : -1;
-            }
-            offset += localTagIds.Length;
-        }
-
-        Tags = globalTags;
-        TagIndex = globalTagIndex;
+        Tags = tags;
+        TagIndex = tagIndex;
 
         // 时间戳终算
-        HasYear = yearsArr.Any(y => y >= 0);
-        var (ts, by, yl) = FinalizeTs(withinArr, yearsArr, baseYear);
+        HasYear = part.Years.Any(y => y >= 0);
+        var (ts, by, yl) = FinalizeTs(part.Within, part.Years, baseYear);
         BaseYear = by;
         _yearLast = yl;
-        var validWithin = withinArr.Where(w => w >= 0).ToArray();
+        var validWithin = part.Within.Where(w => w >= 0).ToArray();
         _withinLast = validWithin.Length > 0 ? validWithin[^1] : null;
 
-        SetColumns(offs, lens, moff, ts, pidArr, tidArr, lvlArr, tagId, flagsArr);
+        SetColumns(part.Offs, part.Lens, part.Moff, ts, part.Pids, part.Tids, part.Lvls, part.TagIds, part.Flags);
     }
 
     // ── 时间戳终算 ──
@@ -800,27 +773,6 @@ public sealed class LogDocument : IDisposable
         long diffLo = Math.Abs(_ts[rows[lo]] - ts);
         long diffPrev = Math.Abs(_ts[rows[lo - 1]] - ts);
         return diffLo < diffPrev ? lo : lo - 1;
-    }
-
-    // ── 工具 ──
-    static T[] Concat<T>(T[][] arrays)
-    {
-        if (arrays.Length == 1) return arrays[0];
-        int total = arrays.Sum(a => a.Length);
-        var result = new T[total];
-        int off = 0;
-        foreach (var a in arrays) { Array.Copy(a, 0, result, off, a.Length); off += a.Length; }
-        return result;
-    }
-
-    static byte[] ConcatByte(byte[][] arrays)
-    {
-        if (arrays.Length == 1) return arrays[0];
-        int total = arrays.Sum(a => a.Length);
-        var result = new byte[total];
-        int off = 0;
-        foreach (var a in arrays) { Array.Copy(a, 0, result, off, a.Length); off += a.Length; }
-        return result;
     }
 
     // ── 时间戳文本 ──

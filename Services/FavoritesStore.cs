@@ -39,32 +39,40 @@ public sealed class FavoritesStore
         Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
     };
 
-    static readonly string FilePath = Path.Combine(
+    static readonly string DefaultPath = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "logcat", "favorites.json");
 
     static FavoritesStore? _default;
 
     /// <summary>进程内共享实例（首次访问时从磁盘加载）。</summary>
-    public static FavoritesStore Default => _default ??= Load();
+    public static FavoritesStore Default => _default ??= LoadFrom(DefaultPath);
 
     readonly StoreData _data;
+
+    /// <summary>本实例的落盘路径。可注入，便于单元测试用临时文件（见 InternalsVisibleTo）。</summary>
+    readonly string _path;
 
     /// <summary>收藏内容发生变化（增删、改名、清空）后触发。</summary>
     public event EventHandler? Changed;
 
-    /// <summary>internal：供单元测试构造不落盘的实例（见 InternalsVisibleTo）。</summary>
-    internal FavoritesStore(StoreData data) => _data = data;
+    /// <summary>internal：供单元测试构造不落盘的实例（见 InternalsVisibleTo）；path 省略时用默认路径。</summary>
+    internal FavoritesStore(StoreData data, string? path = null)
+    {
+        _data = data;
+        _path = path ?? DefaultPath;
+    }
 
     // ── 加载 / 保存 ──
 
-    static FavoritesStore Load()
+    /// <summary>internal：从指定路径加载（单元测试传临时文件，见 InternalsVisibleTo）。</summary>
+    internal static FavoritesStore LoadFrom(string path)
     {
         try
         {
-            if (File.Exists(FilePath))
+            if (File.Exists(path))
             {
-                var data = JsonSerializer.Deserialize<StoreData>(File.ReadAllText(FilePath), JsonOpts);
+                var data = JsonSerializer.Deserialize<StoreData>(File.ReadAllText(path), JsonOpts);
                 if (data != null)
                 {
                     data.Remote ??= new List<FavoriteDir>();
@@ -74,7 +82,7 @@ public sealed class FavoritesStore
                     data.Packages ??= new List<string>();
                     data.TagFilters ??= new List<string>();
                     data.MsgFilters ??= new List<string>();
-                    return new FavoritesStore(data);
+                    return new FavoritesStore(data, path);
                 }
             }
         }
@@ -83,19 +91,22 @@ public sealed class FavoritesStore
             // 文件损坏时重建
         }
 
-        var store = new FavoritesStore(new StoreData());
+        var store = new FavoritesStore(new StoreData(), path);
         SeedDefaults(store);
         store.Save();
         return store;
     }
 
-    public void Save()
+    public void Save() => SaveTo(_path);
+
+    /// <summary>internal：写回指定路径（单元测试传临时文件，见 InternalsVisibleTo）。</summary>
+    internal void SaveTo(string path)
     {
         try
         {
-            var dir = Path.GetDirectoryName(FilePath);
+            var dir = Path.GetDirectoryName(path);
             if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
-            File.WriteAllText(FilePath, JsonSerializer.Serialize(_data, JsonOpts));
+            File.WriteAllText(path, JsonSerializer.Serialize(_data, JsonOpts));
         }
         catch
         {

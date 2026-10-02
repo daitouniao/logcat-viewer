@@ -34,32 +34,40 @@ public sealed class CommandStore
         Converters = { new JsonStringEnumConverter() },
     };
 
-    static readonly string FilePath = Path.Combine(
+    static readonly string DefaultPath = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "logcat", "commands.json");
 
     static CommandStore? _default;
 
     /// <summary>进程内共享实例（首次访问时从磁盘加载）。</summary>
-    public static CommandStore Default => _default ??= Load();
+    public static CommandStore Default => _default ??= LoadFrom(DefaultPath);
 
     readonly StoreData _data;
+
+    /// <summary>本实例的落盘路径。可注入，便于单元测试用临时文件（见 InternalsVisibleTo）。</summary>
+    readonly string _path;
 
     /// <summary>收藏或历史发生变化后触发，供界面刷新。</summary>
     public event EventHandler? Changed;
 
-    /// <summary>internal：供单元测试构造不落盘的实例（见 InternalsVisibleTo）。</summary>
-    internal CommandStore(StoreData data) => _data = data;
+    /// <summary>internal：供单元测试构造不落盘的实例（见 InternalsVisibleTo）；path 省略时用默认路径。</summary>
+    internal CommandStore(StoreData data, string? path = null)
+    {
+        _data = data;
+        _path = path ?? DefaultPath;
+    }
 
     // ── 加载 / 保存 ──
 
-    static CommandStore Load()
+    /// <summary>internal：从指定路径加载（单元测试传临时文件，见 InternalsVisibleTo）。</summary>
+    internal static CommandStore LoadFrom(string path)
     {
         try
         {
-            if (File.Exists(FilePath))
+            if (File.Exists(path))
             {
-                var data = JsonSerializer.Deserialize<StoreData>(File.ReadAllText(FilePath), JsonOpts);
+                var data = JsonSerializer.Deserialize<StoreData>(File.ReadAllText(path), JsonOpts);
                 if (data != null)
                 {
                     data.Categories ??= new List<string>();
@@ -67,7 +75,7 @@ public sealed class CommandStore
                     data.History ??= new List<CommandRun>();
                     data.Placeholders ??= new Dictionary<string, string>();
                     if (data.Categories.Count == 0) Seed(data);
-                    return new CommandStore(data);
+                    return new CommandStore(data, path);
                 }
             }
         }
@@ -78,18 +86,21 @@ public sealed class CommandStore
 
         var fresh = new StoreData();
         Seed(fresh);
-        var store = new CommandStore(fresh);
+        var store = new CommandStore(fresh, path);
         store.Save();
         return store;
     }
 
-    public void Save()
+    public void Save() => SaveTo(_path);
+
+    /// <summary>internal：写回指定路径（单元测试传临时文件，见 InternalsVisibleTo）。</summary>
+    internal void SaveTo(string path)
     {
         try
         {
-            var dir = Path.GetDirectoryName(FilePath);
+            var dir = Path.GetDirectoryName(path);
             if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
-            File.WriteAllText(FilePath, JsonSerializer.Serialize(_data, JsonOpts));
+            File.WriteAllText(path, JsonSerializer.Serialize(_data, JsonOpts));
         }
         catch
         {

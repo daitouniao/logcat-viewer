@@ -709,4 +709,137 @@ public class LogDocumentTests
             Assert.Equal(docFull.TagOf(i), docInc.TagOf(i));
         }
     }
+
+    // ── 扫描区间的行边界对齐（ScanRange 的 start / end 对齐分支）──
+
+    /// <summary>
+    /// 回归：上次索引结束时文件末尾正好停在「半行」中间（末尾没有换行），
+    /// 下一次追加时 start 就落在行中间。ScanRange 必须按「start-1 是否为换行」判断，
+    /// 并跳到下一个换行之后；判断依据取错（看 start 自身首字节）就会白跳一行、吞掉新内容。
+    ///
+    /// 说明：Build 是一次性全量扫描，末尾没有换行的残行同样会被索引成一条
+    /// （与 Append 路径「半行留待下次追加」的策略不同，见 Reload_末尾不完整行暂不索引_补全后才索引）。
+    /// 本用例锁定的是「对齐之后不吞掉新行」这一不变式。
+    /// </summary>
+    [Fact]
+    public void Reload_Build时末尾停在半行_追加时不吞新行()
+    {
+        using var tmp = new TempLogFile(Line(T1, 'I', "Tag", "a")
+                                      + "09-23 18:00:01.000  1  2 I Tag: par");   // 末尾无换行
+        using var doc = LogDocument.Build(tmp.Path);
+        Assert.Equal(2, doc.RowCount);        // 残行也被全量扫描收进索引
+
+        // 先补上换行让残行完整，再追加一条完整记录
+        tmp.Append("\n" + Line(T3, 'I', "Tag", "c"));
+        Assert.Equal("appended", doc.Reload());
+
+        Assert.Equal(3, doc.RowCount);
+        Assert.Equal("09-23 18:00:01.000  1  2 I Tag: par", Text(doc.LineBytes(1)));
+        Assert.Equal("09-23 18:00:10.000  1  2 I Tag: c", Text(doc.LineBytes(2)));
+    }
+
+    /// <summary>
+    /// ScanRange 的 end 对齐：end 已在行边界（end-1 是换行）时不动；落在行中间时**回退到该行行首**。
+    /// 不能向后推进——那会把 Append 里 TrimPartial 刚裁掉的尾部残行又读回来，
+    /// 使「完整行 + 末尾残行」与「只写残行」两种写入形态得出不同结果。
+    /// </summary>
+    [Fact]
+    public void Reload_一次追加完整行与末尾残行()
+    {
+        using var tmp = new TempLogFile(Line(T1, 'I', "Tag", "a"));
+        using var doc = LogDocument.Build(tmp.Path);
+        Assert.Equal(1, doc.RowCount);
+
+        // 完整行 + 无换行的残行，一次写入（流式采集常见的 flush 形态）
+        tmp.Append(Line(T2, 'I', "Tag", "b") + "09-23 18:00:10.000  1  2 I Tag: par");
+        Assert.Equal("appended", doc.Reload());
+
+        // 完整行照常进索引，残行留待下次追加（与「只写残行」的 unchanged 行为一致）
+        Assert.Equal(2, doc.RowCount);
+        Assert.Equal("09-23 18:00:01.000  1  2 I Tag: b", Text(doc.LineBytes(1)));
+
+        // 补上换行后残行才进入索引
+        tmp.Append("\n");
+        Assert.Equal("appended", doc.Reload());
+        Assert.Equal(3, doc.RowCount);
+        Assert.Equal("09-23 18:00:10.000  1  2 I Tag: par", Text(doc.LineBytes(2)));
+    }
+
+    /// <summary>
+    /// 直接验证区间扫描的 end 对齐：end 落在行中间时回退到该行行首。
+    /// 不能把不完整的尾行当成一条记录——否则流式写入的残行会先进索引，补齐后再来一条，
+    /// 同一行裂成两条（Append 路径靠 TrimPartial 规避的正是这个）。
+    /// </summary>
+    [Fact]
+    public void ScanRange_end落在行中间时回退到行首()
+    {
+        string line1 = Line(T1, 'I', "Tag", "a");
+        string line2 = Line(T2, 'I', "Tag", "b");
+        using var tmp = new TempLogFile(line1 + line2 + Line(T3, 'I', "Tag", "c"));
+
+        // end 切在第二行中间 → 第二行不完整，只应索引第一行
+        var part = LogDocument.ScanRange(tmp.Path, 0, line1.Length + 5, join: true);
+
+        Assert.Single(part.Offs);
+        Assert.Equal(0, part.Offs[0]);
+        Assert.Equal(line1.Length - 1, part.Lens[0]);      // 记录长度不含行尾换行
+    }
+
+    /// <summary>列属性（供 UI / 过滤使用）长度必须跟随索引行数。</summary>
+    [Fact]
+    public void 列属性长度跟随索引行数()
+    {
+        using var tmp = new TempLogFile(Line(T1, 'I', "Tag", "a") + Line(T2, 'E', "Other", "b"));
+        using var doc = LogDocument.Build(tmp.Path);
+
+        Assert.Equal(2, doc.RowCount);
+        Assert.Equal(doc.RowCount, doc.Lens.Length);
+        Assert.Equal(doc.RowCount, doc.Moff.Length);
+        Assert.Equal(doc.RowCount, doc.Flags.Length);
+        Assert.Equal(doc.RowCount, doc.Ts.Length);
+    }
+
+    /// <summary>
+    /// 长日志（&gt;4 MB）扫描的进度上报与中途取消：进度回调里取消令牌后，
+    /// 扫描应在下一个检查点（每 5000 行）抛出，而不是把整份索引跑完。
+    /// </summary>
+    [Fact]
+    public void Build_长日志上报进度并支持中途取消()
+    {
+        var sb = new StringBuilder();
+        for (int i = 0; i < 120_000; i++) sb.Append(Line(T1, 'I', "Tag", "filler line " + i));
+        using var tmp = new TempLogFile(sb.ToString());
+        Assert.True(tmp.Length > (1 << 22), "样本需超过进度上报阈值（4 MB）");
+
+        var progress = new ProgressRecorder();
+        using (var doc = LogDocument.Build(tmp.Path, progress: progress))
+            Assert.Equal(120_000, doc.RowCount);
+        Assert.Contains(progress.Items, p => p.msg.Contains("扫描行") && p.pct > 0);
+
+        using var cts = new CancellationTokenSource();
+        Assert.Throws<OperationCanceledException>(
+            () => LogDocument.Build(tmp.Path, progress: new CancelOnFirstReport(cts), ct: cts.Token));
+    }
+
+    /// <summary>
+    /// EnsureCap：初始容量是「首次索引行数 × 1.25 + 1024」，增量追加超过它时要整体扩容
+    /// （9 个列数组 + _cap）。扩容后旧数据与新数据都必须能按行号正确读回，不能错位。
+    /// </summary>
+    [Fact]
+    public void Reload_增量超过初始容量时扩容且数据不错位()
+    {
+        using var tmp = new TempLogFile(Line(T1, 'I', "Tag", "line0"));
+        using var doc = LogDocument.Build(tmp.Path);      // 1 行 → _cap = 1 + 0 + 1024
+
+        const int extra = 1100;                            // 1 + 1100 > 1025，必然触发扩容
+        var sb = new StringBuilder();
+        for (int i = 1; i <= extra; i++) sb.Append(Line(T2, 'I', "Tag", "line" + i));
+        tmp.Append(sb.ToString());
+        Assert.Equal("appended", doc.Reload());
+
+        Assert.Equal(extra + 1, doc.RowCount);
+        Assert.Equal("09-23 18:00:00.000  1  2 I Tag: line0", Text(doc.LineBytes(0)));      // 扩容前的旧数据
+        Assert.Equal("09-23 18:00:01.000  1  2 I Tag: line1", Text(doc.LineBytes(1)));      // 扩容后的新数据
+        Assert.Equal("09-23 18:00:01.000  1  2 I Tag: line1100", Text(doc.LineBytes(extra)));
+    }
 }

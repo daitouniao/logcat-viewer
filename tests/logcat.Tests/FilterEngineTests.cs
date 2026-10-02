@@ -242,6 +242,31 @@ public class FilterEngineTests
             Apply(doc, new FilterSpec { Tags = new[] { "Network", "Debug" }, TagOp = "or" }));
     }
 
+    [Fact]
+    public void tag正则模式下多值and与or语义()
+    {
+        using var tmp = new TempLogFile(Data);
+        using var doc = LogDocument.Build(tmp.Path);
+
+        // and：同一个 tag 必须同时命中每一条正则（pats.All 分支）
+        Assert.Equal(new[] { 0, 1 },
+            Apply(doc, new FilterSpec
+            {
+                Tags = new[] { "^Activity", "Manager$" },
+                TagRegex = true,
+                TagOp = "and",
+            }));
+
+        // or：任一正则命中即可（pats.Any 分支）
+        Assert.Equal(new[] { 2, 3, 4, 5 },
+            Apply(doc, new FilterSpec
+            {
+                Tags = new[] { "^Network", "Tag$" },
+                TagRegex = true,
+                TagOp = "or",
+            }));
+    }
+
     // ── ApplyFilter：message ──
 
     [Fact]
@@ -445,6 +470,23 @@ public class FilterEngineTests
 
         var spec = new FilterSpec { MarkedOnly = true };
         Assert.Equal(new[] { 4 }, FilterEngine.FilterTail(doc, spec, 0, new HashSet<int> { 4 }));
+    }
+
+    /// <summary>
+    /// 增量路径的 tid 排除分支：FilterTail 里 TidExclude 与 PidExclude 是各自独立的判定，
+    /// 漏掉一种会让实时采集与一次性过滤得出不同结果（滚动视图凭空多行/少行）。
+    /// </summary>
+    [Fact]
+    public void FilterTail支持tid排除()
+    {
+        using var tmp = new TempLogFile(Data);
+        using var doc = LogDocument.Build(tmp.Path);
+
+        // 样本 tid：行0=2 行1=3 行2=4 行3=5 行4=6 行5=7 → 排除 2、3 后保留行 2~5
+        var spec = new FilterSpec { Tids = new[] { 2, 3 }, TidExclude = true };
+        Assert.Equal(new[] { 2, 3, 4, 5 }, Apply(doc, spec));
+        Assert.Equal(new[] { 2, 3, 4, 5 }, FilterEngine.FilterTail(doc, spec, 0));
+        Assert.Equal(new[] { 3, 4, 5 }, FilterEngine.FilterTail(doc, spec, 3));
     }
 
     // ── ExportRows ──

@@ -3,6 +3,7 @@ using System.Drawing;
 using System.IO;
 using System.Text.Encodings.Web;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace logcat.Services;
 
@@ -24,14 +25,23 @@ public sealed class AppSettings
         Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
     };
 
-    static readonly string FilePath = Path.Combine(
+    static readonly string DefaultPath = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "logcat", "settings.json");
 
     static AppSettings? _default;
 
+    /// <summary>本实例的落盘路径。可注入，便于单元测试用临时文件（见 InternalsVisibleTo）。</summary>
+    [JsonIgnore]
+    public string StorePath { get; private set; } = DefaultPath;
+
     /// <summary>进程内共享实例（首次访问时从磁盘加载）。</summary>
-    public static AppSettings Default => _default ??= Load();
+    public static AppSettings Default => _default ??= LoadFrom(DefaultPath);
+
+    public AppSettings() { }
+
+    /// <summary>internal：指定落盘路径（单元测试传临时文件，见 InternalsVisibleTo）。</summary>
+    internal AppSettings(string path) => StorePath = path;
 
     // ── 显示选项 ──
     public bool Join { get; set; } = true;
@@ -62,30 +72,38 @@ public sealed class AppSettings
     public bool ApkKeepData { get; set; }
     public bool ApkUseRoot { get; set; }
 
-    static AppSettings Load()
+    /// <summary>internal：从指定路径加载（单元测试传临时文件，见 InternalsVisibleTo）。</summary>
+    internal static AppSettings LoadFrom(string path)
     {
         try
         {
-            if (File.Exists(FilePath))
+            if (File.Exists(path))
             {
-                var s = JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(FilePath), JsonOpts);
-                if (s != null) return s;
+                var s = JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(path), JsonOpts);
+                if (s != null)
+                {
+                    s.StorePath = path;    // 反序列化走无参构造，路径要重新绑到实际加载的文件
+                    return s;
+                }
             }
         }
         catch
         {
             // 文件损坏时回退默认值
         }
-        return new AppSettings();
+        return new AppSettings(path);
     }
 
-    public void Save()
+    public void Save() => SaveTo(StorePath);
+
+    /// <summary>internal：写回指定路径（单元测试传临时文件，见 InternalsVisibleTo）。</summary>
+    internal void SaveTo(string path)
     {
         try
         {
-            var dir = Path.GetDirectoryName(FilePath);
+            var dir = Path.GetDirectoryName(path);
             if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
-            File.WriteAllText(FilePath, JsonSerializer.Serialize(this, JsonOpts));
+            File.WriteAllText(path, JsonSerializer.Serialize(this, JsonOpts));
         }
         catch
         {

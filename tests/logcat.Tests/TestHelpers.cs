@@ -60,9 +60,55 @@ sealed class ProgressRecorder : IProgress<(double pct, string msg)>
     public void Report((double pct, string msg) value) => Items.Add(value);
 }
 
+/// <summary>首次收到进度上报时取消令牌，用于验证长任务能中途取消（而不是跑完整份才抛）。</summary>
+sealed class CancelOnFirstReport : IProgress<(double pct, string msg)>
+{
+    readonly CancellationTokenSource _cts;
+
+    public CancelOnFirstReport(CancellationTokenSource cts) => _cts = cts;
+
+    public int Count { get; private set; }
+
+    public void Report((double pct, string msg) value)
+    {
+        Count++;
+        if (Count == 1) _cts.Cancel();
+    }
+}
+
 static class TestData
 {
     /// <summary>threadtime 假日志行（单字符宽度字段，偏移量好数）。</summary>
     public static string Threadtime(string time, int pid, int tid, char level, string tag, string msg)
         => $"{time}  {pid}  {tid} {level} {tag}: {msg}\n";
+}
+
+/// <summary>
+/// 一次性临时文件，供存储类（CommandStore / FavoritesStore / AppSettings）的落盘测试使用，
+/// 避免触碰 %LOCALAPPDATA% 下的真实数据文件。
+/// content 传 null 表示「只给路径、不创建文件」，用于测「文件不存在」分支。
+/// </summary>
+sealed class TempStoreFile : IDisposable
+{
+    static readonly string Root = System.IO.Path.Combine(
+        System.IO.Path.GetTempPath(), "logcat-tests");
+
+    public string Path { get; }
+
+    public TempStoreFile(string? content = "")
+    {
+        Directory.CreateDirectory(Root);
+        Path = System.IO.Path.Combine(Root, Guid.NewGuid().ToString("N") + ".json");
+        if (content != null)
+            File.WriteAllText(Path, content, new UTF8Encoding(false));
+    }
+
+    public bool Exists => File.Exists(Path);
+
+    public string Read() => File.ReadAllText(Path);
+
+    public void Dispose()
+    {
+        try { File.Delete(Path); } catch { /* 句柄未及时释放时留给系统清理 */ }
+    }
 }

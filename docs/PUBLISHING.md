@@ -124,9 +124,9 @@ git config --global http.sslBackend schannel
 `schannel` 是 Windows 原生 TLS 后端，直接使用系统证书库。
 **不要**用 `http.sslVerify=false` 绕过——那会关闭校验，等于对中间人攻击不设防。
 
-### 4.2 `dotnet test` 有 90 个失败（环境限制，非代码缺陷）
+### 4.2 `dotnet test` 在沙箱内大面积失败（环境限制，非代码缺陷）
 
-**现象**：`dotnet test` 报 90 个失败，全部是
+**现象**：在 DSH 沙箱里 `dotnet test` 会报约 90 个失败（全量 321 个用例中，96 处用到临时文件），全部是
 `UnauthorizedAccessException: Access to the path 'C:\Users\...\Temp\logcat-tests\*.log' is denied`，
 失败点集中在 `TempLogFile` 构造函数（`TestHelpers.cs:23`）。
 
@@ -140,11 +140,14 @@ git config --global http.sslBackend schannel
 **结论**：**不是代码缺陷，也不是测试写错了**，是运行环境的沙箱边界。
 `TempLogFile` 的写法（GUID 文件名 + `File.WriteAllBytes`）本身完全正确。
 
-**建议**：需要跑全量测试时，在 DSH 之外的普通终端里执行即可：
+**解法（已验证，无需改代码）**：把临时目录指到工作区内，`Path.GetTempPath()` 随之改变，
+`TempLogFile` 不再触碰 `%TEMP%`，沙箱内可以全绿：
 
 ```powershell
+$env:TMP  = "D:\01.0.Code\C#\logcat\.tmp-test"
+$env:TEMP = $env:TMP
 dotnet test tests/logcat.Tests/logcat.Tests.csproj
 ```
 
-若希望在沙箱内也能跑，可把 `TestHelpers.cs` 的 `Root` 从 `%TEMP%` 改为
-仓库内的 `.tmp-tests/`（记得加进 `.gitignore`）——但这是为环境妥协，非必要不改。
+`.tmp-test/` 是临时产物，已加入 `.gitignore`。
+在 DSH 之外的普通终端里跑测试则不需要这一步。
