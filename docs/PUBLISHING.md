@@ -16,6 +16,7 @@
 - 两个 README 顶部互相链接（`English | 简体中文`）。
 - 远程配置：`origin` = **GitCode 主仓库**，`github` = GitHub 镜像。`master` 上游为 `origin/master`，
   裸 `git push` 即发往 GitCode。
+- GitHub 侧由 GitCode 的 **Push 镜像**自动同步；**Pull 镜像保持关闭**（启用会让仓库变只读，见 3.1）。
 - 已执行验证：`dotnet build` **0 错误**（22 个既有警告），产物中同时生成
   `README.md` 与 `README.zh-CN.md`。
 
@@ -122,8 +123,32 @@ v5 仓库对象也不暴露 mirror 字段）。
 2ba6c8e..4afc8b6  master -> master
 ```
 
-**后续想保持 GitHub 自动跟随**：在同一页面的 **Push 页签**「添加镜像」，目标填 GitHub 仓库地址
-+ GitHub 账号 + 个人令牌（PAT，需 `repo` 权限）。
+**GitHub 自动跟随**：已在同一页面的 **Push 页签**配好（目标 = GitHub 仓库地址 + GitHub 账号 +
+PAT，需 `repo` 权限）。此后往 GitCode 推的提交会在几分钟内自动同步到 GitHub，无需手工推 `github`。
+
+#### ⚠️ 不要在这个仓库上启用 Pull 镜像
+
+Pull 页签目前是空的，**这是有意为之**。再次启用 Pull（GitHub → GitCode）会有三个叠加风险：
+
+1. **仓库会重新变为只读** —— 就是本文档 3.1 上面的现象，`CH.00905403 ... image repository`。
+   之前删掉 Pull 条目才恢复可写，说明 GitCode 对「存在 Pull 镜像」的仓库直接禁写。
+2. **可能回退 GitCode 的 master** —— Pull 的源头是 GitHub，而 GitHub 现在是 GitCode 的**下游镜像**
+   （由 Push 镜像同步），它的 master 天然比 GitCode 旧。若勾选了「覆盖分叉分支 / Overwrite diverged
+   branches」，下一次 Pull 会用 GitHub 的旧提交覆盖 GitCode，`4afc8b6`、`d2e941e` 直接从 origin 上消失。
+   不勾选的话不会丢数据（GitLab 默认会因「分叉」而停止更新该分支），但镜像会静默卡住、且仓库仍是只读。
+3. **Pull + Push 同时存在 = 双向镜像** —— GitLab 官方文档明说
+   「不需要冲突的双向镜像支持并不存在」（*There is no bidirectional support without conflicts*），
+   定期同步窗口里两边互相覆盖只是时间问题。
+
+**结论**：本仓库的事实来源（source of truth）是 GitCode。万一确实需要临时从 GitHub 拉一次，
+用本地一次性操作代替配置 Pull 镜像：
+
+```powershell
+git fetch github master          # 只取，不合并
+git log --oneline HEAD..github/master   # 看看 GitHub 上有没有这边没有的提交
+```
+
+确认没有需要的提交后，记得在网页上把 Pull 镜像**再删掉**，否则仓库会一直处于只读状态。
 
 ## 4. 环境问题记录（已解决）
 
