@@ -2,21 +2,24 @@ using System.Text;
 
 namespace logcat.Tests;
 
+/// <summary>临时文件的公共根目录：%TEMP%\logcat-tests，由各 Temp* 帮助类共用。</summary>
+static class TempRoot
+{
+    public static readonly string Path = System.IO.Path.Combine(
+        System.IO.Path.GetTempPath(), "logcat-tests");
+}
+
 /// <summary>
 /// 一次性临时日志文件。Dispose 时删除（必须在被测的 LogDocument 释放之后）。
 /// </summary>
 sealed class TempLogFile : IDisposable
 {
-    // 注意：这里的 Path 属性会遮蔽 System.IO.Path，静态初始化必须写全名
-    static readonly string Root = System.IO.Path.Combine(
-        System.IO.Path.GetTempPath(), "logcat-tests");
-
     public string Path { get; }
 
     public TempLogFile(string content = "", bool withBom = false)
     {
-        Directory.CreateDirectory(Root);
-        Path = System.IO.Path.Combine(Root, Guid.NewGuid().ToString("N") + ".log");
+        Directory.CreateDirectory(TempRoot.Path);
+        Path = System.IO.Path.Combine(TempRoot.Path, Guid.NewGuid().ToString("N") + ".log");
         var bytes = new List<byte>();
         if (withBom) bytes.AddRange(new byte[] { 0xEF, 0xBB, 0xBF });
         bytes.AddRange(new UTF8Encoding(false).GetBytes(content));
@@ -90,15 +93,12 @@ static class TestData
 /// </summary>
 sealed class TempStoreFile : IDisposable
 {
-    static readonly string Root = System.IO.Path.Combine(
-        System.IO.Path.GetTempPath(), "logcat-tests");
-
     public string Path { get; }
 
     public TempStoreFile(string? content = "")
     {
-        Directory.CreateDirectory(Root);
-        Path = System.IO.Path.Combine(Root, Guid.NewGuid().ToString("N") + ".json");
+        Directory.CreateDirectory(TempRoot.Path);
+        Path = System.IO.Path.Combine(TempRoot.Path, Guid.NewGuid().ToString("N") + ".json");
         if (content != null)
             File.WriteAllText(Path, content, new UTF8Encoding(false));
     }

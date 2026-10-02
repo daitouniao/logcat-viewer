@@ -657,7 +657,7 @@ public class LogDocumentTests
         tmp.Append("    at Foo.bar(Foo.java:1)\n");
         doc.Reload(join: true);
 
-        Assert.False(doc.Join == false);
+        Assert.True(doc.Join);
         Assert.Equal(1, doc.RowCount);
         Assert.True(doc.IsMultiline(0));
     }

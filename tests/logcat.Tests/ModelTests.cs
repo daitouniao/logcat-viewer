@@ -372,7 +372,8 @@ public class AdbManagerStaticTests
     [Fact]
     public void AdbArgs支持制表符分隔()
     {
-        Assert.Equal("-s S1 shell", AdbManager.AdbArgs("shell\tls", "S1").Split('\t')[0]);
+        // tab 与空格同作分隔符识别首个子命令，但整串原样传给 adb（tab 保留在尾部参数里）
+        Assert.Equal("-s S1 shell\tls", AdbManager.AdbArgs("shell\tls", "S1"));
     }
 
     [Fact]
