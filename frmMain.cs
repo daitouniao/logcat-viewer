@@ -160,7 +160,7 @@ public partial class frmMain : Form
         _comboDevice.SelectedIndexChanged += (_, _) => _deviceOps?.OnDeviceChanged();
         // 设备操作总入口（截图/录屏/文件浏览/APK/命令）
         var btnDeviceOps = new ToolStripButton("设备操作", null, (_, _) => ShowDeviceOps(DeviceOpsDialog.PageKind.Command));
-        var btnRefresh = new ToolStripButton("刷新设备", null, (_, _) => AdbRefresh());
+        var btnRefresh = new ToolStripButton("刷新设备", null, (_, _) => _ = AdbRefresh());
         // 刷新设备紧贴设备列表左侧；开始/停止采集在左侧分组
         ToolStripItem[] adbItems =
         {
@@ -194,15 +194,15 @@ public partial class frmMain : Form
 
         _tbMin = new ToolStripTextBox { Width = 80, ToolTipText = "如 05 20（空格分隔）" };
         _tbMin.TextChanged += (_, _) => SyncToolbarToPanel(_tbMin, _edMin);
-        _tbMin.KeyDown += (_, e) => { if (e.KeyCode == Keys.Enter) ApplyFilter(); };
+        _tbMin.KeyDown += (_, e) => { if (e.KeyCode == Keys.Enter) _ = ApplyFilter(); };
 
         _tbTag = new ToolStripTextBox { Width = 130, ToolTipText = "多个用空格分隔，短语用双引号包裹" };
         _tbTag.TextChanged += (_, _) => { SyncToolbarToPanel(_tbTag, _edTag); _cbTagOp.SelectedItem = "or"; };
-        _tbTag.KeyDown += (_, e) => { if (e.KeyCode == Keys.Enter) ApplyFilter(); };
+        _tbTag.KeyDown += (_, e) => { if (e.KeyCode == Keys.Enter) _ = ApplyFilter(); };
 
         _tbMsg = new ToolStripTextBox { Width = 180, ToolTipText = "多词用空格分隔，短语用双引号包裹" };
         _tbMsg.TextChanged += (_, _) => { SyncToolbarToPanel(_tbMsg, _edMsg); _cbMsgOp.SelectedItem = "or"; };
-        _tbMsg.KeyDown += (_, e) => { if (e.KeyCode == Keys.Enter) ApplyFilter(); };
+        _tbMsg.KeyDown += (_, e) => { if (e.KeyCode == Keys.Enter) _ = ApplyFilter(); };
 
         _toolStrip2.Items.AddRange(new ToolStripItem[] {
             new ToolStripLabel("标记:"),
@@ -248,7 +248,7 @@ public partial class frmMain : Form
 
         // ── 布局 ──
         // 过滤面板移到独立的非模态窗口（FilterDialog），主区域只保留日志列表填满
-        _filterDialog = new FilterDialog(_panel, () => ApplyFilter());
+        _filterDialog = new FilterDialog(_panel, () => _ = ApplyFilter());
         Controls.Add(_listView);
         Load += (_, _) =>
         {
@@ -261,7 +261,7 @@ public partial class frmMain : Form
         _listView.BringToFront();
 
         // ── 定时器 ──
-        _autoTimer.Tick += (_, _) => { _autoTimer.Stop(); ApplyFilter(); };
+        _autoTimer.Tick += (_, _) => { _autoTimer.Stop(); _ = ApplyFilter(); };
         _adbReloadTimer.Tick += (_, _) => AdbAutoReload();
         _adbStatTimer.Tick += (_, _) => AdbUpdateStat();
 
@@ -336,7 +336,7 @@ public partial class frmMain : Form
 
         // 应用/重置 与选项合并到级别行
         var btnApply = new Button { Text = "应用  (Ctrl+Enter)", AutoSize = true, MinimumSize = new Size(140, 25) };
-        btnApply.Click += (_, _) => ApplyFilter();
+        btnApply.Click += (_, _) => _ = ApplyFilter();
         var btnReset = new Button { Text = "重置", AutoSize = true, MinimumSize = new Size(60, 25) };
         btnReset.Click += (_, _) => ResetFilter();
         _chkAuto = new CheckBox { Text = "自动应用", AutoSize = true, Checked = true };
@@ -363,7 +363,7 @@ public partial class frmMain : Form
         pidTidPanel.Controls.Add(new Label { Text = "PID", AutoSize = true, Padding = new Padding(0, 4, 4, 0) });
         _edPid = new TextBox { Width = 130, PlaceholderText = "多值用空格分隔" };
         _edPid.TextChanged += (_, _) => OnFilterChanged();
-        _edPid.KeyDown += (_, e) => { if (e.KeyCode == Keys.Enter) ApplyFilter(); };
+        _edPid.KeyDown += (_, e) => { if (e.KeyCode == Keys.Enter) _ = ApplyFilter(); };
         pidTidPanel.Controls.Add(_edPid);
         _ckPidEx = new CheckBox { Text = "排除", AutoSize = true };
         _ckPidEx.CheckedChanged += (_, _) => OnFilterChanged();
@@ -371,7 +371,7 @@ public partial class frmMain : Form
         pidTidPanel.Controls.Add(new Label { Text = "TID", AutoSize = true, Padding = new Padding(8, 4, 4, 0) });
         _edTid = new TextBox { Width = 130, PlaceholderText = "多值用空格分隔" };
         _edTid.TextChanged += (_, _) => OnFilterChanged();
-        _edTid.KeyDown += (_, e) => { if (e.KeyCode == Keys.Enter) ApplyFilter(); };
+        _edTid.KeyDown += (_, e) => { if (e.KeyCode == Keys.Enter) _ = ApplyFilter(); };
         pidTidPanel.Controls.Add(_edTid);
         _ckTidEx = new CheckBox { Text = "排除", AutoSize = true };
         _ckTidEx.CheckedChanged += (_, _) => OnFilterChanged();
@@ -379,7 +379,7 @@ public partial class frmMain : Form
         pidTidPanel.Controls.Add(new Label { Text = "分钟", AutoSize = true, Padding = new Padding(8, 4, 4, 0) });
         _edMin = new TextBox { Width = 160, PlaceholderText = "如 05 20（空格分隔）" };
         _edMin.TextChanged += (_, _) => { SyncPanelToToolbar(_edMin, _tbMin); OnFilterChanged(); };
-        _edMin.KeyDown += (_, e) => { if (e.KeyCode == Keys.Enter) ApplyFilter(); };
+        _edMin.KeyDown += (_, e) => { if (e.KeyCode == Keys.Enter) _ = ApplyFilter(); };
         pidTidPanel.Controls.Add(_edMin);
         _lblSpec = new Label { Text = "（无过滤）", AutoSize = true, Padding = new Padding(8, 6, 0, 0), ForeColor = Color.Gray };
         pidTidPanel.Controls.Add(_lblSpec);
@@ -417,7 +417,7 @@ public partial class frmMain : Form
         ed.PlaceholderText = placeholder;
         var box = ed;
         box.TextChanged += (_, _) => { if (syncBox != null) SyncPanelToToolbar(box, syncBox); OnFilterChanged(); };
-        box.KeyDown += (_, e) => { if (e.KeyCode == Keys.Enter) ApplyFilter(); };
+        box.KeyDown += (_, e) => { if (e.KeyCode == Keys.Enter) _ = ApplyFilter(); };
         panel.Controls.Add(ed);
 
         // 收藏：▾ 从收藏选择，★ 收藏/移除当前内容
@@ -469,7 +469,7 @@ public partial class frmMain : Form
                 {
                     ed.Text = text;
                     ed.SelectionStart = text.Length;
-                    ApplyFilter();
+                    _ = ApplyFilter();
                 };
                 menu.Items.Add(mi);
             }
@@ -754,7 +754,7 @@ public partial class frmMain : Form
         _ckMsgRe.Checked = _ckMsgCase.Checked = _ckMsgEx.Checked = false;
         _ckPidEx.Checked = _ckTidEx.Checked = false;
         _chkToolbarMarkedOnly.Checked = _chkToolbarFollow.Checked = false;
-        ApplyFilter();
+        _ = ApplyFilter();
     }
 
     void StopWorker()
@@ -924,19 +924,19 @@ public partial class frmMain : Form
 
         string tag = _doc?.TagOf(docRow) ?? "";
         if (!string.IsNullOrEmpty(tag))
-            menu.Items.Add($"按此 tag 过滤：{tag}", null, (_, _) => { _edTag.Text = tag; ApplyFilter(); });
+            menu.Items.Add($"按此 tag 过滤：{tag}", null, (_, _) => { _edTag.Text = tag; _ = ApplyFilter(); });
 
         if (_doc != null)
         {
             int pid = _doc.Pid[docRow], tid = _doc.Tid[docRow];
-            if (pid >= 0) menu.Items.Add($"按此 PID 过滤：{pid}", null, (_, _) => { _edPid.Text = pid.ToString(); ApplyFilter(); });
-            if (tid >= 0) menu.Items.Add($"按此 TID 过滤：{tid}", null, (_, _) => { _edTid.Text = tid.ToString(); ApplyFilter(); });
+            if (pid >= 0) menu.Items.Add($"按此 PID 过滤：{pid}", null, (_, _) => { _edPid.Text = pid.ToString(); _ = ApplyFilter(); });
+            if (tid >= 0) menu.Items.Add($"按此 TID 过滤：{tid}", null, (_, _) => { _edTid.Text = tid.ToString(); _ = ApplyFilter(); });
 
             long ts = _doc.Ts[docRow];
             if (ts >= 0)
             {
                 int minute = (int)((ts / 60000) % 60);
-                menu.Items.Add($"按此分钟过滤：{minute:D2}", null, (_, _) => { _edMin.Text = minute.ToString(); ApplyFilter(); });
+                menu.Items.Add($"按此分钟过滤：{minute:D2}", null, (_, _) => { _edMin.Text = minute.ToString(); _ = ApplyFilter(); });
             }
         }
 
@@ -1076,7 +1076,7 @@ public partial class frmMain : Form
     void OnKeyDown(object? sender, KeyEventArgs e)
     {
         if (e.Control && e.Shift && e.KeyCode == Keys.C) { AdbCommandWindow(); e.Handled = true; }
-        else if (e.Control && e.KeyCode == Keys.Enter) { ApplyFilter(); e.Handled = true; }
+        else if (e.Control && e.KeyCode == Keys.Enter) { _ = ApplyFilter(); e.Handled = true; }
         else if (e.Control && e.KeyCode == Keys.O) { OpenFile(); e.Handled = true; }
         else if (e.Control && e.KeyCode == Keys.E) { ExportRows(false); e.Handled = true; }
         else if (e.Control && e.KeyCode == Keys.F) { ShowFilterDialog(); _tbMsg.Focus(); _tbMsg.SelectAll(); e.Handled = true; }
@@ -1394,8 +1394,9 @@ public partial class frmMain : Form
         {
             if (item.Tag is "adb" && item is ToolStripButton btn)
             {
-                if (btn.Text.Contains("开始采集")) btn.Enabled = !_adbCapturing;
-                if (btn.Text.Contains("停止") && !btn.Text.Contains("开始")) btn.Enabled = _adbCapturing;
+                var btnText = btn.Text ?? ""; // WinForms 的 Text getter 注解为可返回 null
+                if (btnText.Contains("开始采集")) btn.Enabled = !_adbCapturing;
+                if (btnText.Contains("停止") && !btnText.Contains("开始")) btn.Enabled = _adbCapturing;
             }
         }
         _actSaveLog.Enabled = !_adbCapturing && _adbTempPath != null;
@@ -1545,7 +1546,7 @@ public partial class frmMain : Form
     void ShowFilterDialog()
     {
         if (_filterDialog == null || _filterDialog.IsDisposed)
-            _filterDialog = new FilterDialog(_panel, () => ApplyFilter());
+            _filterDialog = new FilterDialog(_panel, () => _ = ApplyFilter());
 
         if (!_filterDialog.Visible)
         {

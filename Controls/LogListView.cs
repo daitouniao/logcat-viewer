@@ -278,7 +278,7 @@ public class LogListView : ListView
     }
 
     // ── 虚拟列表事件 ──
-    void OnRetrieveVirtualItem(object sender, RetrieveVirtualItemEventArgs e)
+    void OnRetrieveVirtualItem(object? sender, RetrieveVirtualItemEventArgs e)
     {
         int idx = e.ItemIndex;
         if (_cache.TryGetValue(idx, out var cached))
@@ -289,7 +289,7 @@ public class LogListView : ListView
         e.Item = MakeItem(idx);
     }
 
-    void OnCacheVirtualItems(object sender, CacheVirtualItemsEventArgs e)
+    void OnCacheVirtualItems(object? sender, CacheVirtualItemsEventArgs e)
     {
         // 预缓存：不需要额外操作，RetrieveVirtualItem 会按需创建
     }
