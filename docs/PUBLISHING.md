@@ -4,7 +4,7 @@
 
 ## 0. 当前状态（最近一次更新）
 
-**已完成并已推送**（commit `1490b74`，`origin` 与 `gitcode` 两个远程都在同一提交）：
+**已完成并已推送**（commit `1490b74`，当时两个远程都在同一提交）：
 
 | 文件 | 改动 |
 | --- | --- |
@@ -13,8 +13,9 @@
 | `logcat.csproj` | 输出/发布时一并复制 `README.zh-CN.md` |
 | `docs/github-topics.txt` | GitHub topics 清单（单一来源，16 个） |
 
-- 两个 README 顶部互相链接（`English | 简体中文`），GitHub 作为主仓库排在前面。
-- 远程已配置：`origin` = GitHub，`gitcode` = GitCode 镜像。
+- 两个 README 顶部互相链接（`English | 简体中文`）。
+- 远程配置：`origin` = **GitCode 主仓库**，`github` = GitHub 镜像。`master` 上游为 `origin/master`，
+  裸 `git push` 即发往 GitCode。
 - 已执行验证：`dotnet build` **0 错误**（22 个既有警告），产物中同时生成
   `README.md` 与 `README.zh-CN.md`。
 
@@ -77,33 +78,52 @@ gh repo edit daitouniao/logcat-viewer `
 ```powershell
 git add <files>
 git commit -m "..."
-git push origin master      # GitHub 主仓库
-git push gitcode master     # GitCode 国内镜像（见下方 4.3 的限制）
+git push                    # = git push origin master，发往 GitCode 主仓库
 ```
 
-两处都推送可保持镜像同步；也可以只推 `origin`。
+GitHub 镜像由 GitCode 侧自动同步（**Push 镜像**），无需手工推。若同步尚未生效、
+需要临时手动补推，用下面的写法（注意要绕开会挂死的 credential-helper-selector）：
 
-### 3.1 ⚠️ GitCode 现在拒收推送（需在网页上处理）
+```powershell
+$GCM = '!"C:/Users/Administrator/.workbuddy/binaries/PortableGit/versions/1.2.0/mingw64/bin/git-credential-manager.exe"'
+git -c credential.helper= -c credential.helper=$GCM push github master
+```
 
-**现象**：`git push gitcode master` 报
+### 3.1 ✅ 已解决：GitCode 曾拒收推送（Pull 镜像导致仓库只读）
+
+**现象**：`git push` 报
 
 ```
 remote: <CH.00905403> This operation is not allowed because the repository is an image repository.
 fatal: ... error: 403
 ```
 
-**说明**：这不是 git 或证书问题，是 GitCode 把该仓库判定为**镜像仓库
-（image repository）**并因此拒绝直接推送。注意改名前的第一次推送是成功的
-（`cc120ea..1490b74`），说明这个状态是**改名过程中**变化的。
+**根因**：GitCode 仓库当时配置了**从 GitHub 单向 Pull 的镜像**。按 GitCode 官方文档，
+镜像分 Pull（外部 → GitCode）与 Push（GitCode → 外部）两个方向，**配置了 Pull 镜像的仓库即只读**
+（GitLab 血统的防镜像发散机制），这正是 `image repository` 报错的含义。
 
-**处理**（二选一，都需在 GitCode 网页操作）：
+关键证据是本地与远端 ref 对不上：本地记的 `gitcode/master` 是 `1490b74`（从未成功推过），
+而 GitCode 上的 `master` 却等于 GitHub 的 `2ba6c8e` —— 说明它在自行从 GitHub 同步。
 
-1. 在仓库设置里把「镜像仓库」关掉 / 改为普通仓库，之后即可正常推送；
-2. 或干脆把 GitCode 定位为**只读镜像**：在 GitCode 网页上配置成从 GitHub 定时同步，
-   此后只推 GitHub，GitCode 自动跟随。
+**排除项**（都查过，均非原因）：
 
-**当前状态**：GitHub 已是最新（`f5bfb7d`），GitCode 停在 `1490b74`，
-落后一个文档提交。因为差的只是 `docs/PUBLISHING.md`，不影响使用者，不急于处理。
+- 不是权限：`GET /api/v5/user` 返回的就是仓库属主 `gcw_WDXl5paK` 本人，token 有效；
+- 不是网络：`info/refs` 与 API 都通，只有**写**被拦；
+- 不是分支保护：推一个全新分支 `master:probe-push-test` 同样 403，属**仓库级**只读；
+- 不是 remote 命名/URL：与 remote 叫什么、地址怎么写完全无关。
+
+**解决**（已做，只能在网页操作）：GitCode 项目设置 → 仓库镜像 → **Pull 页签删掉条目**。
+镜像的增删没有开放 API（`/mirror`、`/mirrors`、`/import`、`/sync`、`/settings` 全 404，
+v5 仓库对象也不暴露 mirror 字段）。
+
+删掉后推送即通：
+
+```
+2ba6c8e..4afc8b6  master -> master
+```
+
+**后续想保持 GitHub 自动跟随**：在同一页面的 **Push 页签**「添加镜像」，目标填 GitHub 仓库地址
++ GitHub 账号 + 个人令牌（PAT，需 `repo` 权限）。
 
 ## 4. 环境问题记录（已解决）
 

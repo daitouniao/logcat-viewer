@@ -9,8 +9,8 @@ Windows 桌面端 Android 日志（logcat）查看器。基于 WinForms，使用
 
 项目地址：
 
-- GitHub（主仓库）：<https://github.com/daitouniao/logcat-viewer>
-- GitCode（国内镜像）：<https://gitcode.com/gcw_WDXl5paK/logcat-viewer>
+- GitCode（主仓库）：<https://gitcode.com/gcw_WDXl5paK/logcat-viewer>
+- GitHub（镜像）：<https://github.com/daitouniao/logcat-viewer>
 
 > 当前版本 **V0.0.9**。版本号以 [logcat.csproj](logcat.csproj) 的 `<Version>` 为唯一来源，发布时只改该处，程序标题、关于对话框与 exe 文件属性会自动同步。
 
