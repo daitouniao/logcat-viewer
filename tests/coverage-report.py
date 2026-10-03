@@ -64,11 +64,17 @@ def main():
         # 只看 logcat.* 的业务类型，过滤掉测试程序集
         if not name.startswith("logcat"):
             continue
-        c_lines = list(cls.iter("line"))
-        total = len(c_lines)
+        # coverlet 的 cobertura 输出会把同一行号的 <line> 条目重复输出两次，
+        # 直接按类累加会把行数翻倍（百分比恰好不受影响），必须按行号去重
+        line_hits: dict = {}
+        for ln in cls.iter("line"):
+            num = ln.get("number")
+            hits = int(ln.get("hits", 0))
+            line_hits[num] = max(line_hits.get(num, 0), hits)
+        total = len(line_hits)
         if total == 0:
             continue
-        covered = sum(1 for ln in c_lines if int(ln.get("hits", 0)) > 0)
+        covered = sum(1 for h in line_hits.values() if h > 0)
         classes.append({
             "name": name,
             "file": filename.replace("\\", "/"),
