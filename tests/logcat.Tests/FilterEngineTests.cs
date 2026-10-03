@@ -792,4 +792,249 @@ public class FilterEngineTests
         for (int start = 0; start <= 6; start++)
             Assert.Equal(exclFull.Where(r => r >= start).ToArray(), FilterEngine.FilterTail(doc, exclSpec, start));
     }
+
+    // ── 大小写折叠的字符集边界 ──
+    // 这一节针对「不区分大小写」的折叠实现：过滤引擎在比较前把文本折成小写，
+    // 任何加速（字节级比较、ASCII 快速路径、去掉多余编解码）都不能改变这些结论。
+    // 样本刻意混了纯 ASCII、中文、重音拉丁（É/é）、土耳其无点 i（ı）、德语 ß / 大写 ẞ。
+    // 所有期望值均由真实实现跑出（临时 harness 直接编译 Services 源文件），不是推断。
+
+    const string CaseData =
+        "09-23 18:00:00.000  1  1 I CaseTag: PLAIN ASCII UPPER\n" +           // 0
+        "09-23 18:00:01.000  1  2 I CaseTag: plain ascii lower\n" +           // 1
+        "09-23 18:00:02.000  1  3 I CaseTag: MiXeD CaSe TeXt\n" +             // 2
+        "09-23 18:00:03.000  1  4 I CaseTag: 中文日志内容\n" +                 // 3
+        "09-23 18:00:04.000  1  5 I CaseTag: CAFÉ crème brûlée\n" +          // 4
+        "09-23 18:00:05.000  1  6 I CaseTag: cafe plain no accent\n" +         // 5
+        "09-23 18:00:06.000  1  7 I CaseTag: Turkish dotless ı and I\n" +      // 6
+        "09-23 18:00:07.000  1  8 I CaseTag: German Straße STRASSE\n" +       // 7
+        "09-23 18:00:08.000  1  9 I CaseTag: ß lowercase ß\n" +               // 8
+        "09-23 18:00:09.000  1 10 I CaseTag: ẞ uppercase ẞ\n" +               // 9
+        "09-23 18:00:10.000  1 11 I CaseTag: 中文Mixed大小写\n" +             // 10
+        "09-23 18:00:11.000  1 12 I CaseTag: dotless ı\n";                    // 11 含 ı 但无任何 ASCII i/I
+
+    /// <summary>纯 ASCII 折叠：任意大小写写法等价；MsgCase=true 时严格区分。</summary>
+    [Fact]
+    public void message忽略大小写_纯ASCII双向对称()
+    {
+        using var tmp = new TempLogFile(CaseData);
+        using var doc = LogDocument.Build(tmp.Path);
+
+        // 四种写法互相等价（命中 0/1；第 5 行 "cafe plain no accent" 也含 plain）
+        Assert.Equal(new[] { 0, 1, 5 }, Apply(doc, new FilterSpec { Msg = new[] { "plain" } }));
+        Assert.Equal(new[] { 0, 1, 5 }, Apply(doc, new FilterSpec { Msg = new[] { "PLAIN" } }));
+        Assert.Equal(new[] { 0, 1, 5 }, Apply(doc, new FilterSpec { Msg = new[] { "PlAiN" } }));
+        Assert.Equal(new[] { 0, 1, 5 }, Apply(doc, new FilterSpec { Msg = new[] { "pLaIn" } }));
+
+        // MsgCase=true 时严格区分：全大写只在第 0 行，全小写命中 1/5
+        Assert.Equal(new[] { 0 }, Apply(doc, new FilterSpec { Msg = new[] { "PLAIN" }, MsgCase = true }));
+        Assert.Equal(new[] { 1, 5 }, Apply(doc, new FilterSpec { Msg = new[] { "plain" }, MsgCase = true }));
+        // 第 2 行是 MiXeD，既不含全大写也不含全小写
+        Assert.Empty(Apply(doc, new FilterSpec { Msg = new[] { "mixed" }, MsgCase = true }));
+        Assert.Empty(Apply(doc, new FilterSpec { Msg = new[] { "MIXED" }, MsgCase = true }));
+        // 第 2 行确为 MiXeD：用完整写法可命中
+        Assert.Equal(new[] { 2 }, Apply(doc, new FilterSpec { Msg = new[] { "MiXeD" }, MsgCase = true }));
+    }
+
+    /// <summary>
+    /// 折叠只改大小写，不去重音：CAFÉ ≠ cafe，CRÛME ≠ crème。
+    /// 这是防「按位或 0x20 折叠」的护栏——0xC3|0x20==0xE3 会把不同字节改成同一个。
+    /// </summary>
+    [Fact]
+    public void message忽略大小写_重音不与非重音等价()
+    {
+        using var tmp = new TempLogFile(CaseData);
+        using var doc = LogDocument.Build(tmp.Path);
+
+        // 重音 É 与非重音 E 是不同字符串，互不命中
+        Assert.Equal(new[] { 4 }, Apply(doc, new FilterSpec { Msg = new[] { "CAFÉ" } }));
+        Assert.Equal(new[] { 5 }, Apply(doc, new FilterSpec { Msg = new[] { "cafe" } }));
+        Assert.Empty(Apply(doc, new FilterSpec { Msg = new[] { "café" }, MsgCase = true }));
+        Assert.Equal(new[] { 4 }, Apply(doc, new FilterSpec { Msg = new[] { "CAFÉ" }, MsgCase = true }));
+
+        // Û 与 È 不能互串：搜全大写重音串命中第 4 行，搜错重音（CRÛME 对 crème）不命中
+        Assert.Equal(new[] { 4 }, Apply(doc, new FilterSpec { Msg = new[] { "CAFÉ CRÈME BRÛLÉE" } }));
+        Assert.Empty(Apply(doc, new FilterSpec { Msg = new[] { "CRÛME BRÛLÉE" } }));
+        // brûlée 的大小写两种写法等价
+        Assert.Equal(new[] { 4 }, Apply(doc, new FilterSpec { Msg = new[] { "brûlée" } }));
+        Assert.Equal(new[] { 4 }, Apply(doc, new FilterSpec { Msg = new[] { "BRÛLÉE" } }));
+    }
+
+    /// <summary>中文无大小写，但含中文的 term 必须能匹配，且中英混排两种写法等价。</summary>
+    [Fact]
+    public void message忽略大小写_中文term正常匹配()
+    {
+        using var tmp = new TempLogFile(CaseData);
+        using var doc = LogDocument.Build(tmp.Path);
+
+        Assert.Equal(new[] { 3 }, Apply(doc, new FilterSpec { Msg = new[] { "日志" } }));
+        Assert.Equal(new[] { 10 }, Apply(doc, new FilterSpec { Msg = new[] { "大小写" } }));
+        // 中英混排：英文部分大小写等价
+        Assert.Equal(new[] { 10 }, Apply(doc, new FilterSpec { Msg = new[] { "中文mixed大小写" } }));
+        Assert.Equal(new[] { 10 }, Apply(doc, new FilterSpec { Msg = new[] { "中文MIXED大小写" } }));
+        // 中文内容不受 MsgCase 影响
+        Assert.Equal(new[] { 3 }, Apply(doc, new FilterSpec { Msg = new[] { "日志" }, MsgCase = true }));
+        Assert.Equal(new[] { 10 }, Apply(doc, new FilterSpec { Msg = new[] { "大小写" }, MsgCase = true }));
+    }
+
+    /// <summary>
+    /// ß(U+00DF) 与 ẞ(U+1E9E) 在 Unicode 里互为大小写，折叠后必须等价；
+    /// 另外 Straße / STRASSE 都在第 7 行，搜 ß 与 ẞ 都会连带命中它。
+    /// </summary>
+    [Fact]
+    public void message忽略大小写_德语eszett大小写等价()
+    {
+        using var tmp = new TempLogFile(CaseData);
+        using var doc = LogDocument.Build(tmp.Path);
+
+        // 忽略大小写时 ß 与 ẞ 等价，都命中 7/8/9
+        Assert.Equal(new[] { 7, 8, 9 }, Apply(doc, new FilterSpec { Msg = new[] { "ß" } }));
+        Assert.Equal(new[] { 7, 8, 9 }, Apply(doc, new FilterSpec { Msg = new[] { "ẞ" } }));
+        // 正则模式同理
+        Assert.Equal(new[] { 7, 8, 9 }, Apply(doc, new FilterSpec { Msg = new[] { "ß" }, MsgRegex = true }));
+        Assert.Equal(new[] { 7, 8, 9 }, Apply(doc, new FilterSpec { Msg = new[] { "ẞ" }, MsgRegex = true }));
+
+        // 区分大小写时：第 7 行含 ß 小写 + STRASSE，8 行全 ß，9 行全 ẞ
+        Assert.Equal(new[] { 7, 8 }, Apply(doc, new FilterSpec { Msg = new[] { "ß" }, MsgCase = true }));
+        Assert.Equal(new[] { 9 }, Apply(doc, new FilterSpec { Msg = new[] { "ẞ" }, MsgCase = true }));
+
+        // ß 不等价于 ss：第 7 行是 Straße（ß）而 STRASSE 是 ss 写法，两者都命中
+        Assert.Equal(new[] { 7 }, Apply(doc, new FilterSpec { Msg = new[] { "straße" } }));
+        Assert.Equal(new[] { 7 }, Apply(doc, new FilterSpec { Msg = new[] { "STRASSE" } }));
+        // 区分大小写时 Straße（第 7 行首字母大写）不命中全小写 straße
+        Assert.Empty(Apply(doc, new FilterSpec { Msg = new[] { "straße" }, MsgCase = true }));
+        Assert.Equal(new[] { 7 }, Apply(doc, new FilterSpec { Msg = new[] { "STRASSE" }, MsgCase = true }));
+    }
+
+    /// <summary>
+    /// 土耳其无点 i（U+0131）折成小写后仍是 ı，不等于 ASCII 的 i。
+    /// 第 11 行含 ı 但不含任何 ASCII i/I，是干净隔离这一点的关键样本。
+    /// </summary>
+    [Fact]
+    public void message忽略大小写_土耳其无点i不等于ASCII_I()
+    {
+        using var tmp = new TempLogFile(CaseData);
+        using var doc = LogDocument.Build(tmp.Path);
+
+        // 搜无点 ı：命中 6/11（两行都含 ı）
+        Assert.Equal(new[] { 6, 11 }, Apply(doc, new FilterSpec { Msg = new[] { "ı" } }));
+        // 搜 ASCII I（折成 i）：不能把 ı 当成 i——第 11 行只有 ı，不该出现
+        var hitI = Apply(doc, new FilterSpec { Msg = new[] { "I" } });
+        Assert.Equal(new[] { 0, 1, 2, 5, 6, 10 }, hitI);
+        Assert.DoesNotContain(11, hitI);
+        // 区分大小写：搜 ASCII I 命中第 0 行（ASCII UPPER 里的 I）和第 6 行末尾的 " and I"
+        Assert.Equal(new[] { 0, 6 }, Apply(doc, new FilterSpec { Msg = new[] { "I" }, MsgCase = true }));
+    }
+
+    /// <summary>tag 侧走同一套折叠逻辑，行为必须与 message 一致（含正则分支）。</summary>
+    [Fact]
+    public void tag忽略大小写与message行为一致()
+    {
+        const string TagData =
+            "09-23 18:00:00.000  1  1 I MyTag: first\n" +
+            "09-23 18:00:01.000  1  2 I mytag: second\n" +
+            "09-23 18:00:02.000  1  3 I MYTAG: third\n" +
+            "09-23 18:00:03.000  1  4 I 中文Tag: fourth\n";
+
+        using var tmp = new TempLogFile(TagData);
+        using var doc = LogDocument.Build(tmp.Path);
+
+        Assert.Equal(new[] { 0, 1, 2 }, Apply(doc, new FilterSpec { Tags = new[] { "mytag" } }));
+        Assert.Equal(new[] { 0, 1, 2 }, Apply(doc, new FilterSpec { Tags = new[] { "MyTaG" } }));
+        Assert.Equal(new[] { 0, 1, 2 }, Apply(doc, new FilterSpec { Tags = new[] { "MYTAG" } }));
+        // 区分大小写时逐条只命中自身
+        Assert.Equal(new[] { 0 }, Apply(doc, new FilterSpec { Tags = new[] { "MyTag" }, TagCase = true }));
+        Assert.Equal(new[] { 1 }, Apply(doc, new FilterSpec { Tags = new[] { "mytag" }, TagCase = true }));
+        Assert.Equal(new[] { 2 }, Apply(doc, new FilterSpec { Tags = new[] { "MYTAG" }, TagCase = true }));
+        // 中文 tag
+        Assert.Equal(new[] { 3 }, Apply(doc, new FilterSpec { Tags = new[] { "中文" } }));
+        // 正则 + IgnoreCase
+        Assert.Equal(new[] { 0, 1, 2 }, Apply(doc, new FilterSpec { Tags = new[] { "^My" }, TagRegex = true }));
+        Assert.Equal(new[] { 0, 1, 2 }, Apply(doc, new FilterSpec { Tags = new[] { "^my" }, TagRegex = true }));
+    }
+
+    /// <summary>
+    /// 正则 + 忽略大小写必须与「先整体折叠再匹配」等价。
+    /// 旧实现把 message 先整体 ToLower 再喂给正则，而正则自带 RegexOptions.IgnoreCase，
+    /// 那次折叠是多余的；本节钉住「去掉多余折叠后结论不变」。
+    /// </summary>
+    [Fact]
+    public void 正则忽略大小写_与预先折叠等价()
+    {
+        using var tmp = new TempLogFile(CaseData);
+        using var doc = LogDocument.Build(tmp.Path);
+
+        // IgnoreCase 正则：大小写两种写法都命中 0/1
+        Assert.Equal(new[] { 0, 1 }, Apply(doc, new FilterSpec { Msg = new[] { "^plain" }, MsgRegex = true }));
+        Assert.Equal(new[] { 0, 1 }, Apply(doc, new FilterSpec { Msg = new[] { "^PLAIN" }, MsgRegex = true }));
+        // 区分大小写时分别只命中 0（PLAIN ASCII UPPER）和 1（plain ascii lower）
+        Assert.Equal(new[] { 0 }, Apply(doc, new FilterSpec { Msg = new[] { "^PLAIN" }, MsgRegex = true, MsgCase = true }));
+        Assert.Equal(new[] { 1 }, Apply(doc, new FilterSpec { Msg = new[] { "^plain" }, MsgRegex = true, MsgCase = true }));
+        Assert.Empty(Apply(doc, new FilterSpec { Msg = new[] { "^mixed" }, MsgRegex = true, MsgCase = true }));
+
+        // 忽略大小写但仍是子串匹配：未加 ^ 时第 5 行也含 plain
+        Assert.Equal(new[] { 0, 1, 5 }, Apply(doc, new FilterSpec { Msg = new[] { "PLAIN" }, MsgRegex = true }));
+        Assert.Equal(new[] { 2, 10 }, Apply(doc, new FilterSpec { Msg = new[] { "mixed" }, MsgRegex = true }));
+
+        // 正则 IgnoreCase 不等价于去重音：CAFÉ 命中 4，cafe 命中 5
+        Assert.Equal(new[] { 4 }, Apply(doc, new FilterSpec { Msg = new[] { "café" }, MsgRegex = true }));
+        Assert.Equal(new[] { 4 }, Apply(doc, new FilterSpec { Msg = new[] { "CAFÉ" }, MsgRegex = true }));
+        Assert.Equal(new[] { 5 }, Apply(doc, new FilterSpec { Msg = new[] { "cafe" }, MsgRegex = true }));
+        // Straße 的 ß 与 STRASSE 在正则下同样等价
+        Assert.Equal(new[] { 7 }, Apply(doc, new FilterSpec { Msg = new[] { "straße" }, MsgRegex = true }));
+        Assert.Equal(new[] { 7 }, Apply(doc, new FilterSpec { Msg = new[] { "STRASSE" }, MsgRegex = true }));
+
+        // 中文 term 在正则模式下同样可匹配
+        Assert.Equal(new[] { 3 }, Apply(doc, new FilterSpec { Msg = new[] { "日志" }, MsgRegex = true }));
+    }
+
+    /// <summary>
+    /// 折叠正确性不能只在全量路径成立：FilterTail 复用同一套匹配，
+    /// 各类 term（含重音、中文、ß、无点 i）的大小写结论在增量路径上必须完全一致。
+    /// </summary>
+    [Fact]
+    public void 增量路径的忽略大小写结论与全量一致()
+    {
+        using var tmp = new TempLogFile(CaseData);
+        using var doc = LogDocument.Build(tmp.Path);
+
+        foreach (var term in new[] { "plain", "PLAIN", "mixed", "café", "CAFÉ", "cafe", "日志", "大小写",
+                                     "ß", "ẞ", "ı", "I", "straße", "STRASSE", "dotless" })
+        foreach (var op in new[] { "and", "or" })
+        foreach (var msgCase in new[] { false, true })
+        foreach (var msgRegex in new[] { false, true })
+        {
+            var spec = new FilterSpec { Msg = new[] { term }, MsgOp = op, MsgCase = msgCase, MsgRegex = msgRegex };
+            var full = Apply(doc, spec);
+            for (int start = 0; start <= doc.RowCount + 1; start++)
+                Assert.Equal(full.Where(r => r >= start).ToArray(), FilterEngine.FilterTail(doc, spec, start));
+        }
+    }
+
+    /// <summary>
+    /// 排除语义在大小写折叠下同样成立：命中的行被剔除，未命中的全留。
+    /// 「不应被过滤掉的行必须保留」是最重要的不变量。
+    /// </summary>
+    [Fact]
+    public void message排除在大小写折叠下语义正确()
+    {
+        using var tmp = new TempLogFile(CaseData);
+        using var doc = LogDocument.Build(tmp.Path);
+
+        // plain 命中 0/1/5，排除后剩 2,3,4,6,7,8,9,10,11
+        Assert.Equal(new[] { 2, 3, 4, 6, 7, 8, 9, 10, 11 },
+            Apply(doc, new FilterSpec { Msg = new[] { "plain" }, MsgExclude = true }));
+        Assert.Equal(new[] { 2, 3, 4, 6, 7, 8, 9, 10, 11 },
+            Apply(doc, new FilterSpec { Msg = new[] { "PLAIN" }, MsgExclude = true }));
+        // 排除 [plain,case] or：命中 0,1,2,5,8,9，MsgExclude 保留的是**未命中**的行
+        Assert.Equal(new[] { 3, 4, 6, 7, 10, 11 },
+            Apply(doc, new FilterSpec { Msg = new[] { "plain", "case" }, MsgOp = "or", MsgExclude = true }));
+        // 排除不存在的 term：全部保留
+        Assert.Equal(Enumerable.Range(0, doc.RowCount).ToArray(),
+            Apply(doc, new FilterSpec { Msg = new[] { "no-such-term" }, MsgExclude = true }));
+
+        // 排除 CAFÉ：命中 4，剩其余全部
+        Assert.Equal(new[] { 0, 1, 2, 3, 5, 6, 7, 8, 9, 10, 11 },
+            Apply(doc, new FilterSpec { Msg = new[] { "CAFÉ" }, MsgExclude = true }));
+    }
 }

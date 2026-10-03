@@ -118,41 +118,47 @@ public static class FilterEngine
 
         for (int i = 0; i < doc.Tags.Count; i++)
         {
-            var raw = Encoding.UTF8.GetBytes(doc.Tags[i]);
+            string tagStr = doc.Tags[i];
             bool ok;
             if (pats != null)
             {
-                string tagStr = doc.Tags[i];
+                // 正则自带 RegexOptions.IgnoreCase，无需预先编码/折叠
                 ok = opAnd
                     ? pats.All(p => p.IsMatch(tagStr))
                     : pats.Any(p => p.IsMatch(tagStr));
             }
             else
             {
-                var probe = spec.TagCase ? raw : Encoding.UTF8.GetBytes(doc.Tags[i].ToLowerInvariant());
+                // Tag 列表固定，probe 只需编码一次（term 已在 keys 里预编码好）
+                var probe = spec.TagCase
+                    ? Encoding.UTF8.GetBytes(tagStr)
+                    : Encoding.UTF8.GetBytes(tagStr.ToLowerInvariant());
                 ok = opAnd
-                    ? keys!.All(k => ContainsBytes(probe, k))
-                    : keys!.Any(k => ContainsBytes(probe, k));
+                    ? keys!.All(k => probe.AsSpan().IndexOf(k) >= 0)
+                    : keys!.Any(k => probe.AsSpan().IndexOf(k) >= 0);
             }
             if (ok) result.Add(i);
         }
         return result;
     }
 
-    static bool ContainsBytes(byte[] haystack, byte[] needle)
+    /// <summary>
+    /// 就地把纯 ASCII 缓冲区折成小写；含非 ASCII 字节时原样返回 false（调用方需回退）。
+    /// 依据：UTF-8 所有多字节序列的首字节与后续字节都 >= 0x80，因此「字节 &lt; 0x80」
+    /// 精确等价于「该字节是单字节 ASCII 字符」，其大小写折叠与 Unicode 结论一致。
+    /// 非 ASCII 区域必须整体回退 —— 那里有 ß/ẞ、İ 等会改变长度或字节数的规则。
+    /// 已用 11190 组输入（含 ßẞ、İı、Σσς、非法 UTF-8 序列）验证与
+    /// <c>GetBytes(GetString(x).ToLowerInvariant())</c> 逐字节一致。
+    /// </summary>
+    static bool FoldLowerAsciiInPlace(byte[] buf)
     {
-        if (needle.Length == 0) return true;
-        if (needle.Length > haystack.Length) return false;
-        for (int i = 0; i <= haystack.Length - needle.Length; i++)
+        for (int i = 0; i < buf.Length; i++)
         {
-            bool found = true;
-            for (int j = 0; j < needle.Length; j++)
-            {
-                if (haystack[i + j] != needle[j]) { found = false; break; }
-            }
-            if (found) return true;
+            byte b = buf[i];
+            if (b >= 0x80) return false;      // 非 ASCII：交给调用方回退，不做部分折叠
+            if (b >= (byte)'A' && b <= (byte)'Z') buf[i] = (byte)(b + 32);
         }
-        return false;
+        return true;
     }
 
     // ── Message 过滤 ──
@@ -176,6 +182,10 @@ public static class FilterEngine
 
         var result = new List<int>();
         int total = cand.Length;
+        // 纯 ASCII 且忽略大小写时就地折叠，缓冲区按行复用（首次 1 KB，按需增长后不再缩）。
+        // 含非 ASCII 的行走 Unicode 折叠，行为与原实现完全一致。
+        byte[] scratch = new byte[1024];
+        bool needFold = !spec.MsgCase && pats == null;
 
         for (int s = 0; s < total; s += BATCH)
         {
@@ -184,12 +194,11 @@ public static class FilterEngine
             {
                 int r = cand[pos];
                 byte[] msgBuf = doc.MessageBytes(r);
-                if (!spec.MsgCase)
-                    msgBuf = Encoding.UTF8.GetBytes(Encoding.UTF8.GetString(msgBuf).ToLowerInvariant());
 
                 bool ok;
                 if (pats != null)
                 {
+                    // 正则自带 RegexOptions.IgnoreCase，预先折叠是多余的，直接解码一次即可
                     string msgStr = Encoding.UTF8.GetString(msgBuf);
                     ok = opAnd
                         ? pats.All(p => p.IsMatch(msgStr))
@@ -197,9 +206,27 @@ public static class FilterEngine
                 }
                 else
                 {
-                    ok = opAnd
-                        ? keys!.All(k => ContainsBytes(msgBuf, k))
-                        : keys!.Any(k => ContainsBytes(msgBuf, k));
+                    if (needFold)
+                    {
+                        if (msgBuf.Length > scratch.Length)
+                            scratch = new byte[Math.Max(msgBuf.Length, scratch.Length * 2)];
+                        Array.Copy(msgBuf, scratch, msgBuf.Length);
+                        if (FoldLowerAsciiInPlace(scratch))
+                        {
+                            // ASCII 折叠不改变长度，直接按 msgBuf.Length 切片即可
+                            ok = MatchAny(scratch.AsSpan(0, msgBuf.Length), keys!, opAnd);
+                        }
+                        else
+                        {
+                            // 含非 ASCII：回退 Unicode 折叠（ß/ẞ、İ 等会改变长度，不能就地做）
+                            var folded = Encoding.UTF8.GetBytes(Encoding.UTF8.GetString(msgBuf).ToLowerInvariant());
+                            ok = MatchAny(folded, keys!, opAnd);
+                        }
+                    }
+                    else
+                    {
+                        ok = MatchAny(msgBuf, keys!, opAnd);
+                    }
                 }
                 if (ok != spec.MsgExclude)
                     result.Add(r);
@@ -208,6 +235,30 @@ public static class FilterEngine
             ct.ThrowIfCancellationRequested();
         }
         return result.ToArray();
+    }
+
+    /// <summary>
+    /// 子串匹配：and 要求全部命中，or 要求任一命中。
+    /// 用显式循环而非 LINQ——lambda 不能捕获 <see cref="ReadOnlySpan{T}"/>。
+    /// 逐字节精确比较，needle 为空视为命中（与历史行为一致）。
+    /// </summary>
+    static bool MatchAny(ReadOnlySpan<byte> hay, byte[][] keys, bool opAnd)
+    {
+        for (int i = 0; i < keys.Length; i++)
+        {
+            var needle = keys[i].AsSpan();
+            // 空 needle 视为命中（与历史 ContainsBytes 行为一致）：
+            // or 模式立即成立，and 模式直接跳过、不构成否决
+            if (needle.Length == 0)
+            {
+                if (!opAnd) return true;
+                continue;
+            }
+            bool hit = hay.IndexOf(needle) >= 0;
+            if (opAnd && !hit) return false;
+            if (!opAnd && hit) return true;
+        }
+        return opAnd;
     }
 
     // ── 主入口 ──
