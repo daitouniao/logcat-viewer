@@ -13,18 +13,8 @@ public static class FilterEngine
     const int BLOCK_SIZE = 1 << 22;   // 4 MB 预筛分块
     const int BATCH = 20_000;
 
-    static readonly Dictionary<(string text, bool caseSensitive), Regex> _reCache = new();
-
-    static Regex CompileRegex(string text, bool caseSensitive)
-    {
-        var key = (text, caseSensitive);
-        if (_reCache.TryGetValue(key, out var pat)) return pat;
-        var opts = RegexOptions.Compiled | RegexOptions.Singleline;
-        if (!caseSensitive) opts |= RegexOptions.IgnoreCase;
-        pat = new Regex(text, opts);
-        if (_reCache.Count < 512) _reCache[key] = pat;
-        return pat;
-    }
+    // 注意：本文件的 Regex 仅用于 SplitTerms/ParseMinutes/ParseInts 的词法切分，
+    // 过滤匹配一律走字节级子串比较（MatchAny），不支持用户侧正则。
 
     // ── 文本切分 ──
     // 统一用空格分割多个词；引号包裹的短语视为一个词；逗号/分号/换行仍作为额外分隔符兼容旧用法
@@ -100,43 +90,23 @@ public static class FilterEngine
         if (spec.Tags.Length == 0 || doc.Tags.Count == 0) return result;
 
         bool opAnd = spec.TagOp == "and";
-        Regex[]? pats = null;
-        byte[][]? keys = null;
 
-        if (spec.TagRegex)
+        var keys = spec.Tags.Select(t =>
         {
-            pats = spec.Tags.Select(t => CompileRegex(t, spec.TagCase)).ToArray();
-        }
-        else
-        {
-            keys = spec.Tags.Select(t =>
-            {
-                var bytes = Encoding.UTF8.GetBytes(t);
-                return spec.TagCase ? bytes : Encoding.UTF8.GetBytes(t.ToLowerInvariant());
-            }).ToArray();
-        }
+            var bytes = Encoding.UTF8.GetBytes(t);
+            return spec.TagCase ? bytes : Encoding.UTF8.GetBytes(t.ToLowerInvariant());
+        }).ToArray();
 
         for (int i = 0; i < doc.Tags.Count; i++)
         {
             string tagStr = doc.Tags[i];
-            bool ok;
-            if (pats != null)
-            {
-                // 正则自带 RegexOptions.IgnoreCase，无需预先编码/折叠
-                ok = opAnd
-                    ? pats.All(p => p.IsMatch(tagStr))
-                    : pats.Any(p => p.IsMatch(tagStr));
-            }
-            else
-            {
-                // Tag 列表固定，probe 只需编码一次（term 已在 keys 里预编码好）
-                var probe = spec.TagCase
-                    ? Encoding.UTF8.GetBytes(tagStr)
-                    : Encoding.UTF8.GetBytes(tagStr.ToLowerInvariant());
-                ok = opAnd
-                    ? keys!.All(k => probe.AsSpan().IndexOf(k) >= 0)
-                    : keys!.Any(k => probe.AsSpan().IndexOf(k) >= 0);
-            }
+            // Tag 列表固定，probe 只需编码一次（term 已在 keys 里预编码好）
+            var probe = spec.TagCase
+                ? Encoding.UTF8.GetBytes(tagStr)
+                : Encoding.UTF8.GetBytes(tagStr.ToLowerInvariant());
+            bool ok = opAnd
+                ? keys.All(k => probe.AsSpan().IndexOf(k) >= 0)
+                : keys.Any(k => probe.AsSpan().IndexOf(k) >= 0);
             if (ok) result.Add(i);
         }
         return result;
@@ -168,24 +138,18 @@ public static class FilterEngine
         if (cand.Length == 0) return cand;
 
         bool opAnd = spec.MsgOp == "and";
-        Regex[]? pats = null;
-        byte[][]? keys = null;
-
-        if (spec.MsgRegex)
-            pats = spec.Msg.Select(t => CompileRegex(t, spec.MsgCase)).ToArray();
-        else
-            keys = spec.Msg.Select(t =>
-            {
-                var bytes = Encoding.UTF8.GetBytes(t);
-                return spec.MsgCase ? bytes : Encoding.UTF8.GetBytes(t.ToLowerInvariant());
-            }).ToArray();
+        var keys = spec.Msg.Select(t =>
+        {
+            var bytes = Encoding.UTF8.GetBytes(t);
+            return spec.MsgCase ? bytes : Encoding.UTF8.GetBytes(t.ToLowerInvariant());
+        }).ToArray();
 
         var result = new List<int>();
         int total = cand.Length;
         // 纯 ASCII 且忽略大小写时就地折叠，缓冲区按行复用（首次 1 KB，按需增长后不再缩）。
         // 含非 ASCII 的行走 Unicode 折叠，行为与原实现完全一致。
         byte[] scratch = new byte[1024];
-        bool needFold = !spec.MsgCase && pats == null;
+        bool needFold = !spec.MsgCase;
 
         for (int s = 0; s < total; s += BATCH)
         {
@@ -196,37 +160,26 @@ public static class FilterEngine
                 byte[] msgBuf = doc.MessageBytes(r);
 
                 bool ok;
-                if (pats != null)
+                if (needFold)
                 {
-                    // 正则自带 RegexOptions.IgnoreCase，预先折叠是多余的，直接解码一次即可
-                    string msgStr = Encoding.UTF8.GetString(msgBuf);
-                    ok = opAnd
-                        ? pats.All(p => p.IsMatch(msgStr))
-                        : pats.Any(p => p.IsMatch(msgStr));
-                }
-                else
-                {
-                    if (needFold)
+                    if (msgBuf.Length > scratch.Length)
+                        scratch = new byte[Math.Max(msgBuf.Length, scratch.Length * 2)];
+                    Array.Copy(msgBuf, scratch, msgBuf.Length);
+                    if (FoldLowerAsciiInPlace(scratch))
                     {
-                        if (msgBuf.Length > scratch.Length)
-                            scratch = new byte[Math.Max(msgBuf.Length, scratch.Length * 2)];
-                        Array.Copy(msgBuf, scratch, msgBuf.Length);
-                        if (FoldLowerAsciiInPlace(scratch))
-                        {
-                            // ASCII 折叠不改变长度，直接按 msgBuf.Length 切片即可
-                            ok = MatchAny(scratch.AsSpan(0, msgBuf.Length), keys!, opAnd);
-                        }
-                        else
-                        {
-                            // 含非 ASCII：回退 Unicode 折叠（ß/ẞ、İ 等会改变长度，不能就地做）
-                            var folded = Encoding.UTF8.GetBytes(Encoding.UTF8.GetString(msgBuf).ToLowerInvariant());
-                            ok = MatchAny(folded, keys!, opAnd);
-                        }
+                        // ASCII 折叠不改变长度，直接按 msgBuf.Length 切片即可
+                        ok = MatchAny(scratch.AsSpan(0, msgBuf.Length), keys, opAnd);
                     }
                     else
                     {
-                        ok = MatchAny(msgBuf, keys!, opAnd);
+                        // 含非 ASCII：回退 Unicode 折叠（ß/ẞ、İ 等会改变长度，不能就地做）
+                        var folded = Encoding.UTF8.GetBytes(Encoding.UTF8.GetString(msgBuf).ToLowerInvariant());
+                        ok = MatchAny(folded, keys, opAnd);
                     }
+                }
+                else
+                {
+                    ok = MatchAny(msgBuf, keys, opAnd);
                 }
                 if (ok != spec.MsgExclude)
                     result.Add(r);

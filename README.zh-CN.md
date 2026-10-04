@@ -56,7 +56,7 @@ Windows 桌面端 Android 日志（logcat）查看器。基于 WinForms，使用
 ### 过滤
 
 - **级别**：V/D/I/W/E/F/A 自由勾选（默认全选），一键全选/清空
-- **Tag / Message**：支持 `or` / `and` 组合、正则、大小写敏感、排除模式
+- **Tag / Message**：支持 `or` / `and` 组合、大小写敏感、排除模式
 - **PID / TID**：多值空格分隔，可排除
 - **分钟**：按时间戳的分钟值过滤，如 `05 20`
 - **仅标记行**：只看被标记的记录
@@ -202,7 +202,7 @@ python tests/coverage-report.py     # 输出 tests/coverage-report.html
 | `Ctrl+C`          | 复制选中行                                |
 | `Ctrl+Shift+C`    | 打开命令窗口                              |
 | `F2` / `Shift+F2` | 上一个 / 下一个标记                       |
-| `F3` / `Shift+F3` | 在结果中查找下一个 / 上一个（非正则模式） |
+| `F3` / `Shift+F3` | 在结果中查找下一个 / 上一个               |
 | `M`               | 标记当前行                                |
 | `Enter`           | 查看当前行完整记录                        |
 | `Esc`             | 停止当前任务并清空选择                    |
@@ -213,8 +213,9 @@ python tests/coverage-report.py     # 输出 tests/coverage-report.html
 
 - 多个关键词用空格分隔：`crash anr`
 - 短语用双引号包裹：`"null pointer"`
-- `or` / `and` 下拉框决定多词之间的关系（Tag 默认 `or`，Message 默认 `and`）
-- 勾选「正则」后按 .NET 正则语法匹配
+- `or` / `and` 下拉框决定多词之间的关系（Tag 与 Message 默认均为 `or`）
+- 输入框颜色即语义：**背景色**表示匹配关系（`or` 浅蓝 / `and` 浅橙），**文字色**在勾选「大小写」时变暗红；空框不着色
+- 工具栏与过滤窗口的输入框**双向镜像**，任一侧输入都会同步到另一侧
 - 勾选「排除」表示剔除命中项
 
 ## 目录结构

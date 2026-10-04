@@ -221,16 +221,6 @@ public class FilterEngineTests
     }
 
     [Fact]
-    public void tag开正则模式()
-    {
-        using var tmp = new TempLogFile(Data);
-        using var doc = LogDocument.Build(tmp.Path);
-
-        var spec = new FilterSpec { Tags = new[] { "^Network" }, TagRegex = true };
-        Assert.Equal(new[] { 2, 3 }, Apply(doc, spec));
-    }
-
-    [Fact]
     public void tag多值时and与or语义()
     {
         using var tmp = new TempLogFile(Data);
@@ -240,31 +230,6 @@ public class FilterEngineTests
             Apply(doc, new FilterSpec { Tags = new[] { "Network", "Service" }, TagOp = "and" }));
         Assert.Equal(new[] { 2, 3, 4, 5 },
             Apply(doc, new FilterSpec { Tags = new[] { "Network", "Debug" }, TagOp = "or" }));
-    }
-
-    [Fact]
-    public void tag正则模式下多值and与or语义()
-    {
-        using var tmp = new TempLogFile(Data);
-        using var doc = LogDocument.Build(tmp.Path);
-
-        // and：同一个 tag 必须同时命中每一条正则（pats.All 分支）
-        Assert.Equal(new[] { 0, 1 },
-            Apply(doc, new FilterSpec
-            {
-                Tags = new[] { "^Activity", "Manager$" },
-                TagRegex = true,
-                TagOp = "and",
-            }));
-
-        // or：任一正则命中即可（pats.Any 分支）
-        Assert.Equal(new[] { 2, 3, 4, 5 },
-            Apply(doc, new FilterSpec
-            {
-                Tags = new[] { "^Network", "Tag$" },
-                TagRegex = true,
-                TagOp = "or",
-            }));
     }
 
     // ── ApplyFilter：message ──
@@ -299,15 +264,6 @@ public class FilterEngineTests
             Apply(doc, new FilterSpec { Msg = new[] { "start", "failed" }, MsgOp = "and" }));
         Assert.Equal(new[] { 0, 1, 3 },
             Apply(doc, new FilterSpec { Msg = new[] { "start", "timeout" }, MsgOp = "or" }));
-    }
-
-    [Fact]
-    public void message开正则模式()
-    {
-        using var tmp = new TempLogFile(Data);
-        using var doc = LogDocument.Build(tmp.Path);
-
-        Assert.Equal(new[] { 2 }, Apply(doc, new FilterSpec { Msg = new[] { "^conn" }, MsgRegex = true }));
     }
 
     [Fact]
@@ -670,27 +626,6 @@ public class FilterEngineTests
     }
 
     [Fact]
-    public void 正则模式的大小写开关与多值语义()
-    {
-        using var tmp = new TempLogFile(Data);
-        using var doc = LogDocument.Build(tmp.Path);
-
-        // tag 正则 + 大小写
-        Assert.Equal(new[] { 2, 3 }, Apply(doc, new FilterSpec { Tags = new[] { "^network" }, TagRegex = true }));
-        Assert.Empty(Apply(doc, new FilterSpec { Tags = new[] { "^network" }, TagRegex = true, TagCase = true }));
-
-        // msg 正则 + 大小写
-        Assert.Equal(new[] { 2 }, Apply(doc, new FilterSpec { Msg = new[] { "^CONN" }, MsgRegex = true }));
-        Assert.Empty(Apply(doc, new FilterSpec { Msg = new[] { "^CONN" }, MsgRegex = true, MsgCase = true }));
-
-        // msg 正则多值 and / or
-        Assert.Equal(new[] { 2 },
-            Apply(doc, new FilterSpec { Msg = new[] { "^conn", "ing$" }, MsgRegex = true, MsgOp = "and" }));
-        Assert.Equal(new[] { 2, 3 },
-            Apply(doc, new FilterSpec { Msg = new[] { "^conn", "timeout" }, MsgRegex = true, MsgOp = "or" }));
-    }
-
-    [Fact]
     public void 排除条件不命中任何行时保留全部()
     {
         using var tmp = new TempLogFile(Data);
@@ -887,12 +822,9 @@ public class FilterEngineTests
         using var tmp = new TempLogFile(CaseData);
         using var doc = LogDocument.Build(tmp.Path);
 
-        // 忽略大小写时 ß 与 ẞ 等价，都命中 7/8/9
+        // 忽略大小写时 ß 与ẞ 等价，都命中 7/8/9
         Assert.Equal(new[] { 7, 8, 9 }, Apply(doc, new FilterSpec { Msg = new[] { "ß" } }));
         Assert.Equal(new[] { 7, 8, 9 }, Apply(doc, new FilterSpec { Msg = new[] { "ẞ" } }));
-        // 正则模式同理
-        Assert.Equal(new[] { 7, 8, 9 }, Apply(doc, new FilterSpec { Msg = new[] { "ß" }, MsgRegex = true }));
-        Assert.Equal(new[] { 7, 8, 9 }, Apply(doc, new FilterSpec { Msg = new[] { "ẞ" }, MsgRegex = true }));
 
         // 区分大小写时：第 7 行含 ß 小写 + STRASSE，8 行全 ß，9 行全 ẞ
         Assert.Equal(new[] { 7, 8 }, Apply(doc, new FilterSpec { Msg = new[] { "ß" }, MsgCase = true }));
@@ -926,7 +858,7 @@ public class FilterEngineTests
         Assert.Equal(new[] { 0, 6 }, Apply(doc, new FilterSpec { Msg = new[] { "I" }, MsgCase = true }));
     }
 
-    /// <summary>tag 侧走同一套折叠逻辑，行为必须与 message 一致（含正则分支）。</summary>
+    /// <summary>tag 侧走同一套折叠逻辑，行为必须与 message 一致。</summary>
     [Fact]
     public void tag忽略大小写与message行为一致()
     {
@@ -948,44 +880,6 @@ public class FilterEngineTests
         Assert.Equal(new[] { 2 }, Apply(doc, new FilterSpec { Tags = new[] { "MYTAG" }, TagCase = true }));
         // 中文 tag
         Assert.Equal(new[] { 3 }, Apply(doc, new FilterSpec { Tags = new[] { "中文" } }));
-        // 正则 + IgnoreCase
-        Assert.Equal(new[] { 0, 1, 2 }, Apply(doc, new FilterSpec { Tags = new[] { "^My" }, TagRegex = true }));
-        Assert.Equal(new[] { 0, 1, 2 }, Apply(doc, new FilterSpec { Tags = new[] { "^my" }, TagRegex = true }));
-    }
-
-    /// <summary>
-    /// 正则 + 忽略大小写必须与「先整体折叠再匹配」等价。
-    /// 旧实现把 message 先整体 ToLower 再喂给正则，而正则自带 RegexOptions.IgnoreCase，
-    /// 那次折叠是多余的；本节钉住「去掉多余折叠后结论不变」。
-    /// </summary>
-    [Fact]
-    public void 正则忽略大小写_与预先折叠等价()
-    {
-        using var tmp = new TempLogFile(CaseData);
-        using var doc = LogDocument.Build(tmp.Path);
-
-        // IgnoreCase 正则：大小写两种写法都命中 0/1
-        Assert.Equal(new[] { 0, 1 }, Apply(doc, new FilterSpec { Msg = new[] { "^plain" }, MsgRegex = true }));
-        Assert.Equal(new[] { 0, 1 }, Apply(doc, new FilterSpec { Msg = new[] { "^PLAIN" }, MsgRegex = true }));
-        // 区分大小写时分别只命中 0（PLAIN ASCII UPPER）和 1（plain ascii lower）
-        Assert.Equal(new[] { 0 }, Apply(doc, new FilterSpec { Msg = new[] { "^PLAIN" }, MsgRegex = true, MsgCase = true }));
-        Assert.Equal(new[] { 1 }, Apply(doc, new FilterSpec { Msg = new[] { "^plain" }, MsgRegex = true, MsgCase = true }));
-        Assert.Empty(Apply(doc, new FilterSpec { Msg = new[] { "^mixed" }, MsgRegex = true, MsgCase = true }));
-
-        // 忽略大小写但仍是子串匹配：未加 ^ 时第 5 行也含 plain
-        Assert.Equal(new[] { 0, 1, 5 }, Apply(doc, new FilterSpec { Msg = new[] { "PLAIN" }, MsgRegex = true }));
-        Assert.Equal(new[] { 2, 10 }, Apply(doc, new FilterSpec { Msg = new[] { "mixed" }, MsgRegex = true }));
-
-        // 正则 IgnoreCase 不等价于去重音：CAFÉ 命中 4，cafe 命中 5
-        Assert.Equal(new[] { 4 }, Apply(doc, new FilterSpec { Msg = new[] { "café" }, MsgRegex = true }));
-        Assert.Equal(new[] { 4 }, Apply(doc, new FilterSpec { Msg = new[] { "CAFÉ" }, MsgRegex = true }));
-        Assert.Equal(new[] { 5 }, Apply(doc, new FilterSpec { Msg = new[] { "cafe" }, MsgRegex = true }));
-        // Straße 的 ß 与 STRASSE 在正则下同样等价
-        Assert.Equal(new[] { 7 }, Apply(doc, new FilterSpec { Msg = new[] { "straße" }, MsgRegex = true }));
-        Assert.Equal(new[] { 7 }, Apply(doc, new FilterSpec { Msg = new[] { "STRASSE" }, MsgRegex = true }));
-
-        // 中文 term 在正则模式下同样可匹配
-        Assert.Equal(new[] { 3 }, Apply(doc, new FilterSpec { Msg = new[] { "日志" }, MsgRegex = true }));
     }
 
     /// <summary>
@@ -1002,9 +896,8 @@ public class FilterEngineTests
                                      "ß", "ẞ", "ı", "I", "straße", "STRASSE", "dotless" })
         foreach (var op in new[] { "and", "or" })
         foreach (var msgCase in new[] { false, true })
-        foreach (var msgRegex in new[] { false, true })
         {
-            var spec = new FilterSpec { Msg = new[] { term }, MsgOp = op, MsgCase = msgCase, MsgRegex = msgRegex };
+            var spec = new FilterSpec { Msg = new[] { term }, MsgOp = op, MsgCase = msgCase };
             var full = Apply(doc, spec);
             for (int start = 0; start <= doc.RowCount + 1; start++)
                 Assert.Equal(full.Where(r => r >= start).ToArray(), FilterEngine.FilterTail(doc, spec, start));

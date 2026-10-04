@@ -8,13 +8,11 @@ public class FilterSpec
     public int[] Levels { get; set; } = Array.Empty<int>();
     public string[] Tags { get; set; } = Array.Empty<string>();
     public string TagOp { get; set; } = "or";
-    public bool TagRegex { get; set; }
     public bool TagCase { get; set; }
     public bool TagExclude { get; set; }
 
     public string[] Msg { get; set; } = Array.Empty<string>();
     public string MsgOp { get; set; } = "and";
-    public bool MsgRegex { get; set; }
     public bool MsgCase { get; set; }
     public bool MsgExclude { get; set; }
 

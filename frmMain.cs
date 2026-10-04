@@ -55,8 +55,8 @@ public partial class frmMain : Form
     CheckBox[] _lvlBoxes = new CheckBox[8];
     TextBox _edTag = null!, _edMsg = null!, _edPid = null!, _edTid = null!, _edMin = null!;
     ComboBox _cbTagOp = null!, _cbMsgOp = null!;
-    CheckBox _ckTagRe = null!, _ckTagCase = null!, _ckTagEx = null!;
-    CheckBox _ckMsgRe = null!, _ckMsgCase = null!, _ckMsgEx = null!;
+    CheckBox _ckTagCase = null!, _ckTagEx = null!;
+    CheckBox _ckMsgCase = null!, _ckMsgEx = null!;
     CheckBox _ckPidEx = null!, _ckTidEx = null!;
     CheckBox _chkAuto = null!;
     // 工具栏上的过滤控件（与过滤窗口双向同步）
@@ -197,11 +197,14 @@ public partial class frmMain : Form
         _tbMin.KeyDown += (_, e) => { if (e.KeyCode == Keys.Enter) _ = ApplyFilter(); };
 
         _tbTag = new ToolStripTextBox { Width = 130, ToolTipText = "多个用空格分隔，短语用双引号包裹" };
-        _tbTag.TextChanged += (_, _) => { SyncToolbarToPanel(_tbTag, _edTag); _cbTagOp.SelectedItem = "or"; };
+        // 工具栏输入永不改写面板 op：op 以面板控件为唯一来源，工具栏框只用背景色提示（ApplyTermBoxStyle）。
+        // 曾经的 `_cbTagOp.SelectedItem = "or"` 是并列语句（_syncingFilter 只包住 dst.Text = src.Text），
+        // 导致「在面板选 and → 再在工具栏改文本」op 被静默改回 or。
+        _tbTag.TextChanged += (_, _) => SyncToolbarToPanel(_tbTag, _edTag);
         _tbTag.KeyDown += (_, e) => { if (e.KeyCode == Keys.Enter) _ = ApplyFilter(); };
 
         _tbMsg = new ToolStripTextBox { Width = 180, ToolTipText = "多词用空格分隔，短语用双引号包裹" };
-        _tbMsg.TextChanged += (_, _) => { SyncToolbarToPanel(_tbMsg, _edMsg); _cbMsgOp.SelectedItem = "or"; };
+        _tbMsg.TextChanged += (_, _) => SyncToolbarToPanel(_tbMsg, _edMsg);
         _tbMsg.KeyDown += (_, e) => { if (e.KeyCode == Keys.Enter) _ = ApplyFilter(); };
 
         _toolStrip2.Items.AddRange(new ToolStripItem[] {
@@ -348,14 +351,16 @@ public partial class frmMain : Form
 
         // Tag 行（含收藏）
         var tagPanel = new FlowLayoutPanel { AutoSize = true, WrapContents = false };
-        BuildTermControls(tagPanel, "Tag", out _edTag, out _cbTagOp, out _ckTagRe, out _ckTagCase, out _ckTagEx,
+        BuildTermControls(tagPanel, "Tag", out _edTag, out _cbTagOp, out _ckTagCase, out _ckTagEx,
             "多个用空格分隔，短语用双引号包裹", "or", forTag: true, syncBox: _tbTag);
         mainLayout.Controls.Add(tagPanel, 0, 1);
 
         // Message 行（含收藏）
         var msgPanel = new FlowLayoutPanel { AutoSize = true, WrapContents = false };
-        BuildTermControls(msgPanel, "Message", out _edMsg, out _cbMsgOp, out _ckMsgRe, out _ckMsgCase, out _ckMsgEx,
-            "多词用空格分隔，短语用双引号包裹", "and", forTag: false, syncBox: _tbMsg);
+        // 默认 op = or：工具栏文本框继承面板 op 自身不能改（见上方 TextChanged 注释），
+        // 若面板默认 and，工具栏快速过滤会退化成「多词全命中」，与工具栏的快捷入口定位不符。
+        BuildTermControls(msgPanel, "Message", out _edMsg, out _cbMsgOp, out _ckMsgCase, out _ckMsgEx,
+            "多词用空格分隔，短语用双引号包裹", "or", forTag: false, syncBox: _tbMsg);
         mainLayout.Controls.Add(msgPanel, 0, 2);
 
         // PID / TID / 分钟 行（含过滤条件说明）
@@ -386,6 +391,65 @@ public partial class frmMain : Form
         mainLayout.Controls.Add(pidTidPanel, 0, 3);
 
         _panel.Controls.Add(mainLayout);
+
+        // 两组的 op / 大小写控件都已就位，做一次初始着色
+        ApplyTermBoxStyle();
+    }
+
+    // ── 输入框颜色提示（纯 UI，不进 CollectSpec / FilterSpec）──
+    // 两个正交维度：背景色 = 匹配关系 op，文字色 = 是否区分大小写。
+    // 工具栏文本框与面板文本框共享同一份语义（op/大小写以面板控件为唯一来源），
+    // 所以两处必须用同一个函数着色，否则会出现「工具栏显示 and 蓝、面板却是 or 蓝」。
+    static readonly Color BoxBgOr = ColorTranslator.FromHtml("#E8F1FB");    // or：浅蓝
+    static readonly Color BoxBgAnd = ColorTranslator.FromHtml("#FDF0E3");   // and：浅橙
+    static readonly Color BoxFgCaseOn = ColorTranslator.FromHtml("#B00020"); // 区分大小写：暗红
+
+    static void ApplyTermBoxStyle(TextBoxBase box, string op, bool caseSensitive)
+    {
+        // 空框不着色：避免大面积色块造成视觉噪声，也让「未填写」与「已填写」一眼可分。
+        // 「忽略大小写」用 SystemColors.WindowText 而非硬编码深色，这样文本框在
+        // 未着色与着色两种状态下底色/字色是同一套，主题变化时不会半途变色。
+        // （背景色目前是硬编码浅色，深色主题需另做适配，见 FILTER-REFACTOR-PLAN §3.3）
+        bool hasText = !string.IsNullOrWhiteSpace(box.Text);
+        box.BackColor = !hasText ? SystemColors.Window
+                    : (op == "and" ? BoxBgAnd : BoxBgOr);
+        box.ForeColor = !hasText ? SystemColors.WindowText
+                    : (caseSensitive ? BoxFgCaseOn : SystemColors.WindowText);
+    }
+
+    /// <summary>刷新 Tag / Message 两组共 4 个输入框的着色与工具栏 tooltip。</summary>
+    void ApplyTermBoxStyle()
+    {
+        // BuildTermControls 是「构造控件 → 挂事件 → 建下一个控件」顺序：
+        // cbOp.SelectedItem = defaultOp 与 ckCase 创建时都会触发本方法，
+        // 此时另一组（或本组的 ckCase）可能仍是 null。必须逐个判空。
+        if (_edTag == null || _edMsg == null
+            || _ckTagCase == null || _ckMsgCase == null
+            || _ckTagEx == null || _ckMsgEx == null) return;
+
+        string tagOp = _cbTagOp.SelectedItem?.ToString() ?? "or";
+        string msgOp = _cbMsgOp.SelectedItem?.ToString() ?? "or";
+
+        ApplyTermBoxStyle(_edTag, tagOp, _ckTagCase.Checked);
+        ApplyTermBoxStyle(_edMsg, msgOp, _ckMsgCase.Checked);
+        ApplyTermBoxStyle(_tbTag.TextBox, tagOp, _ckTagCase.Checked);
+        ApplyTermBoxStyle(_tbMsg.TextBox, msgOp, _ckMsgCase.Checked);
+
+        // 颜色 + 文案双重指示：工具栏框自身没有 op / 大小写控件，只能靠 tooltip 说明
+        _tbTag.ToolTipText = TermTip("Tag", tagOp, _ckTagCase.Checked, _ckTagEx.Checked);
+        _tbMsg.ToolTipText = TermTip("Message", msgOp, _ckMsgCase.Checked, _ckMsgEx.Checked);
+    }
+
+    static string TermTip(string label, string op, bool caseSensitive, bool exclude)
+    {
+        var parts = new List<string>
+        {
+            "包含匹配",
+            op == "and" ? "全部词命中（AND）" : "任一词命中（OR）",
+            caseSensitive ? "区分大小写" : "忽略大小写",
+        };
+        if (exclude) parts.Add("已排除命中项");
+        return $"{label}：" + string.Join("；", parts) + "（设置在「过滤设置」里）";
     }
 
     // ── 工具栏与过滤窗口输入框双向同步 ──
@@ -395,6 +459,7 @@ public partial class frmMain : Form
         _syncingFilter = true;
         try { dst.Text = src.Text; }
         finally { _syncingFilter = false; }
+        ApplyTermBoxStyle();
         OnFilterChanged();
     }
 
@@ -407,7 +472,7 @@ public partial class frmMain : Form
     }
 
     void BuildTermControls(FlowLayoutPanel panel, string label, out TextBox ed, out ComboBox cbOp,
-        out CheckBox ckRe, out CheckBox ckCase, out CheckBox ckEx,
+        out CheckBox ckCase, out CheckBox ckEx,
         string placeholder, string defaultOp, bool forTag, ToolStripTextBox? syncBox = null)
     {
         // 固定列宽（AutoSize=false）：原写法 AutoSize=true 会被文字实际宽度覆盖，
@@ -416,7 +481,12 @@ public partial class frmMain : Form
         ed = new TextBox { Width = 280 };
         ed.PlaceholderText = placeholder;
         var box = ed;
-        box.TextChanged += (_, _) => { if (syncBox != null) SyncPanelToToolbar(box, syncBox); OnFilterChanged(); };
+        box.TextChanged += (_, _) =>
+        {
+            if (syncBox != null) SyncPanelToToolbar(box, syncBox);
+            ApplyTermBoxStyle();
+            OnFilterChanged();
+        };
         box.KeyDown += (_, e) => { if (e.KeyCode == Keys.Enter) _ = ApplyFilter(); };
         panel.Controls.Add(ed);
 
@@ -434,13 +504,10 @@ public partial class frmMain : Form
         cbOp = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 55 };
         cbOp.Items.AddRange(new[] { "or", "and" });
         cbOp.SelectedItem = defaultOp;
-        cbOp.SelectedIndexChanged += (_, _) => OnFilterChanged();
+        cbOp.SelectedIndexChanged += (_, _) => { ApplyTermBoxStyle(); OnFilterChanged(); };
         panel.Controls.Add(cbOp);
-        ckRe = new CheckBox { Text = "正则", AutoSize = true };
-        ckRe.CheckedChanged += (_, _) => OnFilterChanged();
-        panel.Controls.Add(ckRe);
         ckCase = new CheckBox { Text = "大小写", AutoSize = true };
-        ckCase.CheckedChanged += (_, _) => OnFilterChanged();
+        ckCase.CheckedChanged += (_, _) => { ApplyTermBoxStyle(); OnFilterChanged(); };
         panel.Controls.Add(ckCase);
         ckEx = new CheckBox { Text = "排除", AutoSize = true };
         ckEx.CheckedChanged += (_, _) => OnFilterChanged();
@@ -728,12 +795,10 @@ public partial class frmMain : Form
         spec.Levels = Enumerable.Range(1, 7).Where(i => _lvlBoxes[i].Checked).ToArray();
         spec.Tags = FilterEngine.SplitTerms(_edTag.Text, _cbTagOp.SelectedItem?.ToString() ?? "or").ToArray();
         spec.TagOp = _cbTagOp.SelectedItem?.ToString() ?? "or";
-        spec.TagRegex = _ckTagRe.Checked;
         spec.TagCase = _ckTagCase.Checked;
         spec.TagExclude = _ckTagEx.Checked;
-        spec.Msg = FilterEngine.SplitTerms(_edMsg.Text, _cbMsgOp.SelectedItem?.ToString() ?? "and").ToArray();
-        spec.MsgOp = _cbMsgOp.SelectedItem?.ToString() ?? "and";
-        spec.MsgRegex = _ckMsgRe.Checked;
+        spec.Msg = FilterEngine.SplitTerms(_edMsg.Text, _cbMsgOp.SelectedItem?.ToString() ?? "or").ToArray();
+        spec.MsgOp = _cbMsgOp.SelectedItem?.ToString() ?? "or";
         spec.MsgCase = _ckMsgCase.Checked;
         spec.MsgExclude = _ckMsgEx.Checked;
         spec.Pids = FilterEngine.ParseInts(_edPid.Text, "PID");
@@ -750,10 +815,15 @@ public partial class frmMain : Form
         _autoTimer.Stop();
         for (int i = 1; i < 8; i++) _lvlBoxes[i].Checked = true;
         _edTag.Clear(); _edMsg.Clear(); _edPid.Clear(); _edTid.Clear(); _edMin.Clear();
-        _ckTagRe.Checked = _ckTagCase.Checked = _ckTagEx.Checked = false;
-        _ckMsgRe.Checked = _ckMsgCase.Checked = _ckMsgEx.Checked = false;
+        _ckTagCase.Checked = _ckTagEx.Checked = false;
+        _ckMsgCase.Checked = _ckMsgEx.Checked = false;
         _ckPidEx.Checked = _ckTidEx.Checked = false;
         _chkToolbarMarkedOnly.Checked = _chkToolbarFollow.Checked = false;
+        // 逐控件赋值会反复触发自动应用；op 也一并回到默认（Message 与 Tag 统一为 or）
+        _cbTagOp.SelectedItem = "or";
+        _cbMsgOp.SelectedItem = "or";
+        // Clear() 在本来就为空时不会触发 TextChanged，需显式补一次着色
+        ApplyTermBoxStyle();
         _ = ApplyFilter();
     }
 
@@ -984,12 +1054,11 @@ public partial class frmMain : Form
     void FindStep(bool back)
     {
         if (_doc == null || _listView.Rows.Length == 0) return;
-        if (_ckMsgRe.Checked) { ShowStatus("正则模式下请用过滤，F3 只支持普通文本"); return; }
 
-        var terms = FilterEngine.SplitTerms(_edMsg.Text, _cbMsgOp.SelectedItem?.ToString() ?? "and");
+        var terms = FilterEngine.SplitTerms(_edMsg.Text, _cbMsgOp.SelectedItem?.ToString() ?? "or");
         if (terms.Count == 0) { ShowStatus("请先在 Message 框里填写检索词"); return; }
 
-        bool opAnd = (_cbMsgOp.SelectedItem?.ToString() ?? "and") == "and";
+        bool opAnd = (_cbMsgOp.SelectedItem?.ToString() ?? "or") == "and";
         var keys = terms.Select(t => t.ToLowerInvariant()).ToArray();
         int total = _listView.Rows.Length;
         int cur = _listView.SelectedIndices.Count > 0 ? _listView.SelectedIndices[0] : -1;

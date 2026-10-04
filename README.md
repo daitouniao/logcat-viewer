@@ -31,7 +31,7 @@ Most logcat viewers choke on large captures. This one keeps the text on disk (mm
 ### Filtering
 
 - **Level**: freely toggle V/D/I/W/E/F/A, with select-all / clear-all
-- **Tag / Message**: `or` / `and` combination, regex, case-sensitivity, exclude mode
+- **Tag / Message**: `or` / `and` combination, case-sensitivity, exclude mode
 - **PID / TID**: multiple values space-separated, excludable
 - **Minute**: filter by the timestamp's minute value, e.g. `05 20`
 - **Marked rows only**
@@ -149,7 +149,7 @@ The scope is defined in `tests/logcat.Tests/coverlet.runsettings` and excludes t
 | `Ctrl+C`          | Copy selected rows                                     |
 | `Ctrl+Shift+C`    | Open the command window                                |
 | `F2` / `Shift+F2` | Previous / next mark                                   |
-| `F3` / `Shift+F3` | Find next / previous in results (non-regex mode)       |
+| `F3` / `Shift+F3` | Find next / previous in results                   |
 | `M`               | Mark the current row                                   |
 | `Enter`           | View the full record for the current row               |
 | `Esc`             | Stop the current task and clear the selection          |
@@ -160,8 +160,9 @@ You can also drag a log file straight onto the window.
 
 - Separate multiple keywords with spaces: `crash anr`
 - Wrap phrases in double quotes: `"null pointer"`
-- The `or` / `and` drop-down decides how multiple terms combine (Tag defaults to `or`, Message to `and`)
-- Tick *regex* to match with .NET regular expressions
+- The `or` / `and` drop-down decides how multiple terms combine (both Tag and Message default to `or`)
+- The term boxes are colour-coded: **background** shows the match relation (`or` blue / `and` orange), **text colour** turns dark red when case-sensitivity is on. An empty box stays uncoloured
+- The toolbar and the filter dialog mirror each other: type in either one and both update
 - Tick *exclude* to drop matches
 
 ## License
