@@ -193,7 +193,7 @@ public partial class frmMain : Form
         _chkToolbarFollow.CheckedChanged += (_, _) => { if (!_syncingFilter && _chkToolbarFollow.Checked && _listView.Rows.Length > 0) ScrollBottom(); };
 
         _tbMin = new ToolStripTextBox { Width = 80, ToolTipText = "如 05 20（空格分隔）" };
-        _tbMin.TextChanged += (_, _) => SyncToolbarToPanel(_tbMin, _edMin);
+        _tbMin.TextChanged += (_, _) => { SyncToolbarToPanel(_tbMin, _edMin); RefreshFixedOrBoxStyle(); };
         _tbMin.KeyDown += (_, e) => { if (e.KeyCode == Keys.Enter) _ = ApplyFilter(); };
 
         _tbTag = new ToolStripTextBox { Width = 130, ToolTipText = "多个用空格分隔，短语用双引号包裹" };
@@ -367,23 +367,23 @@ public partial class frmMain : Form
         var pidTidPanel = new FlowLayoutPanel { AutoSize = true, WrapContents = false };
         pidTidPanel.Controls.Add(new Label { Text = "PID", AutoSize = true, Padding = new Padding(0, 4, 4, 0) });
         _edPid = new TextBox { Width = 130, PlaceholderText = "多值用空格分隔" };
-        _edPid.TextChanged += (_, _) => OnFilterChanged();
+        _edPid.TextChanged += (_, _) => { RefreshFixedOrBoxStyle(); OnFilterChanged(); };
         _edPid.KeyDown += (_, e) => { if (e.KeyCode == Keys.Enter) _ = ApplyFilter(); };
         pidTidPanel.Controls.Add(_edPid);
         _ckPidEx = new CheckBox { Text = "排除", AutoSize = true };
-        _ckPidEx.CheckedChanged += (_, _) => OnFilterChanged();
+        _ckPidEx.CheckedChanged += (_, _) => { RefreshFixedOrBoxStyle(); OnFilterChanged(); };
         pidTidPanel.Controls.Add(_ckPidEx);
         pidTidPanel.Controls.Add(new Label { Text = "TID", AutoSize = true, Padding = new Padding(8, 4, 4, 0) });
         _edTid = new TextBox { Width = 130, PlaceholderText = "多值用空格分隔" };
-        _edTid.TextChanged += (_, _) => OnFilterChanged();
+        _edTid.TextChanged += (_, _) => { RefreshFixedOrBoxStyle(); OnFilterChanged(); };
         _edTid.KeyDown += (_, e) => { if (e.KeyCode == Keys.Enter) _ = ApplyFilter(); };
         pidTidPanel.Controls.Add(_edTid);
         _ckTidEx = new CheckBox { Text = "排除", AutoSize = true };
-        _ckTidEx.CheckedChanged += (_, _) => OnFilterChanged();
+        _ckTidEx.CheckedChanged += (_, _) => { RefreshFixedOrBoxStyle(); OnFilterChanged(); };
         pidTidPanel.Controls.Add(_ckTidEx);
         pidTidPanel.Controls.Add(new Label { Text = "分钟", AutoSize = true, Padding = new Padding(8, 4, 4, 0) });
         _edMin = new TextBox { Width = 160, PlaceholderText = "如 05 20（空格分隔）" };
-        _edMin.TextChanged += (_, _) => { SyncPanelToToolbar(_edMin, _tbMin); OnFilterChanged(); };
+        _edMin.TextChanged += (_, _) => { SyncPanelToToolbar(_edMin, _tbMin); RefreshFixedOrBoxStyle(); OnFilterChanged(); };
         _edMin.KeyDown += (_, e) => { if (e.KeyCode == Keys.Enter) _ = ApplyFilter(); };
         pidTidPanel.Controls.Add(_edMin);
         _lblSpec = new Label { Text = "（无过滤）", AutoSize = true, Padding = new Padding(8, 6, 0, 0), ForeColor = Color.Gray };
@@ -394,17 +394,32 @@ public partial class frmMain : Form
 
         // 两组的 op / 大小写控件都已就位，做一次初始着色
         ApplyTermBoxStyle();
+        RefreshFixedOrBoxStyle();
     }
 
     // ── 输入框颜色提示（纯 UI，不进 CollectSpec / FilterSpec）──
-    // 两个正交维度：背景色 = 匹配关系 op，文字色 = 是否区分大小写。
-    // 工具栏文本框与面板文本框共享同一份语义（op/大小写以面板控件为唯一来源），
+    // 三维正交分配：
+    //   背景色 = op       → or 浅蓝 / and 浅橙
+    //   字色   = 大小写   → 暗红 / 默认
+    //   字体   = 排除     → 删除线 / 常规
+    // 工具栏文本框与面板文本框共享同一份语义（op/大小写/排除以面板控件为唯一来源），
     // 所以两处必须用同一个函数着色，否则会出现「工具栏显示 and 蓝、面板却是 or 蓝」。
-    static readonly Color BoxBgOr = ColorTranslator.FromHtml("#E8F1FB");    // or：浅蓝
-    static readonly Color BoxBgAnd = ColorTranslator.FromHtml("#FDF0E3");   // and：浅橙
-    static readonly Color BoxFgCaseOn = ColorTranslator.FromHtml("#B00020"); // 区分大小写：暗红
+    static readonly Color BoxBgOr      = ColorTranslator.FromHtml("#E8F1FB"); // or：浅蓝
+    static readonly Color BoxBgAnd     = ColorTranslator.FromHtml("#FDF0E3"); // and：浅橙
+    static readonly Color BoxBgMinutes = ColorTranslator.FromHtml("#E8F1FB"); // 分钟/PID/TID 固定 or：同浅蓝
+    static readonly Color BoxFgCaseOn  = ColorTranslator.FromHtml("#B00020"); // 区分大小写：暗红
 
-    static void ApplyTermBoxStyle(TextBoxBase box, string op, bool caseSensitive)
+    /// <summary>在保留原字体所有属性（字号/族/单位/垂直/字符集）的前提下，安全地叠加/清除 Strikeout。</summary>
+    static Font ToggleStrikeout(Font font, bool strikeout)
+    {
+        var style = font.Style;
+        if (strikeout) style |= FontStyle.Strikeout;
+        else style &= ~FontStyle.Strikeout;
+        if (style == font.Style) return font; // 无变化直接返回，避免不必要的 GDI+ 对象
+        return new Font(font.FontFamily, font.Size, style, font.Unit, font.GdiCharSet, font.GdiVerticalFont);
+    }
+
+    static void ApplyTermBoxStyle(TextBoxBase box, string op, bool caseSensitive, bool exclude)
     {
         // 空框不着色：避免大面积色块造成视觉噪声，也让「未填写」与「已填写」一眼可分。
         // 「忽略大小写」用 SystemColors.WindowText 而非硬编码深色，这样文本框在
@@ -415,6 +430,17 @@ public partial class frmMain : Form
                     : (op == "and" ? BoxBgAnd : BoxBgOr);
         box.ForeColor = !hasText ? SystemColors.WindowText
                     : (caseSensitive ? BoxFgCaseOn : SystemColors.WindowText);
+        // 排除 → 删除线；空框不划线，避免视觉噪声
+        box.Font = ToggleStrikeout(box.Font, exclude && hasText);
+    }
+
+    /// <summary>固定 or 语义、无大小写维度的输入框（PID/TID/分钟）着色：背景色浅蓝 + 可选排除删除线。</summary>
+    static void ApplyFixedOrBoxStyle(TextBoxBase box, bool exclude)
+    {
+        bool hasText = !string.IsNullOrWhiteSpace(box.Text);
+        box.BackColor = hasText ? BoxBgMinutes : SystemColors.Window;
+        box.ForeColor = SystemColors.WindowText;
+        box.Font = ToggleStrikeout(box.Font, exclude && hasText);
     }
 
     /// <summary>刷新 Tag / Message 两组共 4 个输入框的着色与工具栏 tooltip。</summary>
@@ -430,14 +456,23 @@ public partial class frmMain : Form
         string tagOp = _cbTagOp.SelectedItem?.ToString() ?? "or";
         string msgOp = _cbMsgOp.SelectedItem?.ToString() ?? "or";
 
-        ApplyTermBoxStyle(_edTag, tagOp, _ckTagCase.Checked);
-        ApplyTermBoxStyle(_edMsg, msgOp, _ckMsgCase.Checked);
-        ApplyTermBoxStyle(_tbTag.TextBox, tagOp, _ckTagCase.Checked);
-        ApplyTermBoxStyle(_tbMsg.TextBox, msgOp, _ckMsgCase.Checked);
+        ApplyTermBoxStyle(_edTag, tagOp, _ckTagCase.Checked, _ckTagEx.Checked);
+        ApplyTermBoxStyle(_edMsg, msgOp, _ckMsgCase.Checked, _ckMsgEx.Checked);
+        ApplyTermBoxStyle(_tbTag.TextBox, tagOp, _ckTagCase.Checked, _ckTagEx.Checked);
+        ApplyTermBoxStyle(_tbMsg.TextBox, msgOp, _ckMsgCase.Checked, _ckMsgEx.Checked);
 
         // 颜色 + 文案双重指示：工具栏框自身没有 op / 大小写控件，只能靠 tooltip 说明
         _tbTag.ToolTipText = TermTip("Tag", tagOp, _ckTagCase.Checked, _ckTagEx.Checked);
         _tbMsg.ToolTipText = TermTip("Message", msgOp, _ckMsgCase.Checked, _ckMsgEx.Checked);
+    }
+
+    /// <summary>刷新固定 or 语义的输入框着色（PID/TID/分钟：浅蓝背景 + 可选排除删除线）。</summary>
+    void RefreshFixedOrBoxStyle()
+    {
+        if (_edMin != null) ApplyFixedOrBoxStyle(_edMin, false);
+        if (_edPid != null && _ckPidEx != null) ApplyFixedOrBoxStyle(_edPid, _ckPidEx.Checked);
+        if (_edTid != null && _ckTidEx != null) ApplyFixedOrBoxStyle(_edTid, _ckTidEx.Checked);
+        if (_tbMin != null) ApplyFixedOrBoxStyle(_tbMin.TextBox, false);
     }
 
     static string TermTip(string label, string op, bool caseSensitive, bool exclude)
@@ -510,7 +545,7 @@ public partial class frmMain : Form
         ckCase.CheckedChanged += (_, _) => { ApplyTermBoxStyle(); OnFilterChanged(); };
         panel.Controls.Add(ckCase);
         ckEx = new CheckBox { Text = "排除", AutoSize = true };
-        ckEx.CheckedChanged += (_, _) => OnFilterChanged();
+        ckEx.CheckedChanged += (_, _) => { ApplyTermBoxStyle(); OnFilterChanged(); };
         panel.Controls.Add(ckEx);
     }
 
@@ -824,6 +859,7 @@ public partial class frmMain : Form
         _cbMsgOp.SelectedItem = "or";
         // Clear() 在本来就为空时不会触发 TextChanged，需显式补一次着色
         ApplyTermBoxStyle();
+        RefreshFixedOrBoxStyle();
         _ = ApplyFilter();
     }
 
