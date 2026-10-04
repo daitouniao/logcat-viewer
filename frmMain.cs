@@ -1271,8 +1271,10 @@ public partial class frmMain : Form
                 var state = (FormWindowState)s.WindowState;
                 bool onScreen = bounds.Width > 100 && bounds.Height > 100 &&
                                 Screen.AllScreens.Any(sc => sc.WorkingArea.IntersectsWith(bounds));
-                StartupLog.Write($"读取 settings.json：Location={s.WindowLocation} Size={s.WindowSize} State={(int)state}");
-                if (onScreen)
+                // 同时校验尺寸合理性：宽度 < 主屏 1/2 视为异常残留值（如拖动到边缘或某次保存损坏）
+                bool reasonable = bounds.Width >= Screen.PrimaryScreen.WorkingArea.Width / 2;
+                StartupLog.Write($"读取 settings.json：Location={s.WindowLocation} Size={s.WindowSize} State={(int)state} onScreen={onScreen} reasonable={reasonable}");
+                if (onScreen && reasonable)
                 {
                     _savedBounds = bounds;
                     // 最小化不持久化，还原为正常态，否则下次启动直接最小化
@@ -1285,7 +1287,7 @@ public partial class frmMain : Form
                 }
                 else
                 {
-                    StartupLog.Write("校验失败：坐标不在任何屏幕内，放弃保存几何，使用默认布局");
+                    StartupLog.Write($"校验失败：onScreen={onScreen} reasonable={reasonable}，放弃保存几何，使用默认布局");
                 }
             }
             else
