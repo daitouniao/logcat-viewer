@@ -126,7 +126,7 @@ dotnet test tests/logcat.Tests/logcat.Tests.csproj --collect:"XPlat Code Coverag
 python tests/coverage-report.py     # writes tests/coverage-report.html
 ```
 
-Current status: **345 tests, all passing**; **98.56%** line coverage (3,432 / 3,482 lines), **88.49%** branch coverage (1000 / 1130 branches).
+Current status: **351 tests, all passing**; **98.31%** line coverage (1,695 / 1,724 lines), **88.41%** branch coverage (992 / 1,122 branches).
 
 The scope is defined in `tests/logcat.Tests/coverlet.runsettings` and excludes two groups:
 

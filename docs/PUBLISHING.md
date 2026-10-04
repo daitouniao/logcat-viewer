@@ -195,6 +195,9 @@ public static readonly string Dir = System.IO.Path.GetFullPath(s_tempRoot);
 
 临时文件会写入 `tests/logcat.Tests/tmp/`，无需改环境变量。
 
+> 跑测试与出覆盖率的完整流程、统计口径、以及沙箱里用 tstrun 反射 runner 绕开
+> testhost 的做法，统一见 [`TESTING.md`](TESTING.md)。
+
 ### 4.3 coverlet 覆盖率收集器失败（已修复）
 
 **现象**：`dotnet test --collect:"XPlat Code Coverage"` 生成的覆盖率报告中所有行都是 `hits="0"`，
@@ -211,18 +214,19 @@ public static readonly string Dir = System.IO.Path.GetFullPath(s_tempRoot);
 dotnet add tests/logcat.Tests/logcat.Tests.csproj package coverlet.collector --version 10.1.0
 ```
 
-2. 设置 TEMP 环境变量到可写目录，或在代码中修改 `TempRoot`（见 4.2）
+2. ~~设置 TEMP 环境变量到可写目录~~ —— 已不需要。`TempRoot` 已迁到项目目录（见 4.2），
+   当前版本无需任何环境变量设置
 
-**验证命令**：
+**验证命令**（无需设置 TMP/TEMP）：
 
 ```powershell
-$env:TMP = "D:\01.0.Code\C#\logcat\tests\logcat.Tests\tmp"
-$env:TEMP = $env:TMP
 dotnet test tests/logcat.Tests/logcat.Tests.csproj --collect:"XPlat Code Coverage" --settings tests/logcat.Tests/coverlet.runsettings
 python tests/coverage-report.py
 ```
 
-正常输出：`行覆盖率 98.56% (3,432/3,482)，分支覆盖率 88.49% (1000/1130)`
+正常输出（2026-10-04 基线，已按行号去重）：`行覆盖率 98.31% (1,695/1,724)，分支覆盖率 88.41%`
+
+> ⚠️ 若分母是几千（如 3,482），说明行号去重失效或排除规则失效 —— 见 [`TESTING.md`](TESTING.md) §5.1 / §5.2。
 
 验证覆盖率报告生成：
 ```powershell

@@ -180,7 +180,7 @@ dotnet test tests/logcat.Tests/logcat.Tests.csproj --collect:"XPlat Code Coverag
 python tests/coverage-report.py     # 输出 tests/coverage-report.html
 ```
 
-当前状态：**345 个用例全部通过**，行覆盖率 **98.56%**（3,432 / 3,482 行），分支覆盖率 **88.49%**（1000 / 1130 分支）。
+当前状态：**351 个用例全部通过**，行覆盖率 **98.31%**（1,695 / 1,724 行），分支覆盖率 **88.41%**（992 / 1,122 分支）。
 
 覆盖率口径见 `tests/logcat.Tests/coverlet.runsettings`，只统计可单测的业务逻辑层，排除两类代码：
 
