@@ -9,7 +9,8 @@ namespace logcat.Services;
 
 /// <summary>
 /// 用户级设置（窗口几何、显示选项、上次路径、安装/卸载窗口选项）。
-/// 以 JSON 持久化到 %LOCALAPPDATA%\logcat\settings.json。
+/// 以 JSON 持久化到 exe 同目录 settings.json（%LOCALAPPDATA% 在部分安全软件管控环境下写入被拒，
+/// 且异常被吞导致设置静默丢失，故与 StartupLog 一样落在程序目录）。
 ///
 /// 替代原先的 Properties.Settings（ApplicationSettingsBase / LocalFileSettingsProvider）：
 /// 后者在 .NET 运行时下以程序集的 URL 身份哈希作为存储目录
@@ -26,8 +27,7 @@ public sealed class AppSettings
     };
 
     static readonly string DefaultPath = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "logcat", "settings.json");
+        AppContext.BaseDirectory, "settings.json");
 
     static AppSettings? _default;
 
@@ -87,9 +87,10 @@ public sealed class AppSettings
                 }
             }
         }
-        catch
+        catch (Exception ex)
         {
-            // 文件损坏时回退默认值
+            // 文件损坏时回退默认值，但要留痕便于排查
+            StartupLog.Write($"[AppSettings] 加载失败 path={path} err={ex.Message}");
         }
         return new AppSettings(path);
     }
@@ -105,9 +106,10 @@ public sealed class AppSettings
             if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
             File.WriteAllText(path, JsonSerializer.Serialize(this, JsonOpts));
         }
-        catch
+        catch (Exception ex)
         {
-            // 磁盘不可写时忽略，设置仅在当前会话生效
+            // 磁盘不可写时忽略，设置仅在当前会话生效，但要留痕便于排查
+            StartupLog.Write($"[AppSettings] 保存失败 path={path} err={ex.Message}");
         }
     }
 }

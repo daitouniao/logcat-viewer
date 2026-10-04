@@ -1240,7 +1240,7 @@ public partial class frmMain : Form
     // ── 设置 ──
     void LoadSettings()
     {
-        StartupLog.SessionStart("logcat");
+        StartupLog.Write("[窗口状态] LoadSettings 开始");
         var screens = Screen.AllScreens;
         StartupLog.Write($"检测到屏幕数={screens.Length}");
         for (int i = 0; i < screens.Length; i++)
@@ -1305,19 +1305,29 @@ public partial class frmMain : Form
 
         if (!_hasSavedGeometry)
         {
-            StartupLog.Write($"ApplyWindowGeometry：无保存几何，使用默认 {defaultSize.Width}x{defaultSize.Height}");
+            StartupLog.Write($"[窗口状态] 无保存几何，使用默认 {defaultSize.Width}x{defaultSize.Height}");
             StartPosition = FormStartPosition.Manual;
             Location = defaultLoc;
             Size = defaultSize;
+            StartupLog.Write($"[窗口状态] 已设置默认几何 Location={defaultLoc} Size={defaultSize}");
             return;
         }
 
-        StartupLog.Write($"ApplyWindowGeometry：应用保存几何 Location={_savedBounds.Location} Size={_savedBounds.Size} State={_savedState}");
+        StartupLog.Write($"[窗口状态] 有保存几何：Location={_savedBounds.Location} Size={_savedBounds.Size} State={_savedState}");
         StartPosition = FormStartPosition.Manual;
         Location = _savedBounds.Location;
         Size = _savedBounds.Size;
+
         if (_savedState == FormWindowState.Maximized)
+        {
+            StartupLog.Write("[窗口状态] 保存状态为Maximized，正在设置WindowState=Maximized...");
             WindowState = FormWindowState.Maximized;
+            StartupLog.Write($"[窗口状态] WindowState已设置为Maximized");
+        }
+        else
+        {
+            StartupLog.Write($"[窗口状态] 保存状态为{_savedState}，保持正常态");
+        }
 
         // 推迟到布局完成后再读实际落点，确保取到最终位置/所在屏
         BeginInvoke((System.Action)(() =>
@@ -1337,30 +1347,42 @@ public partial class frmMain : Form
         s.AutoApply = _chkAuto.Checked;
         s.NewlineVis = _newlineVis;
         s.FontPt = _fontPt;
-        // 始终保存"正常态矩形"：RestoreBounds 在最大/最小化时给出还原后的位置，
-        // 这样下次恢复最大化时能正确回到上次的屏幕
-        // 正常态用当前 Bounds：RestoreBounds 内部取 rcNormalPosition，
-        // 仅在窗口被最大/最小化过才由 Windows 填充；一直正常态时为未定义值（常返回 -1,-1），
-        // 会导致位置丢失。故正常态必须用 this.Bounds，只有最大/最小化时才用 RestoreBounds。
+        // ── 窗口状态与几何保存 ──
+        // 关闭时状态 → 保存策略：
+        //   Maximized → 保存 RestoreBounds(正常态矩形) + State=Maximized，下次启动直接最大化
+        //   Normal   → 保存当前 Bounds + State=Normal
+        //   Minimized → 保存桌面 2/3 宽高 + State=Normal，下次启动正常态
+        StartupLog.Write($"[窗口状态] 关闭时 WindowState={WindowState} Bounds={Bounds} RestoreBounds={RestoreBounds}");
         if (WindowState == FormWindowState.Minimized)
         {
-            // 最小化关闭：下次启动按主屏幕 WorkingArea 2/3 宽高显示
+            StartupLog.Write("[窗口状态] 最小化关闭 → 使用桌面2/3宽高");
             var wa2 = Screen.PrimaryScreen.WorkingArea;
             var sz2 = new Size((int)(wa2.Width * 0.667), (int)(wa2.Height * 0.667));
+            var loc2 = new Point(wa2.Left + (wa2.Width - sz2.Width) / 2, wa2.Top + (wa2.Height - sz2.Height) / 2);
             s.WindowSize = sz2;
-            s.WindowLocation = new Point(wa2.Left + (wa2.Width - sz2.Width) / 2,
-                                          wa2.Top + (wa2.Height - sz2.Height) / 2);
+            s.WindowLocation = loc2;
             s.WindowState = (int)FormWindowState.Normal;
+            StartupLog.Write($"[窗口状态] 写入 Location={loc2} Size={sz2} State=Normal");
+        }
+        else if (WindowState == FormWindowState.Maximized)
+        {
+            StartupLog.Write("[窗口状态] 最大化关闭 → 保存RestoreBounds + State=Maximized");
+            var bounds = RestoreBounds;
+            s.WindowLocation = bounds.Location;
+            s.WindowSize = bounds.Size;
+            s.WindowState = (int)FormWindowState.Maximized;
+            StartupLog.Write($"[窗口状态] 写入 Location={bounds.Location} Size={bounds.Size} State=Maximized");
         }
         else
         {
-            var bounds = WindowState == FormWindowState.Normal ? Bounds : RestoreBounds;
-            s.WindowLocation = bounds.Location;
-            s.WindowSize = bounds.Size;
-            s.WindowState = (int)WindowState;
+            StartupLog.Write("[窗口状态] 正常关闭 → 保存当前Bounds + State=Normal");
+            s.WindowLocation = Bounds.Location;
+            s.WindowSize = Bounds.Size;
+            s.WindowState = (int)FormWindowState.Normal;
+            StartupLog.Write($"[窗口状态] 写入 Location={Bounds.Location} Size={Bounds.Size} State=Normal");
         }
-        StartupLog.Write($"SaveSettings：写入 Location={s.WindowLocation} Size={s.WindowSize} State={s.WindowState}（关闭时 WindowState={WindowState}）");
         s.Save();
+        StartupLog.Write("[窗口状态] settings.json 已保存");
     }
 
     // ── ADB 初始化 ──
