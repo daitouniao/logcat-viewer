@@ -182,7 +182,7 @@ Assert.Equal(60, store.TagFilters.Count);   // 只验证数量
 
 ### 5.1 同构代码导致 `str.replace` 匹配歧义
 
-`FilterEngine` 里 `ApplyFilter`（301/308/315）与 `FilterTail`（372/377/382）的
+`FilterEngine` 里 `ApplyFilter`（254/261/268）与 `FilterTail`（325/330/335）的
 pid/tid 排除、分钟守卫是**逐字符相同**的代码块：
 
 ```csharp
@@ -192,6 +192,11 @@ if (spec.PidExclude ? hit : !hit) continue;
 
 `src.count(old) != 1` 的保护会直接跳过（`匹配数=2`），静默漏掉一半变异点。
 **解法**：用「行号 + 该行内容片段」双重校验定位（脚本里的 `LINE_MUTATIONS` 写法）。
+
+> **行号会漂移**：2026-10-04 移除正则后，`FilterEngine.cs` 少了约 47 行，这 6 个行号整体下移。
+> 双重校验让漂移变成**安全失败**（报 `SKIP-行内容不符` 而不会误改代码），但仍会静默漏掉
+> 全部 6 个变异点 —— 改完 `FilterEngine.cs` 务必回来核对 `LINE_MUTATIONS` 里的行号。
+> 当初的 301/308/315/372/377/382 就是这么全部失效的。
 
 ### 5.2 并发编辑会污染审计结果
 
