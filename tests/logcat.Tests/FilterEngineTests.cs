@@ -320,6 +320,51 @@ public class FilterEngineTests
         Assert.Equal(new[] { 1 }, Apply(doc, new FilterSpec { Minutes = new[] { 0 } }));
     }
 
+    /// <summary>
+    /// 增量路径的同一守卫：无时间戳的行（ts &lt; 0）必须被跳过。
+    /// FilterTail 与 ApplyFilter 是两份独立实现（重复代码），守卫也各写了一份，
+    /// 只测 ApplyFilter 会让 FilterTail 的那份成为无人看管的盲区 ——
+    /// 变异测试实测「不再跳过 ts&lt;0」在 ApplyFilter 被 KILLED、在 FilterTail SURVIVED。
+    /// </summary>
+    [Fact]
+    public void 分钟过滤跳过无时间戳的行_增量路径同样成立()
+    {
+        using var tmp = new TempLogFile("garbage without timestamp\n" + "09-23 18:00:00.000  1  2 I Tag: ok\n");
+        using var doc = LogDocument.Build(tmp.Path);
+
+        var spec = new FilterSpec { Minutes = new[] { 0 } };
+        // 第0 行无时间戳，第 1 行是 18:00 的正常行
+        var full = Apply(doc, spec);
+        Assert.Equal(new[] { 1 }, full);
+        for (int start = 0; start <= doc.RowCount + 1; start++)
+            // ts<0 的行若不跳过，(ts/60000)%60 会算成 0 而被误纳入
+            Assert.Equal(full.Where(r => r >= start).ToArray(),
+                         FilterEngine.FilterTail(doc, spec, start));
+    }
+
+    [Fact]
+    public void 增量路径的pid与tid排除语义与全量一致()
+    {
+        using var tmp = new TempLogFile(Data);
+        using var doc = LogDocument.Build(tmp.Path);
+
+        // pid/tid 排除在 FilterTail 里各有一份实现，变异测试实测两处都可能被改坏，
+        // 这里钉住「增量 = 全量」这个不变量（不期望具体行号，只期望两条路径一致）。
+        foreach (var spec in new[]
+        {
+            new FilterSpec { Pids = new[] { 1 }, PidExclude = true },
+            new FilterSpec { Pids = new[] { 1 } },
+            new FilterSpec { Tids = new[] { 2 }, TidExclude = true },
+            new FilterSpec { Tids = new[] { 2 } },
+        })
+        {
+            var full = Apply(doc, spec);
+            for (int start = 0; start <= doc.RowCount + 1; start++)
+                Assert.Equal(full.Where(r => r >= start).ToArray(),
+                             FilterEngine.FilterTail(doc, spec, start));
+        }
+    }
+
     [Fact]
     public void 仅标记行()
     {
