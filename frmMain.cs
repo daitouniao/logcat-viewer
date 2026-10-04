@@ -108,8 +108,10 @@ public partial class frmMain : Form
     void InitializeComponent2()
     {
         Text = AppInfo.Title;
-        Size = new Size(1440, 900);
-        StartPosition = FormStartPosition.WindowsDefaultBounds;
+        // 默认尺寸：主屏幕 WorkingArea 的 2/3（首次启动或无保存几何时使用）
+        var wa = Screen.PrimaryScreen.WorkingArea;
+        Size = new Size((int)(wa.Width * 0.667), (int)(wa.Height * 0.667));
+        StartPosition = FormStartPosition.CenterScreen;
         AllowDrop = true;
         KeyPreview = true;
 
@@ -1327,16 +1329,29 @@ public partial class frmMain : Form
         s.AutoApply = _chkAuto.Checked;
         s.NewlineVis = _newlineVis;
         s.FontPt = _fontPt;
-        // 始终保存“正常态矩形”：RestoreBounds 在最大/最小化时给出还原后的位置，
+        // 始终保存"正常态矩形"：RestoreBounds 在最大/最小化时给出还原后的位置，
         // 这样下次恢复最大化时能正确回到上次的屏幕
         // 正常态用当前 Bounds：RestoreBounds 内部取 rcNormalPosition，
         // 仅在窗口被最大/最小化过才由 Windows 填充；一直正常态时为未定义值（常返回 -1,-1），
         // 会导致位置丢失。故正常态必须用 this.Bounds，只有最大/最小化时才用 RestoreBounds。
-        var bounds = WindowState == FormWindowState.Normal ? Bounds : RestoreBounds;
-        s.WindowLocation = bounds.Location;
-        s.WindowSize = bounds.Size;
-        s.WindowState = (int)(WindowState == FormWindowState.Minimized ? FormWindowState.Normal : WindowState);
-        StartupLog.Write($"SaveSettings：写入 Location={bounds.Location} Size={bounds.Size} State={s.WindowState}（关闭时 WindowState={WindowState}, 采用={(WindowState == FormWindowState.Normal ? "Bounds" : "RestoreBounds")}）");
+        if (WindowState == FormWindowState.Minimized)
+        {
+            // 最小化关闭：下次启动按主屏幕 WorkingArea 2/3 宽高显示
+            var wa2 = Screen.PrimaryScreen.WorkingArea;
+            var sz2 = new Size((int)(wa2.Width * 0.667), (int)(wa2.Height * 0.667));
+            s.WindowSize = sz2;
+            s.WindowLocation = new Point(wa2.Left + (wa2.Width - sz2.Width) / 2,
+                                          wa2.Top + (wa2.Height - sz2.Height) / 2);
+            s.WindowState = (int)FormWindowState.Normal;
+        }
+        else
+        {
+            var bounds = WindowState == FormWindowState.Normal ? Bounds : RestoreBounds;
+            s.WindowLocation = bounds.Location;
+            s.WindowSize = bounds.Size;
+            s.WindowState = (int)WindowState;
+        }
+        StartupLog.Write($"SaveSettings：写入 Location={s.WindowLocation} Size={s.WindowSize} State={s.WindowState}（关闭时 WindowState={WindowState}）");
         s.Save();
     }
 
