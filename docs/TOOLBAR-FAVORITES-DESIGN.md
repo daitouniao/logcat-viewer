@@ -100,17 +100,15 @@ _tbTag.TextChanged += (_, _) => { SyncToolbarToPanel(_tbTag, _edTag); _cbTagOp.S
 从面板选收藏：`ed.Text = text` → `SyncPanelToToolbar` → `dst.Text = src.Text` → **触发本 handler** → op 被改成 `or`。
 该赋值与 `SyncToolbarToPanel` 是**并列语句**，`_syncingFilter` 拦不住它。
 
-修复（一行）：
+修复（一行，**删除副作用**）：
 
 ```csharp
-_tbTag.TextChanged += (_, _) =>
-{
-    SyncToolbarToPanel(_tbTag, _edTag);
-    if (!_syncingFilter) _cbTagOp.SelectedItem = "or";   // 同步回填不改 op
-};
+_tbTag.TextChanged += (_, _) => SyncToolbarToPanel(_tbTag, _edTag);
 ```
 
-（`_tbMsg` 同理。）修好后，凡是在 `_syncingFilter = true` 期间的文本回填都不会再改 op。
+（`_tbMsg` 同理。）
+
+**与 `FILTER-REFACTOR-PLAN.md` 统一（v2 修订）**：改为**直接删除副作用**，不采用 `if (!_syncingFilter)` 守卫——工具栏输入**永不改写**面板 op，op 以面板控件为唯一来源，工具栏框仅用**背景色**提示（FILTER-REFACTOR-PLAN.md §3.3）。为保持工具栏快速过滤的默认语义仍为 `or`，Message 面板 op 默认值由 `and` 改为 `or`。此改动一并消除本节所述「选收藏重置 op」路径。
 
 ---
 
@@ -205,7 +203,7 @@ void ApplyFavText(TextBox ed, string text, bool forTag)
 
     if (ed == tb.TextBox)
     {
-        // 工具栏侧：抑制 op 重置与重复同步，随后手动补一次工具栏→面板同步
+        // 工具栏侧：抑制重复同步（op 已不再被工具栏改写，见 §2.4），随后手动补一次工具栏→面板同步
         _syncingFilter = true;
         try { ed.Text = text; } finally { _syncingFilter = false; }
         ed.SelectionStart = ed.TextLength;
@@ -399,3 +397,84 @@ _btnFavMenuTag.Overflow = ToolStripItemOverflow.AsNeeded;
 - [ ] 若 §3.1 选 (b)：`AddTagFilter` 满 60 条后返回 false 且 `Count` 仍为 60（1 条）
 
 > 控件 UI 行为按项目现有约定不进覆盖率口径，用 harness 目视 + 截图验证。
+
+---
+
+## 10. 审核补充（2026-10-04）
+
+> 对照源码逐条核对原文所有行号、方法签名、测试名，**零偏差**；以下为原文未提及、但实现前需要处理的问题。
+
+### 10.1 `ShowFilterFavMenu` 的 anchor 参数不能简单泛化为 `Control`
+
+原文 §4.1 写"锚点参数 `Button` → 泛化为 `Control`"，但工具栏侧要传的 `_tbTag` / `_tbMsg` 是 `ToolStripTextBox`，**它继承自 `ToolStripItem`，不是 `Control`**。`ContextMenuStrip.Show()` 有两个不同重载：
+
+- `Show(Control, Point)`——面板侧 `btnFavPick`（Button）走这个；
+- `Show(ToolStripItem, Point)`——工具栏侧 `_tbTag` 走这个。
+
+`Control` 和 `ToolStripItem` 没有公共基类（除 `object`）。二选一：
+
+- (a) anchor 参数改为 `object`，内部 `is Control` / `is ToolStripItem` 分派；
+- (b) 拆成两个方法，分别处理面板侧和工具栏侧（更清晰，推荐）。
+
+`ed` 参数传 `_tbTag.TextBox`（`ToolStripTextBox` 的 `.TextBox` 属性返回内层 `TextBox`），这点原文提过，确认可用。
+
+### 10.2 面板侧 `btnFavToggle` 当前是局部变量，`RefreshFavStars()` 找不到它
+
+[frmMain.cs:429](file:///d:/01.0.Code/C%23/logcat/frmMain.cs#L429) 的 `btnFavToggle` 在 `BuildTermControls` 内部构造，未保存到字段。`RefreshFavStars()` 需要同时刷新面板侧和工具栏侧共 4 个 ★ 按钮，因此必须：
+
+- 把 `btnFavToggleTag` / `btnFavToggleMsg` 提为 `frmMain` 字段；或
+- 给 `BuildTermControls` 加 `out Button favToggle` 参数。
+
+工具栏侧新增的 `_btnFavToggleTag` / `_btnFavToggleMsg` 本就是字段，天然可访问。
+
+### 10.3 `RefreshFavStars()` 是全新方法，当前源码里不存在
+
+面板侧 ★ 按钮目前**没有任何刷新机制**——点击后靠 `ToggleFilterFav` 内部的 `Save()` 触发 `Changed`，但 `Changed` 当前**没有订阅者**（确认过 `frmMain.cs` 全文没有 `_fav.Changed +=`）。因此 `RefreshFavStars()` 是本需求新增的方法，且需要订阅 `FavoritesStore.Changed`。
+
+**硬契约**（与原文 §6.2 一致）：`RefreshFavStars()` 只改按钮的 `Text` / `Enabled`，绝不碰任何 `TextBox.Text`，否则会死循环。
+
+### 10.4 当前 `ToggleFilterFav` 的"静默替换大小写"路径
+
+原文 §2.3 推论 2 提到"原条目被静默替换大小写"，完整路径如下（当前代码 [frmMain.cs:487-504](file:///d:/01.0.Code/C%23/logcat/frmMain.cs#L487-L504)）：
+
+```
+存了 activitymanager → 输入 ActivityManager → ToggleFilterFav:
+  RemoveTagFilter("ActivityManager")  // 大小写敏感 → false
+  → 走 AddTagFilter("ActivityManager")
+    → AddRecent 内 RemoveAll(OrdinalIgnoreCase) 先清掉 activitymanager
+    → 重新插入 ActivityManager
+  → 状态栏"已收藏"，★ 仍亮，Count 不变，存储值被替换为用户输入的大小写
+```
+
+用 `Toggle*` API（§2.3）可以彻底消除这条路径，返回值直接决定状态栏提示，不再拼 `Remove` / `Add` 的返回值。
+
+### 10.5 `Toggle*` 参考实现
+
+```csharp
+public bool ToggleTagFilter(string text)
+{
+    text = (text ?? "").Trim();
+    if (text.Length == 0) return false;
+    var list = _data.TagFilters;
+    int idx = list.FindIndex(p => string.Equals(p, text, StringComparison.OrdinalIgnoreCase));
+    if (idx >= 0) { list.RemoveAt(idx); return false; }   // 已存在 → 移除，返回 false
+    list.Insert(0, text);
+    while (list.Count > MaxPerList) list.RemoveAt(list.Count - 1);
+    return true;                                            // 不存在 → 新增，返回 true
+}
+```
+
+`ContainsTagFilter` 同理用 `FindIndex(OrdinalIgnoreCase) >= 0`。`ToggleMsgFilter` 对称实现。
+
+### 10.6 验收清单补充
+
+原文 §9 的 11 条之外，再补 2 条：
+
+- [ ] 面板侧 ▾ / ★ **与** 工具栏侧 ▾ / ★ **同时存在**，且同一输入框两侧的 ★ 状态完全一致（同一份 `RefreshFavStars()` 刷新）
+- [ ] 面板侧和工具栏侧的 ▾ 弹出的菜单内容、顺序、子串过滤行为完全一致（同一份 `FilterFavList` 数据源）
+
+---
+
+### 审核结论
+
+原文可直接按 §8 推进实现。需在落地前修正 §10.1（anchor 类型）、§10.2（面板侧按钮提字段），其余按原文执行。基线测试 354 条全部通过，改造时优先落 §8.1（`FavoritesStore` API + 测试），每步跑回归。
