@@ -108,10 +108,6 @@ public partial class frmMain : Form
     void InitializeComponent2()
     {
         Text = AppInfo.Title;
-        // 默认尺寸：主屏幕 WorkingArea 的 2/3（首次启动或无保存几何时使用）
-        var wa = Screen.PrimaryScreen.WorkingArea;
-        Size = new Size((int)(wa.Width * 0.667), (int)(wa.Height * 0.667));
-        StartPosition = FormStartPosition.CenterScreen;
         AllowDrop = true;
         KeyPreview = true;
 
@@ -1298,15 +1294,25 @@ public partial class frmMain : Form
         catch { StartupLog.Write("LoadSettings 异常，使用默认布局"); /* 首次运行，使用默认值 */ }
     }
 
-    // 在 Load 事件中调用：此时窗体句柄已就绪，最大化能可靠落到原屏
+    // 在 Load 事件中调用：此时窗体句柄已就绪，DPI/屏幕信息都正确，最大化能可靠落到原屏
     void ApplyWindowGeometry()
     {
+        // 默认策略：主屏幕 WorkingArea 的 2/3 宽高，居中
+        var wa = Screen.PrimaryScreen.WorkingArea;
+        var defaultSize = new Size((int)(wa.Width * 0.667), (int)(wa.Height * 0.667));
+        var defaultLoc = new Point(wa.Left + (wa.Width - defaultSize.Width) / 2,
+                                   wa.Top + (wa.Height - defaultSize.Height) / 2);
+
         if (!_hasSavedGeometry)
         {
-            StartupLog.Write("ApplyWindowGeometry：无保存几何，保持默认布局");
+            StartupLog.Write($"ApplyWindowGeometry：无保存几何，使用默认 {defaultSize.Width}x{defaultSize.Height}");
+            StartPosition = FormStartPosition.Manual;
+            Location = defaultLoc;
+            Size = defaultSize;
             return;
         }
-        StartupLog.Write("ApplyWindowGeometry：开始应用保存几何");
+
+        StartupLog.Write($"ApplyWindowGeometry：应用保存几何 Location={_savedBounds.Location} Size={_savedBounds.Size} State={_savedState}");
         StartPosition = FormStartPosition.Manual;
         Location = _savedBounds.Location;
         Size = _savedBounds.Size;
