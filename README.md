@@ -10,10 +10,9 @@ A Windows desktop viewer for Android logs (`logcat`). Built with WinForms on .NE
 
 > **Note:** the application UI is currently **Chinese-only**. The feature list below describes what the app does; the UI strings themselves are not yet translated.
 
-<!-- TODO: replace with a real screenshot / GIF before release -->
-<!-- ![logcat viewer](docs/screenshot.png) -->
+![logcat viewer — filtering demo](docs/images/main.gif)
 
-## Why this one
+## Core advantages
 
 Most logcat viewers choke on large captures. This one keeps the text on disk (mmap) and only the fixed-width columns in memory, so a multi-GB log file opens without loading it into RAM and scrolls at a stable frame rate.
 
@@ -26,11 +25,18 @@ Most logcat viewers choke on large captures. This one keeps the text on disk (mm
 | **Level colours**              | V/D/I/W/E/F/A colour-coded                                                                               |
 | **Full record view**           | Double-click a row (`Enter`) to see the untruncated original text                                        |
 
-## Features
+## Log viewing
 
-### Filtering
+- **Memory-mapped + parallel indexing**: text stays on disk, only the columnar index lives in RAM; open multi-GB files without loading them; progress bar during indexing, cancellable at any time
+- **Virtual list**: only renders visible rows — smooth scrolling at 10M+ lines
+- **Six log formats auto-detected**: `threadtime` / `time` / `long` / `brief` / `tag` / `ymd` via a byte-level fast path with regex fallback
+- **Multi-line joining**: stack traces and wrapped messages fold back into their parent record (toggleable)
+- **Level colours**: V/D/I/W/E/F/A each have their own colour
+- **Full record view**: double-click a row or press `Enter` to see the untruncated original text in a pop-up
 
-- **Level**: freely toggle V/D/I/W/E/F/A, with select-all / clear-all
+## Filtering
+
+- **Level**: freely toggle V/D/I/W/E/F/A, with select-all / clear-all shortcuts
 - **Tag / Message**: `or` / `and` combination, case-sensitivity, exclude mode
 - **PID / TID**: multiple values space-separated, excludable
 - **Minute**: filter by the timestamp's minute value, e.g. `05 20`
@@ -39,14 +45,16 @@ Most logcat viewers choke on large captures. This one keeps the text on disk (mm
 - **Detached filter window**: the filter panel lives in a non-modal window that floats above the main window, so the entire main area is left to the log list. Closing it only collapses it — your filter conditions survive. Reopen via `Ctrl+F`
 - **Saved filters**: separate favourites for Tag and Message, up to 60 each, persisted
 
-### Marking and export
+## Marking and export
 
 - Press `M` (or double-click the line-number column) to mark/unmark; `F2` / `Shift+F2` jump between marks
 - Right-click to filter directly by that tag / PID / TID / minute
 - Export the current result, or only marked rows; optional "single-line" mode (newlines become `\n`) for spreadsheets
 - Copy as raw text or as tab-separated table rows
 
-### ADB device features
+## ADB device features
+
+Toolbar provides live capture, device operations, and save:
 
 | Feature              | Description                                                                                                                                                                                                                                                                            |
 | -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -55,15 +63,20 @@ Most logcat viewers choke on large captures. This one keeps the text on disk (mm
 | Save log             | Saves the current capture as a `.log` file                                                                                                                                                                                                                                             |
 | Device operations    | One drop-down entry point (screenshot / screen record / file browser / install-uninstall APK / command window), all merged into a single tabbed "Device operations" window                                                                                                             |
 
-### Device operations window
+## Device operations window
 
-Screenshots, screen recording, file browsing, APK install/uninstall and the command window no longer each spawn their own dialog. They are merged into one non-modal, singleton window with tabs:
+Screenshots, screen recording, file browsing, APK install/uninstall and the command window are merged into one non-modal, singleton window with tabs. Tabs are created lazily on first open and keep their state; switching devices rebuilds device-bound tabs automatically; closing the window cleans up (stops recording, cancels command tasks, writes options back).
 
-- **Screenshot / Screen record / File browser** — one page with three sub-tabs. *Screenshot & record*: preview and save, or pull the recording to your PC. *File browser*: a two-pane device ↔ PC file manager with transfer, refresh, directory favourites, and rename; restricted directories such as `/data/data` need root (the toolbar's run-as button acts as a mode drop-down); transfers tolerate files being in use, drag-and-drop preserves relative structure, and `sync` is issued after upload so data survives an unplug
-- **Install / uninstall APK** — see below
-- **Command window** — see below
+### Screenshot / Screen record / File browser
 
-Tabs are created lazily on first open and keep their state; switching devices rebuilds device-bound tabs automatically; closing the window cleans up (stops recording, cancels command tasks, writes options back).
+**Screenshot & record**: preview and save, or pull the recording to your PC.
+
+**File browser**: a two-pane device ↔ PC file manager with:
+- Transfer, refresh, directory favourites, and rename
+- Restricted directories such as `/data/data` need root (toolbar run-as button acts as a mode drop-down)
+- Transfers tolerate files being in use
+- Drag-and-drop preserves relative structure
+- `sync` is issued after upload so data survives an unplug
 
 ### Install / uninstall APK
 
@@ -87,13 +100,25 @@ Collect the commands you keep retyping, organise them into categories, and re-ru
 - **Streaming output**: line-by-line echo with line count and elapsed time; long-running commands like `logcat` can be stopped or time out (default 30 s, 0 = unlimited)
 - **No accidental runs**: double-click or `Enter` only fills the input box; you still have to press Execute
 
+## User experience
+
 ### Window position memory (multi-monitor)
 
-The main window's position, size and state are saved on close and restored on next launch — including which monitor it was on, for both horizontally and vertically arranged displays. If that monitor is no longer connected, the saved geometry fails validation and the app falls back to the default layout instead of restoring off-screen. This is verifiable: `%LOCALAPPDATA%\logcat\startup.log` records the screen topology, the coordinates read, the validation result, the actual landing position, and the coordinates written on close.
+The main window's position, size and state are saved on close and restored on next launch — including which monitor it was on, for both horizontally and vertically arranged displays. If that monitor is no longer connected, the saved geometry fails validation and the app falls back to the default layout instead of restoring off-screen.
+
+Verification: `%LOCALAPPDATA%\logcat\startup.log` records the screen topology, the coordinates read, the validation result, the actual landing position, and the coordinates written on close.
 
 ### High-DPI support
 
 All 14 hand-written forms declare `AutoScaleMode.Dpi` and scale with the system DPI, so button text is no longer clipped on high-scaling displays. The default font is Microsoft YaHei UI, which fixes the missing-CJK-glyph problem that made Chinese text render as clipped glyphs under GDI font fallback at high DPI.
+
+Multi-monitor with different scaling (e.g. primary 150%, secondary 100%):
+- Filter window height auto-adjusts to content after showing
+- Toolbar row heights use AutoSize instead of fixed heights
+- Dropdown widths clamp to minimum to keep buttons visible
+- DpiFix dynamically expands TableLayoutPanel rows and fixed-height button bars that would otherwise overflow
+
+Verification: DPI measurements and fallback actions are logged to `%LOCALAPPDATA%\logcat\startup.log` `[DPI]` section.
 
 ## Requirements
 
@@ -110,6 +135,8 @@ dotnet publish -c Release   # publish
 ```
 
 You can also open `logcat.slnx` / `logcat.csproj` directly in Visual Studio.
+
+> **No pre-built binaries are maintained.** Published builds are not kept up to date; build from source instead.
 
 ## Tests
 
@@ -164,6 +191,66 @@ You can also drag a log file straight onto the window.
 - The term boxes are colour-coded: **background** shows the match relation (`or` blue / `and` orange), **text colour** turns dark red when case-sensitivity is on. An empty box stays uncoloured
 - The toolbar and the filter dialog mirror each other: type in either one and both update
 - Tick *exclude* to drop matches
+
+## Project structure
+
+```
+Program.cs              Entry point
+frmMain.cs              Main window: layout, dual toolbars, filter panel, ADB entry points, shortcuts
+app.ico                 Application icon (referenced in csproj ApplicationIcon)
+Controls/
+  LogListView.cs        Virtual-mode log list (columns, level colours, marks, view snapshots)
+  FilePane.cs           File pane base class (navigation, list rendering, favourites, rename, drag-drop)
+  DeviceFilePane.cs     Device-side file pane
+  LocalFilePane.cs      Local-side file pane
+Forms/
+  DeviceOpsDialog.cs    Device operations: screenshot / record / file browser / APK / command merged into tabs
+  FileBrowserDialog.cs  Device ↔ local two-pane file manager (file browser tab in DeviceOpsDialog)
+  ApkInstallDialog.cs   APK install (adb install / pm install, path favourites)
+  ApkUninstallDialog.cs APK uninstall (installed app list, package name favourites)
+  FilterDialog.cs       Detached filter window (hosts the main window's filter panel)
+  CommandDialog.cs      Command window (categories, favourites, history, execution, output)
+  CommandEditDialog.cs  New / edit favourite command
+  ScreenShotDialog.cs   Screenshot tab (in DeviceOpsDialog)
+  ScreenRecordDialog.cs Screen record tab (in DeviceOpsDialog)
+  RecordDialog.cs       Single record detail pop-up
+  RunAsDialog.cs        Run-as package name selector
+  SimpleInputBox.cs     Simple input dialog
+Models/
+  FilterSpec.cs         Filter conditions
+  DeviceInfo.cs         Device information
+  FileEntry.cs          File entry
+  FavoriteDir.cs        Favourite directory
+  CommandEntry.cs       Favourite command / execution record / channel enum
+Services/
+  DpiDiag.cs            High-DPI layout diagnostics (writes to startup.log [DPI] section)
+  DpiFix.cs             High-DPI layout fallback (expands overflowing TLP rows and fixed-height button bars)
+  StartupLog.cs         Startup diagnostic log (%LOCALAPPDATA%\logcat\startup.log)
+  LogDocument.cs        Columnar index document (mmap, parallel indexing, incremental reload)
+  LogParser.cs          Line parser (six formats + continuation detection)
+  FilterEngine.cs       Filter engine (pre-filter → message match → export)
+  AdbManager.cs         ADB wrapper (device enumeration, shell, streaming, local adb, screenshot, push/pull)
+  LogcatStream.cs       Live logcat capture stream
+  FavoritesStore.cs     Favourites persistence (directories, run-as packages, APK paths, app packages, tag/message filter conditions)
+  CommandStore.cs       Command categories / favourites / history persistence + built-in command library
+  AppSettings.cs        User-level settings (window geometry, display options, last paths, install/uninstall options; JSON in %LOCALAPPDATA%\logcat\settings.json)
+  AppInfo.cs            Product name and version (reads Assembly InformationalVersion)
+tests/
+  coverage-report.py    Coverage report generation (coverlet cobertura XML → readable HTML)
+  logcat.Tests/         xUnit test project (351 tests: log parsing / columnar index / filter engine / persistence)
+    coverlet.runsettings Coverage scope (Include / Exclude rules)
+LICENSE                 Apache-2.0 full text
+THIRD-PARTY-NOTICES.md  Third-party licences
+DISCLAIMER.md           Disclaimer full text
+```
+
+## Data storage
+
+- User settings (window position/size/state, continuation merging, auto-apply, font size, newline visibility, last browse paths, install/uninstall options) are persisted as JSON to `%LOCALAPPDATA%\logcat\settings.json`
+- Favourites (device/local directories with aliases, run-as packages, APK paths, app packages, tag/message filter conditions; up to 60 per list, most-recent first) go to `%LOCALAPPDATA%\logcat\favorites.json`
+- Command categories, favourites, history, and placeholder values go to `%LOCALAPPDATA%\logcat\commands.json` (first open writes the built-in library)
+- Live capture writes to `logcat_live_*.log` in the system temp directory, cleaned up on window close
+- Multi-monitor window geometry is validated on each launch; if the saved monitor is no longer connected, the app falls back to default layout instead of restoring off-screen
 
 ## License
 
