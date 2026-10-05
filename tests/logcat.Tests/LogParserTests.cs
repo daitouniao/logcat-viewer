@@ -531,6 +531,23 @@ public class LogParserTests
     }
 
     [Theory]
+    [InlineData("---------x")]   // 恰好 9 连横线：绕不过横幅(IsBanner 要求横线后为空白)，
+                                // 只能靠 DASHES 分支判真——原「新记录开头判定为真」里
+                                // 的 13 横线横幅被IsBanner 提前命中，覆盖不到这一行
+    [InlineData("---------1")]   // 同上，第 10 字节换成数字
+    public void 九连横线开头判定为新记录(string line)
+    {
+        Assert.True(LooksNew(line));
+    }
+
+    [Fact]
+    public void 八连横线开头不算新记录()
+    {
+        // DASHES 是 9 字节，8 个横线不够；对照组，确保上面那条不是因为「有横线就算」
+        Assert.False(LooksNew("--------x"));
+    }
+
+    [Theory]
     [InlineData("    at com.example.Foo.bar(Foo.java:42)")]  // 缩进的堆栈帧
     [InlineData("\tat com.example.Foo.bar(Foo.java:42)")]    // tab 缩进
     [InlineData("Caused by: java.lang.IllegalStateException")] // 非缩进且非已知前缀

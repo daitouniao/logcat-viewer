@@ -396,6 +396,41 @@ public class LogDocumentTests
         Assert.Equal(-12 * 3_600_000L, doc.Ts[1] - doc.Ts[0]);
     }
 
+    /// <summary>
+    /// 跨年判定的阈值是「回退超过半天」（HALF_DAY = DAY_MS / 2）。
+    /// 上面两个用例一个测 -12 小时、一个测跨年，都落在阈值的**远端**，
+    /// 把 HALF_DAY 从半天改成 30 天后它们照样通过（变异实测全绿）。
+    /// 这里贴着阈值测：-20 小时必须判跨年（改成 30 天就抓到了）。
+    /// </summary>
+    [Fact]
+    public void 时间戳回退接近半天时按跨年处理()
+    {
+        using var tmp = new TempLogFile(
+            "09-23 18:00:00.000  1  2 I Tag: a\n" +
+            "09-22 22:00:00.000  1  2 I Tag: b\n");      // 回退 20 小时 > 半天
+        using var doc = LogDocument.Build(tmp.Path);
+
+        // 判为跨年 → 第二行落到上一年，差值变成「一年减去 20 小时」（约 +364 天），
+        // 而不是同一年内的 -20 小时。
+        long diff = doc.Ts[1] - doc.Ts[0];
+        Assert.True(diff > 300 * LogParser.DAY_MS, $"应判跨年（差值约 +364 天），实际 {diff} ms");
+    }
+
+    /// <summary>
+    /// 阈值另一侧：回退 11 小时（不足半天）必须**不**判跨年。
+    /// 与上一条成对，锁住「半天」这个具体取值，而不是「某个很大的值」。
+    /// </summary>
+    [Fact]
+    public void 时间戳回退十一个小时不判跨年()
+    {
+        using var tmp = new TempLogFile(
+            "09-23 18:00:00.000  1  2 I Tag: a\n" +
+            "09-23 07:00:00.000  1  2 I Tag: b\n");      // 回退 11 小时 < 半天
+        using var doc = LogDocument.Build(tmp.Path);
+
+        Assert.Equal(-11 * 3_600_000L, doc.Ts[1] - doc.Ts[0]);
+    }
+
     // ── 静态时间工具 ──
 
     [Fact]
