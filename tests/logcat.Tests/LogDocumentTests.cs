@@ -463,6 +463,40 @@ public class LogDocumentTests
         Assert.Equal(0, LogDocument.TsFromParts(0, 1, 1, 0, 0, 0, 0, 2026));
     }
 
+    /// <summary>
+    /// 混合年份的日志：首行是 mm-dd（无年份），后面才出现 ymd（带年份）。
+    /// 这会走 FinalizeTs 里「第一个已知年份之前的行」那条分支——
+    /// 那些行的年份用「锚点年份 + 跨年回退量」推算，而不是简单全填同一个年份。
+    /// 该分支此前无覆盖。
+    ///
+    /// 实测语义（探针验证，见 docs/UT-AUDIT.md）：
+    /// 锚点年份取首个已知年份（2027），无年份的行按 `roll` 里的跨年计数递增年份。
+    /// 第 1 行回退 1 天 > HALF_DAY → roll=1 → 年份 2028，
+    /// 于是 ts 差值是「2028 年表偏移 + 09-22 日序」减「2027 年表偏移 + 09-23 日序」
+    /// ≈ +364 天。**不是** -1 天——`roll`（跨年次数）与 `within`（年内日序）是两套编码，不能混算。
+    /// </summary>
+    [Fact]
+    public void 首个带年份的行之前用锚点年份加跨年回退量()
+    {
+        using var tmp = new TempLogFile(
+            "09-23 18:00:00.000  1  2 I Tag: a\n" +          // 无年份，且在锚点之前
+            "09-22 18:00:00.000  1  2 I Tag: b\n" +          // 回退 1 天 → 触发一次跨年计数
+            "2027-01-05 10:00:00.000  1  2 I Tag: c\n");     // 锚点：已知年份 2027
+        using var doc = LogDocument.Build(tmp.Path);
+        Assert.Equal(3, doc.RowCount);
+
+        int baseYear = DateTime.Now.Year;
+        // 锚点之前的行不参与年份传播，日序原样保留
+        Assert.Equal("09-23 18:00:00", LogDocument.TsToText(doc.Ts[0], baseYear, withMs: false));
+
+        // 回退超过半天 → 判一次跨年，年份被推到锚点 +1
+        Assert.True(doc.Ts[1] - doc.Ts[0] > 300 * LogParser.DAY_MS,
+            $"回退 1 天应判跨年，差值应为正且约 364 天，实际 {(doc.Ts[1] - doc.Ts[0]) / 86400000.0:F1} 天");
+
+        // 带年份的锚点行不受基准年影响
+        Assert.Equal("01-05 10:00:00", LogDocument.TsToText(doc.Ts[2], baseYear, withMs: false));
+    }
+
     [Fact]
     public void TsFromParts月份为负一时按参考时间取当天()
     {
@@ -555,6 +589,38 @@ public class LogDocumentTests
         Assert.Equal("09-23 18:00:01.000  1  2 I Tag: b", Text(doc.LineBytes(1)));
         Assert.Equal(1000, doc.Ts[1] - doc.Ts[0]);
     }
+
+    /// <summary>
+    /// 追加的内容**全是空行**时：走完 ScanRange 却一条新记录都没产生、也没有续行
+    /// （空行会中断合并）→ 返回 "unchanged"，但 IndexedSize 仍要推进到新长度，
+    /// 否则下次 Reload 会拿旧边界重复扫描同一段。
+    /// 这与「文件没变」的 unchanged 是两条不同分支（那条例 536已覆盖）。
+    /// </summary>
+    [Fact]
+    public void Reload_追加的全是空行时行数不变但索引边界推进()
+    {
+        using var tmp = new TempLogFile(Line(T1, 'I', "Tag", "a"));
+        using var doc = LogDocument.Build(tmp.Path);
+        Assert.Equal(1, doc.RowCount);
+        Assert.Equal(IndexedOf(tmp), doc.IndexedSize);
+
+        tmp.Append("\n\n");
+        Assert.Equal("unchanged", doc.Reload());
+
+        // 空行不进索引 → 行数与内容都不变
+        Assert.Equal(1, doc.RowCount);
+        Assert.Equal("09-23 18:00:00.000  1  2 I Tag: a", Text(doc.LineBytes(0)));
+        // 但索引边界必须推进，否则下次 Reload 会重复扫这段
+        Assert.Equal(IndexedOf(tmp), doc.IndexedSize);
+
+        // 边界推进后，后续追加真实行仍走增量，且不会把空行算进记录
+        tmp.Append(Line(T2, 'I', "Tag", "b"));
+        Assert.Equal("appended", doc.Reload());
+        Assert.Equal(2, doc.RowCount);
+        Assert.Equal("09-23 18:00:01.000  1  2 I Tag: b", Text(doc.LineBytes(1)));
+    }
+
+    static long IndexedOf(TempLogFile f) => new FileInfo(f.Path).Length;
 
     [Fact]
     public void Reload_文件变小时重建()

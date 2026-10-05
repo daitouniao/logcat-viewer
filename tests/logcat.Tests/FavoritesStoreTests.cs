@@ -301,6 +301,39 @@ public class FavoritesStoreTests
         Assert.Equal("newtag", store.TagFilters[0]);
     }
 
+    /// <summary>
+    /// 与 <c>ToggleTagFilter不存在则新增</c> 对称。
+    /// 此前 msg 侧只测了「大小写变体移除」，**新增分支（插入到首位 + 淘汰最旧）完全没测**，
+    /// 覆盖率报告里 FavoritesStore 的 ToggleMsgFilter 有 3 行未覆盖。
+    /// </summary>
+    [Fact]
+    public void ToggleMsgFilter不存在则新增()
+    {
+        var store = NewStore();
+        store.AddMsgFilter("old");
+
+        Assert.True(store.ToggleMsgFilter("new"));    // 新增返回 true
+        Assert.Equal(new[] { "new", "old" }, store.MsgFilters);   // 插到最前
+
+        // 再 toggle 一次 → 转为移除，返回 false
+        Assert.False(store.ToggleMsgFilter("new"));
+        Assert.Equal(new[] { "old" }, store.MsgFilters);
+    }
+
+    [Fact]
+    public void ToggleMsgFilter新增时也受上限约束()
+    {
+        var store = NewStore();
+        for (int i = 0; i < 60; i++) store.AddMsgFilter($"m{i}");
+        Assert.Equal(60, store.MsgFilters.Count);
+
+        // 第 61 条触发淘汰：最旧的 m0 被挤掉，最新的在首位
+        Assert.True(store.ToggleMsgFilter("m60"));
+        Assert.Equal(60, store.MsgFilters.Count);
+        Assert.Equal("m60", store.MsgFilters[0]);
+        Assert.DoesNotContain("m0", store.MsgFilters);
+    }
+
     [Fact]
     public void ToggleTagFilter空值返回false且不改变列表()
     {
@@ -380,5 +413,18 @@ public class FavoritesStoreTests
         Assert.Single(store.Get(true));
         Assert.Single(store.Get(false));
         Assert.Equal("/a", store.Get(true)[0].Path);
+    }
+
+    // ── 单例 ──
+
+    /// <summary>
+    /// 只验证「进程内单例」这一条语义（同 <c>AppSettings</c> 的处理）。
+    /// 刻意不断言字段值：<see cref="FavoritesStore.Default"/> 读的是程序目录下的真实
+    /// favorites.json，内容受本机收藏历史影响。
+    /// </summary>
+    [Fact]
+    public void Default是进程内单例()
+    {
+        Assert.Same(FavoritesStore.Default, FavoritesStore.Default);
     }
 }

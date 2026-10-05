@@ -409,4 +409,18 @@ public class CommandStoreTests
         store.RememberPlaceholder("p", null!);
         Assert.Equal("", store.PlaceholderValue("p"));
     }
+
+    // ── 单例 ──
+
+    /// <summary>
+    /// 只验证「进程内单例」这一条语义（同 <c>AppSettings</c> 的处理）。
+    /// 刻意不断言字段值：<see cref="CommandStore.Default"/> 读的是程序目录下的真实
+    /// commands.json，内容受本机使用历史影响，写死断言会因环境不同而失败。
+    /// 落盘与反序列化语义由 <c>StorePersistenceTests.CommandStore_*</c> 走临时路径覆盖。
+    /// </summary>
+    [Fact]
+    public void Default是进程内单例()
+    {
+        Assert.Same(CommandStore.Default, CommandStore.Default);
+    }
 }

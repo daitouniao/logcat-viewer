@@ -845,6 +845,40 @@ public class FilterEngineTests
     }
 
     /// <summary>
+    /// MsgFilter 的复用缓冲区初始 1 KB，消息更长时会`new` 一个更大的数组
+    /// （FilterEngine 的 scratch 扩容分支，此前无覆盖）。
+    /// 两个要验的点：
+    /// ① 超过 1 KB 的消息仍能正确折叠与匹配（扩容后长度对得上）；
+    /// ② **扩容后的缓冲区会被后续短消息复用**，所以切片必须按当前 msgBuf.Length 走——
+    ///    若误用 scratch.Length，短消息会带上上一行的残留字节而假命中。
+    /// </summary>
+    [Fact]
+    public void message超长时触发缓冲区扩容且不影响后续短消息()
+    {
+        // 第 0 行正文约 2.5 KB（远超 1 KB），tag 里埋了 NEEDLE
+        var big = new string('x', 2500) + " NEEDLE";
+        // 第 1 行是短消息，不含 needle；用来验证复用时不被上一行残留污染
+        var data =
+            "09-23 18:00:00.000  1  2 I BigTag: " + big + "\n" +
+            "09-23 18:00:01.000  1  3 I SmallTag: plain short\n";
+        using var tmp = new TempLogFile(data);
+        using var doc = LogDocument.Build(tmp.Path);
+        Assert.Equal(2, doc.RowCount);
+
+        // 只命中超长那行；短消息行不含 needle，不能因为缓冲区残留而假命中
+        Assert.Equal(new[] { 0 }, Apply(doc, new FilterSpec { Msg = new[] { "needle" } }));
+
+        // 重复过滤（缓冲区已扩容过）：结果必须一致，不能因长度假设而出错
+        Assert.Equal(new[] { 0 }, Apply(doc, new FilterSpec { Msg = new[] { "NEEDLE" } }));
+
+        // 短消息自身仍能正常匹配 —— 证明切片长度取的是当前消息而非缓冲区容量
+        Assert.Equal(new[] { 1 }, Apply(doc, new FilterSpec { Msg = new[] { "SHORT" } }));
+
+        // 排除语义在超长消息上同样成立
+        Assert.Equal(new[] { 1 }, Apply(doc, new FilterSpec { Msg = new[] { "needle" }, MsgExclude = true }));
+    }
+
+    /// <summary>
     /// 折叠只改大小写，不去重音：CAFÉ ≠ cafe，CRÛME ≠ crème。
     /// 这是防「按位或 0x20 折叠」的护栏——0xC3|0x20==0xE3 会把不同字节改成同一个。
     /// </summary>
