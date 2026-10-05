@@ -120,13 +120,16 @@ public class FavoritesStoreTests
     }
 
     [Fact]
-    public void 收藏目录数量不超过上限()
+    public void 收藏目录数量不超过上限且淘汰最旧()
     {
         var store = NewStore();
         for (int i = 0; i < 65; i++)
             store.Add(true, $"/dir{i}");
 
         Assert.Equal(60, store.Get(true).Count);
+        // 只断言数量抓不住「淘汰方向反了」：AddRecent 丢最旧才是本功能的意义
+        Assert.Equal("/dir64", store.Get(true)[0].Path);
+        Assert.DoesNotContain(store.Get(true), f => f.Path == "/dir0");
     }
 
     // ── run-as 包名 ──

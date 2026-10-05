@@ -475,7 +475,21 @@ public class LogParserTests
     [Fact]
     public void 横幅行_制表符分隔也算横幅()
     {
+        // 两个重载都要覆盖：byte[] 走文件扫描路径，string 走文本读取器路径
         Assert.True(BannerOf("-----\tbeginning of main"));
+        Assert.True(LogParser.IsBanner("-----\tbeginning of main"));
+    }
+
+    [Fact]
+    public void 字符串版横幅判定_制表符分隔()
+    {
+        // 变异测试实测：string 重载去掉 line[j]=='\t' 后全绿，说明此前只测了 byte[] 重载。
+        // 语义与 byte[] 重载一致：TAB 本身就是合法分隔符，其后是否跟内容不影响判定
+        // （对照「非横幅行」用例里的 "-----abc"：分隔符是字母才判否）。
+        Assert.True(LogParser.IsBanner("-----\tbeginning of main"));
+        Assert.True(LogParser.IsBanner("-----\t"));
+        Assert.True(LogParser.IsBanner("-----\tabc"));
+        Assert.False(LogParser.IsBanner("----abc"));   // 5 个短横后直接跟字母才是非横幅
     }
 
     [Fact]
