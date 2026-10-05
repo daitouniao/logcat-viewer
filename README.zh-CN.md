@@ -14,6 +14,8 @@ Windows 桌面端 Android 日志（logcat）查看器。基于 WinForms，使用
 
 > 当前版本 **V0.1.1**。版本号以 [logcat.csproj](logcat.csproj) 的 `<Version>` 为唯一来源，发布时只改该处，程序标题、关于对话框与 exe 文件属性会自动同步。
 
+![logcat viewer — 过滤演示](docs/images/main.gif)
+
 ## 核心优势
 
 大多数 logcat 查看器在处理大日志文件时会卡顿。本工具将文本保留在磁盘上（mmap），仅将固定宽度的列数据加载到内存中，因此即使数 GB 的日志文件也能秒开，滚动帧率稳定。
