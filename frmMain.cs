@@ -1562,6 +1562,8 @@ public partial class frmMain : Form
             if (item.Tag is "adb-free") btn.Enabled = enabled;
             else if (item.Tag is "adb") btn.Enabled = enabled && hasDevice;
         }
+        // 采集/停止按钮还需结合采集状态：未开始采集时「停止」应为灰
+        UpdateAdbCaptureUI();
     }
 
     // ── ADB 设备管理 ──
@@ -1688,13 +1690,14 @@ public partial class frmMain : Form
 
     void UpdateAdbCaptureUI()
     {
+        bool hasDevice = _comboDevice.Items.Count > 0;
         foreach (ToolStripItem item in _toolStrip.Items)
         {
             if (item.Tag is "adb" && item is ToolStripButton btn)
             {
                 var btnText = btn.Text ?? ""; // WinForms 的 Text getter 注解为可返回 null
-                if (btnText.Contains("开始采集")) btn.Enabled = !_adbCapturing;
-                if (btnText.Contains("停止") && !btnText.Contains("开始")) btn.Enabled = _adbCapturing;
+                if (btnText.Contains("开始采集")) btn.Enabled = hasDevice && !_adbCapturing;
+                if (btnText.Contains("停止") && !btnText.Contains("开始")) btn.Enabled = hasDevice && _adbCapturing;
             }
         }
         _actSaveLog.Enabled = !_adbCapturing && _adbTempPath != null;
