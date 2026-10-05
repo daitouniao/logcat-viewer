@@ -1416,7 +1416,7 @@ public partial class frmMain : Form
                 bool onScreen = bounds.Width > 100 && bounds.Height > 100 &&
                                 Screen.AllScreens.Any(sc => sc.WorkingArea.IntersectsWith(bounds));
                 // 同时校验尺寸合理性：宽度 < 主屏 1/2 视为异常残留值（如拖动到边缘或某次保存损坏）
-                bool reasonable = bounds.Width >= Screen.PrimaryScreen.WorkingArea.Width / 2;
+                bool reasonable = bounds.Width >= Screen.PrimaryScreen!.WorkingArea.Width / 2;
                 StartupLog.Write($"读取 settings.json：Location={s.WindowLocation} Size={s.WindowSize} State={(int)state} onScreen={onScreen} reasonable={reasonable}");
                 if (onScreen && reasonable)
                 {
@@ -1446,7 +1446,7 @@ public partial class frmMain : Form
     void ApplyWindowGeometry()
     {
         // 默认策略：主屏幕 WorkingArea 的 2/3 宽高，居中
-        var wa = Screen.PrimaryScreen.WorkingArea;
+        var wa = Screen.PrimaryScreen!.WorkingArea;
         var defaultSize = new Size((int)(wa.Width * 0.667), (int)(wa.Height * 0.667));
         var defaultLoc = new Point(wa.Left + (wa.Width - defaultSize.Width) / 2,
                                    wa.Top + (wa.Height - defaultSize.Height) / 2);
@@ -1504,7 +1504,7 @@ public partial class frmMain : Form
         if (WindowState == FormWindowState.Minimized)
         {
             StartupLog.Write("[窗口状态] 最小化关闭 → 使用桌面2/3宽高");
-            var wa2 = Screen.PrimaryScreen.WorkingArea;
+            var wa2 = Screen.PrimaryScreen!.WorkingArea;
             var sz2 = new Size((int)(wa2.Width * 0.667), (int)(wa2.Height * 0.667));
             var loc2 = new Point(wa2.Left + (wa2.Width - sz2.Width) / 2, wa2.Top + (wa2.Height - sz2.Height) / 2);
             s.WindowSize = sz2;
