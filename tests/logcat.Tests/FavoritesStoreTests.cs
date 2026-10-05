@@ -241,6 +241,89 @@ public class FavoritesStoreTests
     }
 
     [Fact]
+    public void ContainsTagFilter大小写不敏感()
+    {
+        var store = NewStore();
+        store.AddTagFilter("ActivityManager");
+
+        Assert.True(store.ContainsTagFilter("ActivityManager"));
+        Assert.True(store.ContainsTagFilter("activitymanager"));
+        Assert.True(store.ContainsTagFilter("ACTIVITYMANAGER"));
+        Assert.False(store.ContainsTagFilter("nonexistent"));
+    }
+
+    [Fact]
+    public void ContainsMsgFilter大小写不敏感()
+    {
+        var store = NewStore();
+        store.AddMsgFilter("TimeoutException");
+
+        Assert.True(store.ContainsMsgFilter("TimeoutException"));
+        Assert.True(store.ContainsMsgFilter("timeoutexception"));
+        Assert.False(store.ContainsMsgFilter("timeout"));
+        Assert.False(store.ContainsMsgFilter(""));
+    }
+
+    [Fact]
+    public void ToggleTagFilter大小写变体移除原条目()
+    {
+        var store = NewStore();
+        store.AddTagFilter("activitymanager");
+
+        // 大小写变体调用 Toggle → 应找到并移除原条目
+        bool result = store.ToggleTagFilter("ACTIVITYMANAGER");
+        Assert.False(result); // 已被移除
+        Assert.Empty(store.TagFilters);
+    }
+
+    [Fact]
+    public void ToggleMsgFilter大小写变体移除原条目()
+    {
+        var store = NewStore();
+        store.AddMsgFilter("TimeoutException");
+
+        bool result = store.ToggleMsgFilter("TIMEOUTEXCEPTION");
+        Assert.False(result);
+        Assert.Empty(store.MsgFilters);
+    }
+
+    [Fact]
+    public void ToggleTagFilter不存在则新增()
+    {
+        var store = NewStore();
+
+        bool result = store.ToggleTagFilter("newtag");
+        Assert.True(result);
+        Assert.Single(store.TagFilters);
+        Assert.Equal("newtag", store.TagFilters[0]);
+    }
+
+    [Fact]
+    public void ToggleTagFilter空值返回false且不改变列表()
+    {
+        var store = NewStore();
+        store.AddTagFilter("existing");
+
+        Assert.False(store.ToggleTagFilter(""));
+        Assert.False(store.ToggleTagFilter("  "));
+        Assert.False(store.ToggleTagFilter(null!));
+        Assert.Single(store.TagFilters);
+    }
+
+    [Fact]
+    public void AddTagFilter超过60条后最旧被淘汰()
+    {
+        var store = NewStore();
+        for (int i = 0; i < 65; i++)
+            store.AddTagFilter($"tag{i}");
+
+        Assert.Equal(60, store.TagFilters.Count);
+        Assert.Equal("tag64", store.TagFilters[0]);
+        Assert.Equal("tag5", store.TagFilters[59]);
+        Assert.DoesNotContain("tag0", store.TagFilters);
+    }
+
+    [Fact]
     public void 过滤词数量不超过上限()
     {
         var store = NewStore();

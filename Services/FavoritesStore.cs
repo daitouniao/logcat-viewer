@@ -219,6 +219,44 @@ public sealed class FavoritesStore
 
     public bool RemoveMsgFilter(string text) => _data.MsgFilters.RemoveAll(p => p == text) > 0;
 
+    /// <summary>判断 tag 过滤词是否已收藏（大小写不敏感）。</summary>
+    public bool ContainsTagFilter(string text) =>
+        _data.TagFilters.FindIndex(p => string.Equals(p, text, StringComparison.OrdinalIgnoreCase)) >= 0;
+
+    /// <summary>判断 message 过滤词是否已收藏（大小写不敏感）。</summary>
+    public bool ContainsMsgFilter(string text) =>
+        _data.MsgFilters.FindIndex(p => string.Equals(p, text, StringComparison.OrdinalIgnoreCase)) >= 0;
+
+    /// <summary>
+    /// 切换 tag 过滤词收藏状态（大小写不敏感）。
+    /// 已存在 → 移除，返回 false；不存在 → 新增，返回 true。
+    /// </summary>
+    public bool ToggleTagFilter(string text)
+    {
+        text = (text ?? "").Trim();
+        if (text.Length == 0) return false;
+        int idx = _data.TagFilters.FindIndex(p => string.Equals(p, text, StringComparison.OrdinalIgnoreCase));
+        if (idx >= 0) { _data.TagFilters.RemoveAt(idx); return false; }
+        _data.TagFilters.Insert(0, text);
+        while (_data.TagFilters.Count > MaxPerList) _data.TagFilters.RemoveAt(_data.TagFilters.Count - 1);
+        return true;
+    }
+
+    /// <summary>
+    /// 切换 message 过滤词收藏状态（大小写不敏感）。
+    /// 已存在 → 移除，返回 false；不存在 → 新增，返回 true。
+    /// </summary>
+    public bool ToggleMsgFilter(string text)
+    {
+        text = (text ?? "").Trim();
+        if (text.Length == 0) return false;
+        int idx = _data.MsgFilters.FindIndex(p => string.Equals(p, text, StringComparison.OrdinalIgnoreCase));
+        if (idx >= 0) { _data.MsgFilters.RemoveAt(idx); return false; }
+        _data.MsgFilters.Insert(0, text);
+        while (_data.MsgFilters.Count > MaxPerList) _data.MsgFilters.RemoveAt(_data.MsgFilters.Count - 1);
+        return true;
+    }
+
     /// <summary>把值插到列表最前，去重并限制长度。空值或已存在时返回 false。</summary>
     static bool AddRecent(List<string> list, string value)
     {

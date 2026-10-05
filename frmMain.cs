@@ -61,6 +61,9 @@ public partial class frmMain : Form
     CheckBox _chkAuto = null!;
     // 工具栏上的过滤控件（与过滤窗口双向同步）
     ToolStripTextBox _tbMin = null!, _tbTag = null!, _tbMsg = null!;
+    // 工具栏 Tag/Message 收藏按钮
+    ToolStripButton _btnFavTagMenu = null!, _btnFavTagToggle = null!;
+    ToolStripButton _btnFavMsgMenu = null!, _btnFavMsgToggle = null!;
     CheckBox _chkToolbarMarkedOnly = null!, _chkToolbarFollow = null!;
     bool _syncingFilter;
     Label _lblSpec = null!;
@@ -205,6 +208,20 @@ public partial class frmMain : Form
         _tbMsg.TextChanged += (_, _) => SyncToolbarToPanel(_tbMsg, _edMsg);
         _tbMsg.KeyDown += (_, e) => { if (e.KeyCode == Keys.Enter) _ = ApplyFilter(); };
 
+        // 工具栏 Tag 收藏按钮：▾ 下拉、★ 收藏/移除
+        _btnFavTagMenu = new ToolStripButton("▾") { Width = 24, ToolTipText = "从收藏中选择（Tag）" };
+        _btnFavTagMenu.Click += (_, _) => ShowFilterFavMenu(_btnFavTagMenu, _tbTag, forTag: true);
+        _btnFavTagToggle = new ToolStripButton("☆") { Width = 24, ToolTipText = "收藏/移除当前内容（Tag）" };
+        _btnFavTagToggle.Click += (_, _) => ToggleFilterFav(_tbTag, forTag: true);
+        _btnFavTagToggle.Overflow = ToolStripItemOverflow.Never; // ★ 永不进 overflow
+
+        // 工具栏 Message 收藏按钮：▾ 下拉、★ 收藏/移除
+        _btnFavMsgMenu = new ToolStripButton("▾") { Width = 24, ToolTipText = "从收藏中选择（Message）" };
+        _btnFavMsgMenu.Click += (_, _) => ShowFilterFavMenu(_btnFavMsgMenu, _tbMsg, forTag: false);
+        _btnFavMsgToggle = new ToolStripButton("☆") { Width = 24, ToolTipText = "收藏/移除当前内容（Message）" };
+        _btnFavMsgToggle.Click += (_, _) => ToggleFilterFav(_tbMsg, forTag: false);
+        _btnFavMsgToggle.Overflow = ToolStripItemOverflow.Never; // ★ 永不进 overflow
+
         _toolStrip2.Items.AddRange(new ToolStripItem[] {
             new ToolStripLabel("标记:"),
             new ToolStripButton("◀ 上一个", null, (_, _) => GotoMark(true)),
@@ -218,8 +235,12 @@ public partial class frmMain : Form
             _tbMin,
             new ToolStripLabel("Tag"),
             _tbTag,
+            _btnFavTagMenu,
+            _btnFavTagToggle,
             new ToolStripLabel("Message"),
             _tbMsg,
+            _btnFavMsgMenu,
+            _btnFavMsgToggle,
         });
         Controls.Add(_toolStrip2);
 
@@ -268,6 +289,12 @@ public partial class frmMain : Form
 
         // ── 快捷键 ──
         KeyDown += OnKeyDown;
+
+        // ── 收藏变更订阅 ──
+        FavoritesStore.Default.Changed += (_, _) =>
+        {
+            if (IsHandleCreated) BeginInvoke(new Action(RefreshFavStars));
+        };
     }
 
     // 设备下拉框占满工具栏剩余宽度
@@ -551,31 +578,38 @@ public partial class frmMain : Form
     static List<string> FilterFavList(bool forTag) =>
         forTag ? FavoritesStore.Default.TagFilters : FavoritesStore.Default.MsgFilters;
 
-    void ShowFilterFavMenu(Button anchor, TextBox ed, bool forTag)
+    // 面板侧：从收藏选择（Control anchor 版本）
+    void ShowFilterFavMenu(Control anchor, TextBox ed, bool forTag)
     {
         var list = FilterFavList(forTag);
         var menu = new ContextMenuStrip();
+        var key = ed.Text.Trim();
+
         if (list.Count == 0)
         {
             menu.Items.Add(new ToolStripMenuItem("（暂无收藏，点 ★ 收藏当前内容）") { Enabled = false });
         }
         else
         {
-            foreach (var item in list)
+            var filtered = string.IsNullOrEmpty(key)
+                ? list
+                : list.Where(x => x.IndexOf(key, StringComparison.OrdinalIgnoreCase) >= 0).ToList();
+
+            foreach (var item in filtered)
             {
                 var text = item;
-                var mi = new ToolStripMenuItem(text);
-                mi.Click += (_, _) =>
-                {
-                    ed.Text = text;
-                    ed.SelectionStart = text.Length;
-                    _ = ApplyFilter();
-                };
+                var mi = new ToolStripMenuItem($"★ {text}");
+                mi.Click += (_, _) => ApplyFavText(ed, text, forTag);
                 menu.Items.Add(mi);
             }
+            if (menu.Items.Count == 0)
+                menu.Items.Add(new ToolStripMenuItem("（无匹配收藏）") { Enabled = false });
+
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add("清空收藏", null, (_, _) =>
             {
+                if (MessageBox.Show(this, $"确定清空{(forTag ? "Tag" : "Message")}收藏？", "清空收藏",
+                    MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
                 FilterFavList(forTag).Clear();
                 FavoritesStore.Default.Save();
                 ShowStatus("已清空收藏");
@@ -584,22 +618,135 @@ public partial class frmMain : Form
         menu.Show(anchor, new Point(0, anchor.Height));
     }
 
+    // 工具栏侧：从收藏选择（ToolStripItem anchor 版本）
+    void ShowFilterFavMenu(ToolStripItem anchor, ToolStripTextBox tb, bool forTag)
+    {
+        var list = FilterFavList(forTag);
+        var menu = new ContextMenuStrip();
+        var key = tb.Text.Trim();
+
+        if (list.Count == 0)
+        {
+            menu.Items.Add(new ToolStripMenuItem("（暂无收藏，点 ★ 收藏当前内容）") { Enabled = false });
+        }
+        else
+        {
+            var filtered = string.IsNullOrEmpty(key)
+                ? list
+                : list.Where(x => x.IndexOf(key, StringComparison.OrdinalIgnoreCase) >= 0).ToList();
+
+            foreach (var item in filtered)
+            {
+                var text = item;
+                var mi = new ToolStripMenuItem($"★ {text}");
+                mi.Click += (_, _) => ApplyFavText(tb.TextBox, text, forTag);
+                menu.Items.Add(mi);
+            }
+            if (menu.Items.Count == 0)
+                menu.Items.Add(new ToolStripMenuItem("（无匹配收藏）") { Enabled = false });
+
+            menu.Items.Add(new ToolStripSeparator());
+            menu.Items.Add("清空收藏", null, (_, _) =>
+            {
+                if (MessageBox.Show(this, $"确定清空{(forTag ? "Tag" : "Message")}收藏？", "清空收藏",
+                    MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
+                FilterFavList(forTag).Clear();
+                FavoritesStore.Default.Save();
+                ShowStatus("已清空收藏");
+            });
+        }
+        // 用 anchor 的父 ToolStrip 显示菜单，位置相对于 anchor
+        var pt = anchor.Owner?.PointToClient(Cursor.Position) ?? new Point(0, anchor.Height);
+        var screenPos = anchor.Owner?.PointToScreen(new Point(anchor.Bounds.Left, anchor.Bounds.Bottom)) ?? new Point(0, 0);
+        menu.Show(screenPos);
+    }
+
+    // 应用收藏文本到输入框
+    void ApplyFavText(TextBox ed, string text, bool forTag)
+    {
+        var tb = forTag ? _tbTag : _tbMsg;
+
+        if (ed == tb.TextBox)
+        {
+            // 工具栏侧：抑制重复同步，随后手动补一次工具栏→面板同步
+            _syncingFilter = true;
+            try { ed.Text = text; } finally { _syncingFilter = false; }
+            ed.SelectionStart = ed.TextLength;
+            SyncToolbarToPanel(tb, forTag ? _edTag : _edMsg);
+        }
+        else
+        {
+            // 面板侧：走既有「面板 TextChanged → SyncPanelToToolbar」链路
+            ed.Text = text;
+            ed.SelectionStart = ed.TextLength;
+            OnFilterChanged();
+        }
+        RefreshFavStars();
+    }
+
+    // 切换收藏状态（使用大小写不敏感的 Toggle* API）
+    void ToggleFilterFav(ToolStripTextBox tb, bool forTag)
+    {
+        var fav = FavoritesStore.Default;
+        var text = tb.Text.Trim();
+        if (text.Length == 0) { ShowStatus("内容为空，无法收藏"); return; }
+
+        bool added = forTag ? fav.ToggleTagFilter(text) : fav.ToggleMsgFilter(text);
+        fav.Save();
+        ShowStatus(added ? $"已收藏：{text}" : $"已移除收藏：{text}");
+        RefreshFavStars();
+    }
+
+    // 保留面板侧重载（供 BuildTermControls 调用）
     void ToggleFilterFav(TextBox ed, bool forTag)
     {
         var fav = FavoritesStore.Default;
         var text = ed.Text.Trim();
         if (text.Length == 0) { ShowStatus("内容为空，无法收藏"); return; }
-        bool removed = forTag ? fav.RemoveTagFilter(text) : fav.RemoveMsgFilter(text);
-        if (removed)
+
+        bool added = forTag ? fav.ToggleTagFilter(text) : fav.ToggleMsgFilter(text);
+        fav.Save();
+        ShowStatus(added ? $"已收藏：{text}" : $"已移除收藏：{text}");
+        RefreshFavStars();
+    }
+
+    // ── 刷新收藏星号状态 ──
+    void RefreshFavStars()
+    {
+        // 面板侧 ★ 由 BuildTermControls 创建，需通过控件名查找
+        RefreshPanelFavStar(_edTag, _ckTagCase?.Parent as FlowLayoutPanel);
+        RefreshPanelFavStar(_edMsg, _ckMsgCase?.Parent as FlowLayoutPanel);
+
+        // 工具栏侧
+        bool tagEmpty = string.IsNullOrWhiteSpace(_tbTag.Text);
+        bool msgEmpty = string.IsNullOrWhiteSpace(_tbMsg.Text);
+        _btnFavTagToggle.Enabled = !tagEmpty;
+        _btnFavMsgToggle.Enabled = !msgEmpty;
+
+        var fav = FavoritesStore.Default;
+        _btnFavTagToggle.Text = tagEmpty ? "☆" : (fav.ContainsTagFilter(_tbTag.Text.Trim()) ? "★" : "☆");
+        _btnFavMsgToggle.Text = msgEmpty ? "☆" : (fav.ContainsMsgFilter(_tbMsg.Text.Trim()) ? "★" : "☆");
+    }
+
+    void RefreshPanelFavStar(TextBox ed, FlowLayoutPanel? panel)
+    {
+        if (panel == null) return;
+        // 在 panel 中查找 ★ 按钮（第三个按钮：▾、★、op）
+        var btns = panel.Controls.OfType<Button>().ToList();
+        if (btns.Count < 2) return;
+        var btnStar = btns[1]; // 第二个是 ★
+        bool isTag = ed == _edTag;
+        bool empty = string.IsNullOrWhiteSpace(ed.Text);
+        btnStar.Enabled = !empty;
+        if (!empty)
         {
-            fav.Save();
-            ShowStatus($"已移除收藏：{text}");
+            var fav = FavoritesStore.Default;
+            bool isFav = isTag ? fav.ContainsTagFilter(ed.Text.Trim()) : fav.ContainsMsgFilter(ed.Text.Trim());
+            btnStar.Text = isFav ? "★" : "☆";
         }
         else
         {
-            if (forTag) fav.AddTagFilter(text); else fav.AddMsgFilter(text);
-            fav.Save();
-            ShowStatus($"已收藏：{text}");
+            btnStar.Text = "☆";
         }
     }
 
@@ -608,6 +755,7 @@ public partial class frmMain : Form
     {
         if (_chkAuto.Checked)
             _autoTimer.Start();
+        RefreshFavStars();
     }
 
     // ── 打开文件 ──
