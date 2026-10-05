@@ -82,6 +82,8 @@ public sealed class LogcatStream
             }
 
             // 打开输出文件（UTF-8 不带 BOM：带 BOM 会让首行解析失败）
+            var dir = Path.GetDirectoryName(_outputPath);
+            if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
             using var fs = new FileStream(_outputPath, FileMode.Append, FileAccess.Write, FileShare.Read);
             using var writer = new StreamWriter(fs, new UTF8Encoding(false));
 

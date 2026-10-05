@@ -1624,7 +1624,7 @@ public partial class frmMain : Form
         StopWorker();
 
         _adbTempPath = System.IO.Path.Combine(
-            System.IO.Path.GetTempPath(),
+            AppContext.BaseDirectory, "Temp",
             $"logcat_live_{DateTime.Now:yyyyMMdd_HHmmss}.log");
 
         // 重置旧文档状态：采集时 AdbAutoReload 必须走首次加载，

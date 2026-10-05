@@ -6,7 +6,7 @@ namespace logcat.Services;
 
 /// <summary>
 /// 命令窗口的存储：分类、收藏命令、最近使用历史，外加一份内置的常用命令库。
-/// 数据以 JSON 形式持久化到 %LOCALAPPDATA%\logcat\commands.json。
+/// 数据以 JSON 形式持久化到 exe 同目录 commands.json。
 /// </summary>
 public sealed class CommandStore
 {
@@ -35,8 +35,7 @@ public sealed class CommandStore
     };
 
     static readonly string DefaultPath = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "logcat", "commands.json");
+        AppContext.BaseDirectory, "commands.json");
 
     static CommandStore? _default;
 
@@ -102,9 +101,9 @@ public sealed class CommandStore
             if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
             File.WriteAllText(path, JsonSerializer.Serialize(_data, JsonOpts));
         }
-        catch
+        catch (Exception ex)
         {
-            // 磁盘不可写时忽略，收藏仅在当前会话生效
+            StartupLog.Write($"[CommandStore] 保存失败 path={path} err={ex.Message}");
         }
         Changed?.Invoke(this, EventArgs.Empty);
     }

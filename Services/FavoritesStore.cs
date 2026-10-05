@@ -5,7 +5,7 @@ namespace logcat.Services;
 
 /// <summary>
 /// 目录收藏存储。设备端与本机端分开保存，
-/// 数据以 JSON 形式持久化到 %LOCALAPPDATA%\logcat\favorites.json。
+/// 数据以 JSON 形式持久化到 exe 同目录 favorites.json。
 /// </summary>
 public sealed class FavoritesStore
 {
@@ -40,8 +40,7 @@ public sealed class FavoritesStore
     };
 
     static readonly string DefaultPath = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "logcat", "favorites.json");
+        AppContext.BaseDirectory, "favorites.json");
 
     static FavoritesStore? _default;
 
@@ -108,9 +107,9 @@ public sealed class FavoritesStore
             if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
             File.WriteAllText(path, JsonSerializer.Serialize(_data, JsonOpts));
         }
-        catch
+        catch (Exception ex)
         {
-            // 磁盘不可写时忽略，收藏仅在当前会话生效
+            StartupLog.Write($"[FavoritesStore] 保存失败 path={path} err={ex.Message}");
         }
         Changed?.Invoke(this, EventArgs.Empty);
     }
