@@ -845,23 +845,31 @@ public class LogDocumentTests
     }
 
     /// <summary>
-    /// 扫描**途中**就要能取消，而不是等扫完整份在收尾处才抛。
-    /// 上一条用例只断言「抛了 OperationCanceledException」，而 DoBuild 收尾处的
-    /// ThrowIfCancellationRequested 无论扫描期检查点多稀疏都会抛，所以那条用例
-    /// 抓不住「把 % 5000 改成 % 1000000」（变异实测全绿）。
-    /// 这里用 pct 佐证：等第一次 pct&gt;0 的扫描期上报才取消，此刻扫描尚在中途，
-    /// 异常只能来自 ScanRange 内部的检查点。若检查点被改到极稀疏（每 100 万行），
-    /// 120_000 行的样本一个检查点都碰不到，扫描会一路跑完、改为在 DoBuild 收尾处抛出，
-    /// 而 Assemble 阶段的 0.95 进度不再触发本 helper 的 cancel ——
-    /// 于是「出现过 pct≥0.9 的收尾上报」这条断言就会失败。
+    /// 扫描**途中**就要能取消，而不是等扫完整份才在收尾处抛。
+    ///
+    /// 背景：ScanRange 里每 5000 行有一个取消检查点，把 % 5000 改成 % 1000000
+    /// 是等价于「取消能力」的退化 —— 但 DoBuild 收尾处也有一次
+    /// ThrowIfCancellationRequested，所以「抛了OperationCanceledException」
+    /// 这条断言在两种情况下都成立，抓不住（变异实测全绿）。
+    ///
+    /// 判据设计（样本 17 万行 ≈ 8.27 MB，进度阈值 4 MB，递进 nextReport = pos + 4 MB）：
+    ///   上报序列 = pct 0（扫描开始）→ 0.484（pos 到4 MB）→ 0.968（pos 到 8 MB）→ 0.95（Assemble 收尾）
+    ///   在 pct=0.484 处取消后：
+    ///     · 原样（每 5000 行 ≈ 0.24 MB）→ 下一个检查点立刻抛，**再无任何上报**
+    ///     · 变异（每 100 万行 ≈ 48.6 MB）→ 8.27 MB 样本永远碰不到检查点，
+    ///       一路扫完并再报一次 0.968，然后才在收尾处抛
+    /// 所以「只收到 1 次 pct&gt;0 的扫描期上报」就是有效判据。
+    /// 样本必须 &gt; 8 MB（否则没有第 2 次扫描期上报，两种情况无法区分），
+    /// 又必须 &lt; 48.6 MB（否则变异也能碰到检查点）。
     /// </summary>
     [Fact]
-    public void Build_取消发生在扫描途中而非收尾()
+    public void Build_取消发生在扫描途中而非扫完后()
     {
         var sb = new StringBuilder();
-        for (int i = 0; i < 120_000; i++) sb.Append(Line(T1, 'I', "Tag", "filler line " + i));
+        for (int i = 0; i < 170_000; i++) sb.Append(Line(T1, 'I', "Tag", "filler line " + i));
         using var tmp = new TempLogFile(sb.ToString());
-        Assert.True(tmp.Length > (1 << 22), "样本需超过进度上报阈值（4 MB）");
+        Assert.True(tmp.Length > (2 << 22), "样本需超过两个进度阈值（8 MB），否则无法区分");
+        Assert.True(tmp.Length< (48 << 20), "样本需远小于 100 万行（48.6 MB），否则变异也能碰到检查点");
 
         using var cts = new CancellationTokenSource();
         var t = new CancelOnFirstMidScanReport(cts);
@@ -869,9 +877,12 @@ public class LogDocumentTests
         Assert.Throws<OperationCanceledException>(
             () => LogDocument.Build(tmp.Path, progress: t, ct: cts.Token));
 
-        // 在中途中被取消：pct 既不是起点的 0，也不是收尾的 0.95
-        Assert.InRange(t.CancelPct, 0.01, 0.9);
-        // 不能出现收尾阶段的进度上报 —— 出现就说明扫描跑完了才抛
+        // 取消发生在扫描中途，不是起点（0）也不是收尾（0.95）
+        Assert.InRange(t.CancelPct, 0.05, 0.9);
+
+        // 关键判据：取消后不得再收到任何上报。
+        // 若检查点被改到极稀疏，扫描会继续跑到末尾并再报一次（甚至报 0.95 收尾阶段）。
+        Assert.Single(t.Log, p => p > 0);
         Assert.DoesNotContain(t.Log, p => p >= 0.9);
     }
 
