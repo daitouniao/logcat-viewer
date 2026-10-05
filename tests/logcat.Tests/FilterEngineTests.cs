@@ -376,6 +376,34 @@ public class FilterEngineTests
         Assert.Empty(Apply(doc, new FilterSpec { MarkedOnly = true }, marked: null));
     }
 
+    /// <summary>
+    /// 空 needle（<see cref="FilterSpec.Msg"/> 里的空串）的语义：
+    /// or 模式立即成立；and 模式**直接跳过、不构成否决**。
+    /// 变异测试实测：把 and 模式的 `continue` 改成 `return !opAnd`（= 不命中）后全绿 ——
+    /// SplitTerms 会过滤掉空串，所以这条路径只能由外部直接传入空串才走得到。
+    /// </summary>
+    [Fact]
+    public void 空过滤词不构成否决()
+    {
+        using var tmp = new TempLogFile(Data);
+        using var doc = LogDocument.Build(tmp.Path);
+
+        // and 模式：空串跳过，"timeout" 仍需命中
+        var and = new FilterSpec { Msg = new[] { "", "timeout" }, MsgOp = "and" };
+        var andRows = Apply(doc, and);
+        Assert.NotEmpty(andRows);
+        // 除空 needle 外其余词生效 → 等价于只按 "timeout" 过滤
+        Assert.Equal(Apply(doc, new FilterSpec { Msg = new[] { "timeout" }, MsgOp = "and" }), andRows);
+
+        // or 模式：空串立即成立 → 全部命中
+        Assert.Equal(Enumerable.Range(0, doc.RowCount).ToArray(),
+            Apply(doc, new FilterSpec { Msg = new[] { "", "不存在的词" }, MsgOp = "or" }));
+
+        // 只有一个空串：or 全命中，and 也全命中（跳过所有 needle 后返回 opAnd=true）
+        Assert.Equal(Enumerable.Range(0, doc.RowCount).ToArray(),
+            Apply(doc, new FilterSpec { Msg = new[] { "" }, MsgOp = "or" }));
+    }
+
     // ── ApplyFilter：组合与进度 ──
 
     [Fact]
