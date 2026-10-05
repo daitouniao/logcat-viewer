@@ -305,6 +305,24 @@ public class LogParserTests
         Assert.Equal("msg", line[r.MsgOffset..]);
     }
 
+    [Theory]
+    [InlineData("I/Tag(abc): msg")]        // 纯字母
+    [InlineData("I/Tag(12a): msg")]        // 数字后跟字母
+    [InlineData("I/Tag(a12): msg")]        // 字母后跟数字
+    [InlineData("I/Tag(-1): msg")]         // 带符号
+    [InlineData("I/Tag(1 2): msg")]        // 中间空格
+    public void brief格式_括号内非数字时pid未知但其余字段照常解析(string line)
+    {
+        // TryParseInt 里 `if (b < ZERO || b > NINE) return -1;` 这条脏数据分支：
+        // 此前只测了「纯空格」，把该判断改成 if (false) 变异测试全绿。
+        // 注意断言的是「解析不抛异常、其余字段仍可用」，而非具体 msg 内容——
+        // 脏 pid 时 MsgOffset 的落点由实现决定，锁死会脆。
+        var r = Parse(line);
+        Assert.Equal(-1, r.Pid);
+        Assert.Equal("Tag", r.Tag);
+        Assert.Equal(LogParser.LVL_I, r.Level);
+    }
+
     [Fact]
     public void brief格式_无pid()
     {

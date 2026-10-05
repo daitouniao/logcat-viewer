@@ -210,8 +210,11 @@ public class CommandStoreTests
         var store = NewStore(out _);
         var entry = store.AddFavorite("", "ls", null, CommandKind.Shell, false);
 
-        Assert.Equal(CommandStore.FallbackCategory, entry!.Category);
-        Assert.Contains(CommandStore.FallbackCategory, store.Categories);
+        // 写死字面量，不能拿 CommandStore.FallbackCategory 当期望值——那是断言自证：
+        // 常量从 "shell" 改成 "Shell" 时两边一起变，测试照样通过（变异实测全绿）。
+        // "shell" 是 UI 依赖的分类名（CommandKinds.ShellText 同值），写错会直接影响界面。
+        Assert.Equal("shell", entry!.Category);
+        Assert.Contains("shell", store.Categories);
     }
 
     [Fact]

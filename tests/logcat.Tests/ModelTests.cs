@@ -54,6 +54,18 @@ public class ModelTests
     }
 
     [Fact]
+    public void Describe传全集级别视为无过滤()
+    {
+        // 与 IsEmpty 的全集短路对称：Describe 也必须短路。
+        // 变异实测：删掉 FilterSpec.cs:42 的全集判断后，Describe 仍返回「（无过滤）」而测试全绿。
+        Assert.Equal("（无过滤）", new FilterSpec { Levels = new[] { 7, 1, 5, 3, 2, 6, 4 } }.Describe());
+        // 顺序无关：乱序全集同样视为无过滤
+        Assert.Equal("（无过滤）", new FilterSpec { Levels = new[] { 3, 1, 2, 4, 5, 6, 7 } }.Describe());
+        // 少一个级别就不是全集，必须输出（LEVEL_NAME 下标 1..7 = V D I W E F A，此处缺下标 4=W）
+        Assert.Equal("级别 VDIEFA", new FilterSpec { Levels = new[] { 7, 1, 5, 3, 2, 6 } }.Describe());
+    }
+
+    [Fact]
     public void Describe级别按字母序拼接()
     {
         Assert.Equal("级别 VE", new FilterSpec { Levels = new[] { LogParser.LVL_E, LogParser.LVL_V } }.Describe());
@@ -270,18 +282,16 @@ public class ModelTests
     // ── AppSettings 单例 ──
 
     /// <summary>
-    /// Default 只读用户目录下的 settings.json（测试不写入，无副作用），
-    /// 同时覆盖「文件存在 → 反序列化」与「不存在/损坏 → 回退默认值」两条路径。
+    /// 只验证「进程内单例」这一条语义。
+    /// 刻意不断言任何字段值：<see cref="AppSettings.Default"/> 读的是程序目录下的真实
+    /// settings.json，字段值受本机窗口几何、上次路径影响，写死断言会因环境不同而失败。
+    /// 「文件存在 → 正确反序列化」「不存在/损坏 → 回退默认值」由
+    /// StorePersistenceTests.AppSettings_* 走注入的临时路径覆盖。
     /// </summary>
     [Fact]
     public void AppSettings默认实例是进程内单例()
     {
-        var a = AppSettings.Default;
-        var b = AppSettings.Default;
-
-        Assert.NotNull(a);
-        Assert.Same(a, b);
-        Assert.NotNull(a.LastRemotePath);
+        Assert.Same(AppSettings.Default, AppSettings.Default);
     }
 
     // ── AppInfo ──

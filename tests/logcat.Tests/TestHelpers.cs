@@ -84,6 +84,42 @@ sealed class CancelOnFirstReport : IProgress<(double pct, string msg)>
     }
 }
 
+/// <summary>
+/// 同 <see cref="CancelOnFirstReport"/>，但等到**第一次 pct &gt; 0** 的上报才取消，
+/// 并记下那一刻的 pct。
+/// 用来区分异常是「扫描途中抛出」还是「扫描完了在收尾处抛出」——
+/// 后者 pct 已接近 1，前者必然远小于 1。
+/// 注意不能用「第一次上报」：DoBuild 在扫描开始前就先Report((0.0, "扫描行…"))，
+/// 那一刀取消掉的话异常由 DoBuild 收尾处的 ThrowIfCancellationRequested 抛出，
+/// 跟扫描期检查点稀不稀疏无关，抓不住 % 5000 → % 1000000 的变异。
+/// </summary>
+sealed class CancelOnFirstMidScanReport : IProgress<(double pct, string msg)>
+{
+    readonly CancellationTokenSource _cts;
+
+    public CancelOnFirstMidScanReport(CancellationTokenSource cts) => _cts = cts;
+
+    /// <summary>触发取消的那次上报的 pct。</summary>
+    public double CancelPct { get; private set; } = -1;
+
+    /// <summary>收到的全部 pct，用于断言「没有跑到收尾阶段」。</summary>
+    public List<double> Log { get; } = new();
+
+    public int Count { get; private set; }
+
+    public void Report((double pct, string msg) value)
+    {
+        Count++;
+        Log.Add(value.pct);
+        if (Count == 1) return;              // pct=0 那次是「扫描开始」信号，不 cancel
+        if (CancelPct >= 0) return;         // 已取消过
+        if (value.pct <= 0) return;
+
+        CancelPct = value.pct;
+        _cts.Cancel();
+    }
+}
+
 static class TestData
 {
     /// <summary>threadtime 假日志行（单字符宽度字段，偏移量好数）。</summary>
