@@ -112,7 +112,7 @@ Windows 桌面端 Android 日志（logcat）查看器。基于 WinForms，使用
 关窗时记录主窗口的位置 / 大小 / 状态，下次启动自动回到上次所在的屏幕（已验证可用；屏幕上下或左右排列均可）。
 
 - 若上次所在的屏幕本次未连接，坐标校验不过，自动回退默认布局（不会跑到屏外）
-- 验证方式：`%LOCALAPPDATA%\logcat\startup.log` 记录每次启动的屏幕拓扑、读取的坐标、校验结果、应用后实际落点与所在屏，以及关闭时写入的坐标
+- 验证方式：`Log\startup.log`（exe 同级目录）记录每次启动的屏幕拓扑、读取的坐标、校验结果、应用后实际落点与所在屏，以及关闭时写入的坐标
 
 ### 高 DPI 适配
 
@@ -124,7 +124,7 @@ Windows 桌面端 Android 日志（logcat）查看器。基于 WinForms，使用
 - 收藏下拉框宽度在面板变窄时自动收缩
 - DpiFix 动态撑大「装不下内容的 TableLayoutPanel 绝对行」与「固定高停靠按钮栏」
 
-验证方式：`%LOCALAPPDATA%\logcat\startup.log` 的 `[DPI]` 段记录各窗口的 DPI、实测需要尺寸与兜底动作
+验证方式：`Log\startup.log`（exe 同级目录）的 `[DPI]` 段记录各窗口的 DPI、实测需要尺寸与兜底动作
 
 ## 快速开始
 
@@ -229,7 +229,7 @@ Models/
 Services/
   DpiDiag.cs            高 DPI 布局诊断打点（写入 startup.log [DPI] 段）
   DpiFix.cs             高 DPI 布局兜底（显示后按内容实测撑大装不下的 TLP 绝对行与固定高停靠栏）
-  StartupLog.cs         启动诊断日志（%LOCALAPPDATA%\logcat\startup.log，多屏几何与 DPI 排查用）
+  StartupLog.cs         启动诊断日志（exe 同级目录 Log\startup.log，多屏几何与 DPI 排查用）
   LogDocument.cs        列式索引文档（mmap、并行建索引、增量 Reload）
   LogParser.cs          行解析（六种格式 + 续行判定）
   FilterEngine.cs       过滤引擎（预筛 → message 匹配 → 导出）
@@ -237,7 +237,7 @@ Services/
   LogcatStream.cs       实时 logcat 采集流
   FavoritesStore.cs     收藏持久化（目录、run-as 包名、APK 路径、应用包名、tag / message 过滤条件）
   CommandStore.cs       命令分类 / 收藏 / 历史持久化 + 内置命令库
-  AppSettings.cs        用户级设置（窗口几何、显示选项、上次路径、安装/卸载窗口选项，JSON 持久化到 %LOCALAPPDATA%\logcat\settings.json）
+  AppSettings.cs        用户级设置（窗口几何、显示选项、上次路径、安装/卸载窗口选项，JSON 持久化到 exe 同级目录 settings.json）
   AppInfo.cs            产品名与版本号（读取程序集 InformationalVersion，标题与关于对话框共用）
 tests/
   coverage-report.py      覆盖率报告生成（coverlet 的 cobertura XML → 可读 HTML）
@@ -250,9 +250,9 @@ DISCLAIMER.md           免责声明全文
 
 ## 数据存储
 
-- 用户设置统一以 JSON 持久化到 `%LOCALAPPDATA%\logcat\settings.json`：窗口位置/大小/状态（多屏记忆已验证可用）、续行合并、自动应用、字号、换行可视符、上次浏览路径，以及安装/卸载窗口的通道、安装参数、临时目录、root 与「保留数据」选项
-- 各类收藏以 JSON 持久化到 `%LOCALAPPDATA%\logcat\favorites.json`：设备端/本机端目录收藏（含别名）、run-as 包名、APK 本机路径、应用包名、tag 与 message 过滤条件，每类上限 60 条（最近使用在前）
-- 命令窗口的分类、收藏、历史与占位符取值以 JSON 持久化到 `%LOCALAPPDATA%\logcat\commands.json`（首次打开时写入内置命令库）
+- 用户设置统一以 JSON 持久化到 exe 同级目录 `settings.json`：窗口位置/大小/状态（多屏记忆已验证可用）、续行合并、自动应用、字号、换行可视符、上次浏览路径，以及安装/卸载窗口的通道、安装参数、临时目录、root 与「保留数据」选项
+- 各类收藏以 JSON 持久化到 exe 同级目录 `favorites.json`：设备端/本机端目录收藏（含别名）、run-as 包名、APK 本机路径、应用包名、tag 与 message 过滤条件，每类上限 60 条（最近使用在前）
+- 命令窗口的分类、收藏、历史与占位符取值以 JSON 持久化到 exe 同级目录 `commands.json`（首次打开时写入内置命令库）
 - 实时采集的日志写入系统临时目录 `logcat_live_*.log`，关闭窗口时释放
 - 多屏窗口几何在每次启动时校验，若上次所在屏幕未连接则自动回退默认布局
 

@@ -106,7 +106,7 @@ Collect the commands you keep retyping, organise them into categories, and re-ru
 
 The main window's position, size and state are saved on close and restored on next launch — including which monitor it was on, for both horizontally and vertically arranged displays. If that monitor is no longer connected, the saved geometry fails validation and the app falls back to the default layout instead of restoring off-screen.
 
-Verification: `%LOCALAPPDATA%\logcat\startup.log` records the screen topology, the coordinates read, the validation result, the actual landing position, and the coordinates written on close.
+Verification: `Log\startup.log` (next to the exe) records the screen topology, the coordinates read, the validation result, the actual landing position, and the coordinates written on close.
 
 ### High-DPI support
 
@@ -118,7 +118,7 @@ Multi-monitor with different scaling (e.g. primary 150%, secondary 100%):
 - Dropdown widths clamp to minimum to keep buttons visible
 - DpiFix dynamically expands TableLayoutPanel rows and fixed-height button bars that would otherwise overflow
 
-Verification: DPI measurements and fallback actions are logged to `%LOCALAPPDATA%\logcat\startup.log` `[DPI]` section.
+Verification: DPI measurements and fallback actions are logged to `Log\startup.log` (next to the exe) `[DPI]` section.
 
 ## Requirements
 
@@ -225,7 +225,7 @@ Models/
 Services/
   DpiDiag.cs            High-DPI layout diagnostics (writes to startup.log [DPI] section)
   DpiFix.cs             High-DPI layout fallback (expands overflowing TLP rows and fixed-height button bars)
-  StartupLog.cs         Startup diagnostic log (%LOCALAPPDATA%\logcat\startup.log)
+  StartupLog.cs         Startup diagnostic log (exe-relative `Log\startup.log`)
   LogDocument.cs        Columnar index document (mmap, parallel indexing, incremental reload)
   LogParser.cs          Line parser (six formats + continuation detection)
   FilterEngine.cs       Filter engine (pre-filter → message match → export)
@@ -233,7 +233,7 @@ Services/
   LogcatStream.cs       Live logcat capture stream
   FavoritesStore.cs     Favourites persistence (directories, run-as packages, APK paths, app packages, tag/message filter conditions)
   CommandStore.cs       Command categories / favourites / history persistence + built-in command library
-  AppSettings.cs        User-level settings (window geometry, display options, last paths, install/uninstall options; JSON in %LOCALAPPDATA%\logcat\settings.json)
+  AppSettings.cs        User-level settings (window geometry, display options, last paths, install/uninstall options; JSON in exe-relative `settings.json`)
   AppInfo.cs            Product name and version (reads Assembly InformationalVersion)
 tests/
   coverage-report.py    Coverage report generation (coverlet cobertura XML → readable HTML)
@@ -246,9 +246,9 @@ DISCLAIMER.md           Disclaimer full text
 
 ## Data storage
 
-- User settings (window position/size/state, continuation merging, auto-apply, font size, newline visibility, last browse paths, install/uninstall options) are persisted as JSON to `%LOCALAPPDATA%\logcat\settings.json`
-- Favourites (device/local directories with aliases, run-as packages, APK paths, app packages, tag/message filter conditions; up to 60 per list, most-recent first) go to `%LOCALAPPDATA%\logcat\favorites.json`
-- Command categories, favourites, history, and placeholder values go to `%LOCALAPPDATA%\logcat\commands.json` (first open writes the built-in library)
+- User settings (window position/size/state, continuation merging, auto-apply, font size, newline visibility, last browse paths, install/uninstall options) are persisted as JSON to `settings.json` (next to the exe)
+- Favourites (device/local directories with aliases, run-as packages, APK paths, app packages, tag/message filter conditions; up to 60 per list, most-recent first) go to `favorites.json` (next to the exe)
+- Command categories, favourites, history, and placeholder values go to `commands.json` (next to the exe, first open writes the built-in library)
 - Live capture writes to `logcat_live_*.log` in the system temp directory, cleaned up on window close
 - Multi-monitor window geometry is validated on each launch; if the saved monitor is no longer connected, the app falls back to default layout instead of restoring off-screen
 
