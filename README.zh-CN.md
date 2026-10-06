@@ -144,7 +144,11 @@ dotnet publish -c Release   # 发布
 
 也可直接用 Visual Studio 打开 `logcat.slnx` / `logcat.csproj`。
 
-> **不再维护二进制发行版。** 发布包不会随版本更新，请自行构建。
+> 二进制发行版会随每个版本一同发布，可在以下 Release 页面下载现成构建：
+> - GitCode：<https://gitcode.com/gcw_WDXl5paK/logcat-viewer/releases>
+> - GitHub：<https://github.com/daitouniao/logcat-viewer/releases>
+>
+> 如需自行定制（裁剪依赖、改默认路径、加签名等），按上方命令从源码构建。
 
 ## 单元测试
 

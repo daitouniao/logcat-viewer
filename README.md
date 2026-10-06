@@ -136,7 +136,11 @@ dotnet publish -c Release   # publish
 
 You can also open `logcat.slnx` / `logcat.csproj` directly in Visual Studio.
 
-> **No pre-built binaries are maintained.** Published builds are not kept up to date; build from source instead.
+> Pre-built binaries are shipped alongside every release. Download them from either Release page:
+> - GitCode: <https://gitcode.com/gcw_WDXl5paK/logcat-viewer/releases>
+> - GitHub: <https://github.com/daitouniao/logcat-viewer/releases>
+>
+> Build from source only when you need a custom configuration (trim dependencies, change default paths, sign the binary, etc.).
 
 ## Tests
 
