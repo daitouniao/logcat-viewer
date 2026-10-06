@@ -8,7 +8,7 @@
     <UseWindowsForms>true</UseWindowsForms>
     <ImplicitUsings>enable</ImplicitUsings>
     <!-- 版本号唯一来源：发布时只改这里，显示约定为 V<Version>（见 Services/AppInfo.cs） -->
-    <Version>0.1.1</Version>
+    <Version>0.1.2</Version>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <!-- 许可与版权信息，写入程序集特性（exe 右键「属性 - 详细信息」可见） -->
     <Copyright>Copyright 2026 logcat viewer contributors. Licensed under the Apache License, Version 2.0.</Copyright>

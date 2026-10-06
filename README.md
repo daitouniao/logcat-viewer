@@ -1,6 +1,6 @@
 # logcat viewer
 
-[![Version: V0.1.1](https://img.shields.io/badge/version-V0.1.1-green)](logcat.csproj)
+[![Version: V0.1.2](https://img.shields.io/badge/version-V0.1.2-green)](logcat.csproj)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
 [![Platform: Windows](https://img.shields.io/badge/platform-Windows-lightgrey)](#requirements)
 
