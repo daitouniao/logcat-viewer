@@ -60,12 +60,29 @@ sealed class TempLogFile : IDisposable
     }
 }
 
-/// <summary>收集进度回调，用于断言进度确实上报过。</summary>
+/// <summary>
+/// 收集进度回调，用于断言进度确实上报过。
+///
+/// <para>
+/// <b>必须用线程安全的容器</b>：过滤/索引的进度回报走<code>Task.Run</code> 的工作线程
+/// （<c>FilterEngine</c> / <c>LogDocument</c> 里多线程分段推进度），
+/// 无锁 <c>List.Add</c> 会在并发写时抛「Collection was modified」。
+/// 该异常<b>偶发</b>——只在恰好两个线程同时 Add 时出现，表现为测试"时好时坏"。
+/// </para>
+/// </summary>
 sealed class ProgressRecorder : IProgress<(double pct, string msg)>
 {
-    public List<(double pct, string msg)> Items { get; } = new();
+    readonly List<(double pct, string msg)> _items = new();
 
-    public void Report((double pct, string msg) value) => Items.Add(value);
+    public IReadOnlyList<(double pct, string msg)> Items
+    {
+        get { lock (_items) return _items.ToArray(); }
+    }
+
+    public void Report((double pct, string msg) value)
+    {
+        lock (_items) _items.Add(value);
+    }
 }
 
 /// <summary>首次收到进度上报时取消令牌，用于验证长任务能中途取消（而不是跑完整份才抛）。</summary>

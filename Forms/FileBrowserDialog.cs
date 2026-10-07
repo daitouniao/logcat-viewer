@@ -8,7 +8,7 @@ namespace logcat.Forms;
 /// 双栏文件浏览器：左侧 Android 设备目录，右侧本机电脑目录。
 /// 支持收藏目录、跨栏拖放传输、目录递归传输。
 /// </summary>
-public class FileBrowserDialog : Form
+public class FileBrowserDialog : Form, ILocalizedUi
 {
     readonly DeviceFilePane _remote;
     readonly LocalFilePane _local;
@@ -32,7 +32,7 @@ public class FileBrowserDialog : Form
     {
         AutoScaleDimensions = new SizeF(96F, 96F);
         AutoScaleMode = AutoScaleMode.Dpi;
-        Text = $"文件浏览 — {serial}{(isRoot ? " [root]" : "")}";
+        Text = Loc.F("文件浏览 — {0}{1}", serial, isRoot ? " [root]" : "");
         Size = new Size(1440, 820);
         MinimumSize = new Size(920, 540);
         StartPosition = FormStartPosition.CenterParent;
@@ -80,19 +80,19 @@ public class FileBrowserDialog : Form
             Margin = Padding.Empty,
         };
 
-        _btnDownload = new Button { Text = "⬅ 下载到本机", AutoSize = true, MinimumSize = new Size(110, 26), Margin = new Padding(3, 5, 0, 0) };
+        _btnDownload = Loc.Bind(new Button { AutoSize = true, MinimumSize = new Size(110, 26), Margin = new Padding(3, 5, 0, 0) }, "⬅ 下载到本机");
         _btnDownload.Click += (_, _) => _ = TransferSelectionAsync(toDevice: false);
         bar.Controls.Add(_btnDownload);
 
-        _btnUpload = new Button { Text = "上传到设备 ➡", AutoSize = true, MinimumSize = new Size(110, 26), Margin = new Padding(3, 5, 0, 0) };
+        _btnUpload = Loc.Bind(new Button { AutoSize = true, MinimumSize = new Size(110, 26), Margin = new Padding(3, 5, 0, 0) }, "上传到设备 ➡");
         _btnUpload.Click += (_, _) => _ = TransferSelectionAsync(toDevice: true);
         bar.Controls.Add(_btnUpload);
 
-        var btnRefreshAll = new Button { Text = "刷新两栏", AutoSize = true, MinimumSize = new Size(86, 26), Margin = new Padding(3, 5, 0, 0) };
+        var btnRefreshAll = Loc.Bind(new Button { AutoSize = true, MinimumSize = new Size(86, 26), Margin = new Padding(3, 5, 0, 0) }, "刷新两栏");
         btnRefreshAll.Click += (_, _) => { _ = _remote.RefreshAsync(); _ = _local.RefreshAsync(); };
         bar.Controls.Add(btnRefreshAll);
 
-        var btnClose = new Button { Text = "关闭", AutoSize = true, MinimumSize = new Size(70, 26), Margin = new Padding(3, 5, 0, 0) };
+        var btnClose = Loc.Bind(new Button { AutoSize = true, MinimumSize = new Size(70, 26), Margin = new Padding(3, 5, 0, 0) }, "关闭");
         btnClose.Click += (_, _) => Close();
         bar.Controls.Add(btnClose);
 
@@ -157,7 +157,7 @@ public class FileBrowserDialog : Form
         DpiChanged += (_, e) =>
         {
             DpiDiag.Write($"FileBrowserDialog.DpiChanged dpi→{DeviceDpi} suggested={e.SuggestedRectangle} bounds={Bounds}");
-            BeginInvoke(() => LogLayout("DpiChanged后"));
+            BeginInvoke(() => LogLayout("DpiChanged后"));   // 诊断日志保持中文，不本地化
         };
     }
 
@@ -174,10 +174,10 @@ public class FileBrowserDialog : Form
 
     void UpdateTransferLabels()
     {
-        var local = string.IsNullOrEmpty(_local.CurrentPath) ? "此电脑" : _local.CurrentPath;
+        var local = string.IsNullOrEmpty(_local.CurrentPath) ? Loc.T("此电脑") : _local.CurrentPath;
         var remote = string.IsNullOrEmpty(_remote.CurrentPath) ? "/" : _remote.CurrentPath;
-        _btnDownload.Text = $"⬅ 下载到 {Shorten(local, 18)}";
-        _btnUpload.Text = $"上传到 {Shorten(remote, 18)} ➡";
+        _btnDownload.Text = Loc.F("⬅ 下载到 {0}", Shorten(local, 18));
+        _btnUpload.Text = Loc.F("上传到 {0} ➡", Shorten(remote, 18));
     }
 
     static string Shorten(string s, int max)
@@ -206,7 +206,7 @@ public class FileBrowserDialog : Form
         var paths = src.SelectedPaths;
         if (paths.Count == 0)
         {
-            SetStatus(toDevice ? "请先在右侧本机面板选中要上传的文件" : "请先在左侧设备面板选中要下载的文件");
+            SetStatus(toDevice ? Loc.T("请先在右侧本机面板选中要上传的文件") : Loc.T("请先在左侧设备面板选中要下载的文件"));
             return;
         }
         var dstDir = toDevice ? _remote.CurrentPath : _local.CurrentPath;
@@ -224,14 +224,14 @@ public class FileBrowserDialog : Form
     {
         if (_transferring)
         {
-            SetStatus("正在传输，请稍候…");
+            SetStatus(Loc.T("正在传输，请稍候…"));
             return;
         }
         if (srcPaths.Count == 0) return;
 
         if (string.IsNullOrEmpty(dstDir))
         {
-            SetStatus(toDevice ? "请先在左侧设备面板进入目标目录" : "请先在右侧本机面板进入目标目录");
+            SetStatus(toDevice ? Loc.T("请先在左侧设备面板进入目标目录") : Loc.T("请先在右侧本机面板进入目标目录"));
             return;
         }
 
@@ -249,13 +249,13 @@ public class FileBrowserDialog : Form
                 : await _remote.ExpandFilesAsync(srcPaths, p => skipped.Add(p));
 
             foreach (var p in skipped)
-                errors.AppendLine($"{p}: 目录无法递归展开（设备可能不支持 find，或目录为空/不可读）");
+                errors.AppendLine(Loc.F("{0}: 目录无法递归展开（设备可能不支持 find，或目录为空/不可读）", p));
 
             if (files.Count == 0)
             {
-                SetStatus("没有可传输的文件");
+                SetStatus(Loc.T("没有可传输的文件"));
                 if (errors.Length > 0)
-                    MessageBox.Show(this, errors.ToString(), "传输结果",
+                    MessageBox.Show(this, errors.ToString(), Loc.T("传输结果"),
                         MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
             }
@@ -289,13 +289,13 @@ public class FileBrowserDialog : Form
             // 上传完成后在设备端 sync 落盘，避免数据还在页缓存里就重启/拔线；失败不影响传输结果
             if (toDevice && ok > 0)
             {
-                SetStatus($"({files.Count}/{files.Count}) 正在 sync 刷写到存储…");
+                SetStatus(Loc.F("({0}/{1}) 正在 sync 刷写到存储…", files.Count, files.Count));
                 await _remote.SyncAsync();
             }
 
-            SetStatus($"传输完成：成功 {ok} 个{(failed > 0 ? $"，失败 {failed} 个" : "")}");
+            SetStatus(Loc.F("传输完成：成功 {0} 个{1}", ok, failed > 0 ? Loc.F("，失败 {0} 个", failed) : ""));
             if (errors.Length > 0)
-                MessageBox.Show(this, errors.ToString(), "传输结果",
+                MessageBox.Show(this, errors.ToString(), Loc.T("传输结果"),
                     MessageBoxButtons.OK, MessageBoxIcon.Warning);
 
             if (toDevice) await _remote.RefreshAsync();
@@ -303,8 +303,8 @@ public class FileBrowserDialog : Form
         }
         catch (Exception ex)
         {
-            SetStatus("传输失败");
-            MessageBox.Show(this, DescribeError(ex), "传输失败", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            SetStatus(Loc.T("传输失败"));
+            MessageBox.Show(this, DescribeError(ex), Loc.T("传输失败"), MessageBoxButtons.OK, MessageBoxIcon.Warning);
         }
         finally
         {
@@ -320,7 +320,7 @@ public class FileBrowserDialog : Form
         var dstDir = string.IsNullOrEmpty(args.TargetDirectory) ? _local.CurrentPath : args.TargetDirectory;
         if (string.IsNullOrEmpty(dstDir))
         {
-            SetStatus("请先进入一个本机目录");
+            SetStatus(Loc.T("请先进入一个本机目录"));
             return;
         }
 
@@ -354,9 +354,9 @@ public class FileBrowserDialog : Form
         }
 
         _pbar.Visible = false;
-        SetStatus($"复制完成：成功 {ok} 个{(failed > 0 ? $"，失败 {failed} 个" : "")}");
+        SetStatus(Loc.F("复制完成：成功 {0} 个{1}", ok, failed > 0 ? Loc.F("，失败 {0} 个", failed) : ""));
         if (failed > 0)
-            MessageBox.Show(this, $"{failed} 个文件复制失败：\n{errors}", "复制结果",
+            MessageBox.Show(this, Loc.F("{0} 个文件复制失败：\n{1}", failed, errors), "复制结果",
                 MessageBoxButtons.OK, MessageBoxIcon.Warning);
 
         await _local.RefreshAsync();
@@ -398,7 +398,7 @@ public class FileBrowserDialog : Form
     {
         if (_transferring && BlockCloseWhileTransferring && e.CloseReason == CloseReason.UserClosing)
         {
-            MessageBox.Show(this, "文件正在传输中，请等待完成后再关闭。", "提示",
+            MessageBox.Show(this, Loc.T("文件正在传输中，请等待完成后再关闭。"), Loc.T("提示"),
                 MessageBoxButtons.OK, MessageBoxIcon.Information);
             e.Cancel = true;
             return;
@@ -420,5 +420,13 @@ public class FileBrowserDialog : Form
             s.Save();
         }
         catch { /* 设置不可用时忽略 */ }
+    }
+    /// <summary>
+    /// 切语言后重算两个传输按钮的文案（内含路径，是运行时算出来的）。
+    /// </summary>
+    void ILocalizedUi.OnLanguageChanged()
+    {
+        UpdateTransferLabels();
+        PerformLayout();
     }
 }

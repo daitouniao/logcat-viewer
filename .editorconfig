@@ -1,0 +1,32 @@
+root = true
+
+[*]
+# 仓库基线是「.cs 一律无 BOM」（只有 Visual Studio 生成的 Designer.cs / .resx 带 BOM）。
+# 写成 utf-8-bom 会让编辑器给每个文件加 BOM，反而制造出切语言之类的诡异 bug（见 2026-10-07 日志），
+# 因此这里默认 utf-8（无 BOM），下方对 Designer/.resx 单独放开。
+charset = utf-8
+end_of_line = crlf
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+[*.md]
+charset = utf-8
+# Markdown 行尾两个空格是「换行」语法，不能被 trim 掉
+trim_trailing_whitespace = false
+
+# Visual Studio 生成的 Designer / 资源文件：仓库里本来就是带 BOM 的，保持一致
+[*.Designer.cs]
+charset = utf-8-bom
+
+[*.resx]
+charset = utf-8-bom
+
+[*.cs]
+indent_style = space
+indent_size = 4
+# C# 8+ 用的是 file-scoped namespace / switch 表达式，交给编译器判断
+csharp_new_line_before_open_brace = all
+csharp_new_line_before_else = true
+csharp_new_line_before_catch = true
+csharp_new_line_before_finally = true
+csharp_prefer_braces = true:suggestion

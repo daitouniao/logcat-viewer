@@ -74,6 +74,7 @@ public sealed class CommandStore
                     data.History ??= new List<CommandRun>();
                     data.Placeholders ??= new Dictionary<string, string>();
                     if (data.Categories.Count == 0) Seed(data);
+                    RehydrateZh(data);
                     return new CommandStore(data, path);
                 }
             }
@@ -237,6 +238,37 @@ public sealed class CommandStore
         new(CommandKind.Adb, "adb", "forward --list", "查看端口转发列表"),
     ];
 
+    /// <summary>
+    /// 给已落盘的内置条目补回 <see cref="CommandEntry.RemarkZh"/> / <see cref="CommandEntry.CategoryZh"/>。
+    ///
+    /// <para>
+    /// 这两个字段是 <c>[JsonIgnore]</c> 的——它们只是「内置条目的原文副本」，
+    /// 由 <see cref="Seed"/> 在内存里按内置命令库生成。中文原文真正持久化在
+    /// <c>Category</c> / <c>Remark</c> 里，所以<b>任何非首次启动都不带 Zh 字段</b>。
+    /// 不补回来的话 <c>RemarkText</c> 恒等于 <c>Remark</c>，
+    /// 英文界面里整列备注全是中文，而且<b>不会随语言变化</b>。
+    /// </para>
+    ///
+    /// <para>
+    /// 判据是「分类 + 命令 + 通道 + 原文」全等且命中内置库：用户自建的条目
+    /// 即使命令与内置重名（改过备注/分类），也不会被强行改回内置原文。
+    /// </para>
+    /// </summary>
+    static void RehydrateZh(StoreData data)
+    {
+        var index = new Dictionary<(string Cat, string Cmd, CommandKind Kind), SeedCmd>();
+        foreach (var s in Seeds)
+            index[(s.Category, s.Command, s.Kind)] = s;
+
+        foreach (var f in data.Favorites)
+        {
+            if (f.RemarkZh == null && f.Remark != null &&
+                index.TryGetValue((f.Category, f.Command, f.Kind), out var hit) && hit.Remark == f.Remark)
+                f.RemarkZh = hit.Remark;
+            f.CategoryZh ??= BuiltInCategoryZh(f.Category);
+        }
+    }
+
     /// <summary>写入内置命令库。internal：供单元测试直接注入初始数据。</summary>
     internal static void Seed(StoreData data)
     {
@@ -247,18 +279,42 @@ public sealed class CommandStore
             data.Favorites.Add(new CommandEntry
             {
                 Category = s.Category,
+                // Category / Remark 存中文原文（持久化 + 筛选匹配都依赖它），
+                // 同时记一份 *Zh 供界面按语言查表（RemarkText / CategoryText）
+                CategoryZh = BuiltInCategoryZh(s.Category),
                 Command = s.Command,
                 Remark = s.Remark,
+                RemarkZh = s.Remark,
                 Kind = s.Kind,
                 Root = s.Root,
             });
         }
     }
 
+    /// <summary>内置分类（shell / dumpsys / adb 之外的两个中文分类）返回其原文，
+    /// 供 <see cref="CommandEntry.CategoryText"/> 走本地化；其余返回 null（按原样显示）。</summary>
+    static string? BuiltInCategoryZh(string category) =>
+        category is "应用与包" or "日志与异常" ? category : null;
+
     // ── 分类 ──
 
     /// <summary>分类名列表（界面顺序即此顺序）。</summary>
     public List<string> Categories => _data.Categories;
+
+    /// <summary>分类下拉框的显示文本：内置的两个中文分类按当前语言翻译，其余原样。</summary>
+    public static string CategoryDisplay(string category) =>
+        BuiltInCategoryZh(category) != null ? Loc.T(category) : category;
+
+    /// <summary>显示文本反查存储用的分类名。切语言后下拉框里是译文，
+    /// 取值必须还原成中文原文，否则 <see cref="FavoritesIn"/> 会查不到东西。</summary>
+    public static string CategoryFromDisplay(string display)
+    {
+        foreach (var c in BuiltInCategoryNames)
+            if (display == Loc.T(c) || display == c) return c;
+        return display;
+    }
+
+    static readonly string[] BuiltInCategoryNames = { "应用与包", "日志与异常" };
 
     public bool HasCategory(string category) =>
         Categories.Any(c => string.Equals(c, category, StringComparison.Ordinal));

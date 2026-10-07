@@ -227,7 +227,7 @@ public sealed class LogDocument : IDisposable
     {
         Size = new FileInfo(Path).Length;
         OpenMap();
-        progress?.Report((0.0, "扫描行…"));
+        progress?.Report((0.0, Loc.T("扫描行…")));
         var part = ScanRange(Path, 0, Size, join, false, progress, ct);
         ct.ThrowIfCancellationRequested();
         Assemble(part, baseYear, progress);
@@ -442,7 +442,7 @@ public sealed class LogDocument : IDisposable
             if (progress != null && pos >= nextReport)
             {
                 nextReport = pos + (1 << 22);
-                progress.Report(((double)pos / data.Length, "扫描行…"));
+                progress.Report(((double)pos / data.Length, Loc.T("扫描行…")));
             }
             if (lineInChunk % 5000 == 0)
             {
@@ -484,7 +484,7 @@ public sealed class LogDocument : IDisposable
             return;
         }
 
-        progress?.Report((0.95, "合并索引…"));
+        progress?.Report((0.95, Loc.T("合并索引…")));
 
         // tag 字典：单分片下分区内的局部 id 就是全局 id（ScanRange 按出现顺序从 0 编号），无需重映射
         var tagIndex = new Dictionary<string, int>();
@@ -604,7 +604,7 @@ public sealed class LogDocument : IDisposable
         int validIdx = Array.FindIndex(within, w => w >= 0);
         if (validIdx < 0) return now.Year;
         // within 用「闰年日序」编码（见 MDAYS），比较基准必须换算到同一编码，
-        // 否则非闰年的 3 月之后整体差一天，"今天"的日志会被判成去年。
+        // 否则非闰年的 3 月之后整体差一天，Loc.T("今天")的日志会被判成去年。
         long todayWithin = (now.DayOfYear - 1) * LogParser.DAY_MS;
         if (!LogParser.IsLeap(now.Year) && now.DayOfYear > 59) todayWithin += LogParser.DAY_MS;
         long first = within[validIdx];
@@ -671,7 +671,7 @@ public sealed class LogDocument : IDisposable
 
     string Append(long newSize, IProgress<(double, string)>? progress, CancellationToken ct)
     {
-        progress?.Report((0.0, "追加新内容…"));
+        progress?.Report((0.0, Loc.T("追加新内容…")));
 
         // 裁掉末尾不完整行（流式写入的 flush 边界可能切在行中间），
         // 未完部分留待下次追加，避免同一行被拆成两条记录

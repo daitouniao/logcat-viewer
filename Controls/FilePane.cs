@@ -240,7 +240,7 @@ public abstract class FilePane : UserControl
                 .Select(r => r.SizeType == SizeType.Absolute ? $"abs:{r.Height}" : r.SizeType.ToString().ToLower()));
             return $"pane={Width}x{Height} rows=[{rows}] {DescribeBar("收藏栏", FavBar)} {DescribeBar("路径栏", PathBar)} {DescribeBar("操作栏", BtnBar)}";
         }
-        catch (Exception ex) { return "DescribeLayout异常:" + ex.Message; }
+        catch (Exception ex) { return "DescribeLayout异常:" + ex.Message; }   // 诊断用，保持中文
     }
 
     static string DescribeBar(string name, FlowLayoutPanel bar)
@@ -254,9 +254,9 @@ public abstract class FilePane : UserControl
 
     protected virtual void CreateColumns(ListView list)
     {
-        list.Columns.Add("名称", 250);
-        list.Columns.Add("大小", 90, HorizontalAlignment.Right);
-        list.Columns.Add("修改日期", 140);
+        Loc.BindCol(new ColumnHeader { Text = Loc.T("名称"), Width = 250 }, "名称");
+        Loc.BindCol(new ColumnHeader { Text = Loc.T("大小"), Width = 90, TextAlign = HorizontalAlignment.Right }, "大小");
+        Loc.BindCol(new ColumnHeader { Text = Loc.T("修改日期"), Width = 140 }, "修改日期");
     }
 
     // ── 列宽持久化 ──
@@ -332,7 +332,7 @@ public abstract class FilePane : UserControl
     protected virtual string DisplayPath(string path) => path;
 
     protected virtual void OnLoadFailed(string path, Exception ex) =>
-        ShowError($"无法打开 {path}\n\n{ex.Message}");
+        ShowError(Loc.F("无法打开 {0}\n\n{1}", path, ex.Message));
 
     // ── 导航 ──
 
@@ -363,7 +363,7 @@ public abstract class FilePane : UserControl
         var ct = _cts.Token;
 
         List.Items.Clear();
-        SetStatus("加载中…");
+        SetStatus(Loc.T("加载中…"));
         Pbar.Visible = true;
 
         try
@@ -371,13 +371,13 @@ public abstract class FilePane : UserControl
             var entries = await ListAsync(path, ct);
             if (ct.IsCancellationRequested) return;
             Populate(entries);
-            SetStatus($"{entries.Count} 项");
+            SetStatus(Loc.F("{0} 项", entries.Count));
         }
         catch (OperationCanceledException) { }
         catch (Exception ex)
         {
             if (ct.IsCancellationRequested) return;
-            SetStatus("加载失败");
+            SetStatus(Loc.T("加载失败"));
             OnLoadFailed(path, ex);
         }
         finally
@@ -483,15 +483,15 @@ public abstract class FilePane : UserControl
         // 子类在菜单顶部追加功能项（传输、新建、删除等）
         OnBuildContextMenu(menu);
         if (menu.Items.Count > 0) menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add("复制完整路径", null, (_, _) => CopySelectedPaths());
-        menu.Items.Add("复制文件名", null, (_, _) =>
+        menu.Items.Add(Loc.T("复制完整路径"), null, (_, _) => CopySelectedPaths());
+        menu.Items.Add(Loc.T("复制文件名"), null, (_, _) =>
         {
             var names = SelectedEntries.Select(e => e.Name);
             if (names.Any()) TrySetClipboard(string.Join(Environment.NewLine, names));
         });
-        menu.Items.Add("重命名", null, (_, _) => _ = RenameSelectedAsync());
+        menu.Items.Add(Loc.T("重命名"), null, (_, _) => _ = RenameSelectedAsync());
         menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add("刷新", null, (_, _) => _ = RefreshAsync());
+        menu.Items.Add(Loc.T("刷新"), null, (_, _) => _ = RefreshAsync());
         List.ContextMenuStrip = menu;
     }
 
@@ -503,7 +503,7 @@ public abstract class FilePane : UserControl
         var paths = SelectedPaths;
         if (paths.Count == 0) return;
         TrySetClipboard(string.Join(Environment.NewLine, paths));
-        SetStatus($"已复制 {paths.Count} 个路径");
+        SetStatus(Loc.F("已复制 {0} 个路径", paths.Count));
     }
 
     static void TrySetClipboard(string text)
@@ -524,7 +524,7 @@ public abstract class FilePane : UserControl
 
     async Task RenameOneAsync(FileEntry e)
     {
-        var name = SimpleInputBox.Show(this, "重命名", $"输入新名称：\n{e.Path}", e.Name);
+        var name = SimpleInputBox.Show(this, "重命名", Loc.F("输入新名称：\n{0}", e.Path), e.Name);
         if (string.IsNullOrWhiteSpace(name)) return;
         // 设备端（Linux）允许尾随空格/点，本机端（Windows）去掉尾随点以免变成隐藏名
         name = IsRemote ? name.Trim() : name.Trim().TrimEnd('.');
@@ -537,15 +537,15 @@ public abstract class FilePane : UserControl
         try
         {
             Pbar.Visible = true;
-            SetStatus($"重命名 {e.Name} → {name}…");
+            SetStatus(Loc.F("重命名 {0} → {1}…", e.Name, name));
             await RenameAsync(e, name);
             await RefreshAsync();
             SelectByName(name);
-            SetStatus($"已重命名为 {name}");
+            SetStatus(Loc.F("已重命名为 {0}", name));
         }
         catch (Exception ex)
         {
-            ShowError($"重命名失败：{ex.Message}");
+            ShowError(Loc.F("重命名失败：{0}", ex.Message));
             await RefreshAsync();
         }
         finally { Pbar.Visible = false; }
@@ -558,13 +558,13 @@ public abstract class FilePane : UserControl
     protected virtual bool ValidateNewName(string name, string currentPath, out string error)
     {
         error = "";
-        if (name.Length == 0) { error = "名称不能为空。"; return false; }
+        if (name.Length == 0) { error = Loc.T("名称不能为空。"); return false; }
         bool invalid = IsRemote
             ? name.Any(c => c == '/' || c == '\0')
             : name.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0;
-        if (invalid) { error = "名称包含非法字符。"; return false; }
-        if (name is "." or "..") { error = "不能使用 . 或 .. 作为名称。"; return false; }
-        if (NameExistsInCurrentDir(name, currentPath)) { error = $"当前目录已存在名为「{name}」的项。"; return false; }
+        if (invalid) { error = Loc.T("名称包含非法字符。"); return false; }
+        if (name is "." or "..") { error = Loc.T("不能使用 . 或 .. 作为名称。"); return false; }
+        if (NameExistsInCurrentDir(name, currentPath)) { error = Loc.F("当前目录已存在名为「{0}」的项。", name); return false; }
         return true;
     }
 
@@ -587,7 +587,7 @@ public abstract class FilePane : UserControl
         var list = Favorites.Get(IsRemote);
         CboFav.BeginUpdate();
         CboFav.Items.Clear();
-        CboFav.Items.Add(list.Count == 0 ? "— 暂无收藏目录 —" : $"— 收藏目录（{list.Count}）—");
+        CboFav.Items.Add(list.Count == 0 ? Loc.T("— 暂无收藏目录 —") : Loc.F("— 收藏目录（{0}）—", list.Count));
         foreach (var f in list) CboFav.Items.Add(f);
         CboFav.EndUpdate();
         SyncFavSelection();
@@ -609,14 +609,14 @@ public abstract class FilePane : UserControl
         bool canFav = !string.IsNullOrEmpty(CurrentPath);
         bool has = canFav && Favorites.Contains(IsRemote, CurrentPath);
         BtnFav.Enabled = canFav && !has;
-        BtnFav.Text = has ? "★ 已收藏" : "★ 收藏当前目录";
+        BtnFav.Text = has ? Loc.T("★ 已收藏") : Loc.T("★ 收藏当前目录");
         BtnUnfav.Enabled = has;
     }
 
     void OnFavSelected(object? sender, EventArgs e)
     {
         if (_favEventSuppressed) return;
-        // 第 0 项是提示行（"暂无收藏目录 / 收藏目录（N）"）
+        // 第 0 项是提示行（Loc.T("暂无收藏目录 / 收藏目录（N）")）
         if (CboFav.SelectedIndex > 0 && CboFav.SelectedItem is FavoriteDir fav)
             NavigateTo(fav.Path);
     }
@@ -626,19 +626,20 @@ public abstract class FilePane : UserControl
         if (e.Button != MouseButtons.Right) return;
         if (CboFav.SelectedIndex <= 0 || CboFav.SelectedItem is not FavoriteDir fav)
         {
-            ShowError("请先在下拉框中选中一个收藏目录，再右键取消收藏。\n" +
-                      "（也可以直接用左侧的「☆ 取消收藏」按钮移除当前目录。）");
+            // 整串查表（FileUi 里有整串键）：分两段 Loc.T 拼接会各自回退，
+            // 且译文无法调整两句的衔接语序
+            ShowError(Loc.T("请先在下拉框中选中一个收藏目录，再右键取消收藏。\n（也可以直接用左侧的「☆ 取消收藏」按钮移除当前目录。）"));
             return;
         }
 
         var menu = new ContextMenuStrip();
-        menu.Items.Add("跳转到该目录", null, (_, _) => NavigateTo(fav.Path));
-        menu.Items.Add("取消收藏", null, (_, _) => RemoveFavorite(fav.Path));
-        menu.Items.Add("重命名备注…", null, (_, _) => RenameFavorite(fav.Path));
+        menu.Items.Add(Loc.T("跳转到该目录"), null, (_, _) => NavigateTo(fav.Path));
+        menu.Items.Add(Loc.T("取消收藏"), null, (_, _) => RemoveFavorite(fav.Path));
+        menu.Items.Add(Loc.T("重命名备注…"), null, (_, _) => RenameFavorite(fav.Path));
         menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add("清空收藏", null, (_, _) =>
+        menu.Items.Add(Loc.T("清空收藏"), null, (_, _) =>
         {
-            if (!Confirm($"确定要清空{(IsRemote ? "设备端" : "本机端")}的全部收藏目录吗？", "清空收藏")) return;
+            if (!Confirm(Loc.F("确定要清空{0}的全部收藏目录吗？", IsRemote ? "设备端" : "本机端"), "清空收藏")) return;
             Favorites.Clear(IsRemote);
             Favorites.Save();
             RefreshFavCombo();
@@ -657,7 +658,7 @@ public abstract class FilePane : UserControl
         Favorites.Add(IsRemote, CurrentPath);
         Favorites.Save();
         RefreshFavCombo();
-        SetStatus($"已收藏：{CurrentPath}");
+        SetStatus(Loc.F("已收藏：{0}", CurrentPath));
     }
 
     void RemoveFavorite(string? path)
@@ -665,20 +666,20 @@ public abstract class FilePane : UserControl
         if (string.IsNullOrEmpty(path)) return;
         if (!Favorites.Remove(IsRemote, path))
         {
-            SetStatus("该目录未被收藏");
+            SetStatus(Loc.T("该目录未被收藏"));
             return;
         }
         Favorites.Save();
         RefreshFavCombo();
-        SetStatus($"已取消收藏：{path}");
+        SetStatus(Loc.F("已取消收藏：{0}", path));
     }
 
     void RenameFavorite(string path)
     {
         var cur = Favorites.Get(IsRemote)
             .FirstOrDefault(f => FavoritesStore.PathEquals(f.Path, path, IsRemote));
-        var alias = SimpleInputBox.Show(this, "收藏备注",
-            $"为收藏目录设置备注名（留空则直接显示路径）：\n{path}",
+        var alias = SimpleInputBox.Show(this, Loc.T("收藏备注"),
+            Loc.F("为收藏目录设置备注名（留空则直接显示路径）：\n{0}", path),
             cur?.Alias ?? "");
         if (alias == null) return;
         Favorites.SetAlias(IsRemote, path, alias);
@@ -747,7 +748,7 @@ public abstract class FilePane : UserControl
             common = common[..i];
             if (common.Length == 0) return "";
         }
-        // 截到最后一个目录分隔符，避免切在路径中间（如 "C:\Pic" 与 "C:\Pics"）
+        // 截到最后一个目录分隔符，避免切在路径中间（如 "C:\PicLoc.T(" 与 ")C:\Pics"）
         int cut = common.LastIndexOfAny(['\\', '/']);
         return cut <= 0 ? "" : common[..cut];
     }
@@ -777,7 +778,7 @@ public abstract class FilePane : UserControl
     }
 
     protected void ShowError(string msg) =>
-        MessageBox.Show(this, msg, "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        MessageBox.Show(this, msg, Loc.T("提示"), MessageBoxButtons.OK, MessageBoxIcon.Warning);
 
     protected bool Confirm(string msg, string title) =>
         MessageBox.Show(this, msg, title, MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes;
@@ -811,19 +812,22 @@ public abstract class FilePane : UserControl
         Margin = Padding.Empty,
     };
 
-    protected static Label NewBarLabel(string text) => new()
+    protected static Label NewBarLabel(string zh) => Services.Loc.Bind(new Label
     {
-        Text = text,
         AutoSize = true,
         Padding = new Padding(0, 8, 2, 0),
         Margin = new Padding(3, 0, 0, 0),
-    };
+    }, zh);
 
-    protected static Button NewBarButton(string text, int width) => new()
+    /// <summary>标签栏按钮。<paramref name="zh"/> 是中文原文（资源键），不是已译文本——
+    /// 必须走 <c>Loc.Bind</c>，否则切语言时文本与宽度都停在旧值上。</summary>
+    protected static Button NewBarButton(string zh, int zhWidth) => Services.Loc.Bind(new Button
     {
-        Text = text,
-        Width = width,
-        Height = 26,
+        // 英文单词比同义中文长（实测「★ 收藏当前目录」中文 110px / 英文 138px），
+        // 固定宽度在英文态会裁字。改为 AutoSize + 按语言给的最小宽度：
+        // 宽度不够时按钮自己撑开（FlowLayoutPanel 会重排），够宽时外观与中文态一致。
+        AutoSize = true,
+        MinimumSize = new Size(Services.Loc.W(zhWidth, Services.Loc.TextWidth(Services.Loc.T(zh), Services.Loc.UiFont) + 16), 26),
         Margin = new Padding(3, 4, 0, 0),
-    };
+    }, zh);
 }

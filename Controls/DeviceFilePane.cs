@@ -27,7 +27,7 @@ public sealed class DeviceFilePane : FilePane
     public string RunAsRelayDir { get; private set; } = logcat.Services.AppSettings.Default.LastRunAsRelayDir;
 
     public DeviceFilePane(AdbManager manager, string serial, bool isRoot)
-        : base($"Android 设备 — {serial}{(isRoot ? "  [root]" : "")}")
+        : base(Loc.F("Android 设备 — {0}{1}", serial, isRoot ? "  [root]" : ""))
     {
         _manager = manager;
         _serial = serial;
@@ -39,11 +39,11 @@ public sealed class DeviceFilePane : FilePane
 
     protected override void CreateColumns(ListView list)
     {
-        list.Columns.Add("名称", 220);
-        list.Columns.Add("大小", 80, HorizontalAlignment.Right);
-        list.Columns.Add("权限", 95);
-        list.Columns.Add("所有者", 80);
-        list.Columns.Add("修改日期", 130);
+        Loc.BindCol(new ColumnHeader { Text = Loc.T("名称"), Width = 220 }, "名称");
+        Loc.BindCol(new ColumnHeader { Text = Loc.T("大小"), Width = 80, TextAlign = HorizontalAlignment.Right }, "大小");
+        Loc.BindCol(new ColumnHeader { Text = Loc.T("权限"), Width = 95 }, "权限");
+        Loc.BindCol(new ColumnHeader { Text = Loc.T("所有者"), Width = 80 }, "所有者");
+        Loc.BindCol(new ColumnHeader { Text = Loc.T("修改日期"), Width = 130 }, "修改日期");
     }
 
     protected override string[] GetRow(FileEntry e) => new[]
@@ -240,9 +240,9 @@ public sealed class DeviceFilePane : FilePane
     {
         using var dlg = new OpenFileDialog
         {
-            Title = "选择要上传到设备的文件",
+            Title = Loc.T("选择要上传到设备的文件"),
             Multiselect = true,
-            Filter = "所有文件 (*.*)|*.*",
+            Filter = Loc.T("所有文件 (*.*)|*.*"),
         };
         if (dlg.ShowDialog(this) != DialogResult.OK) return;
         RaiseFilesDropped(dlg.FileNames, "", CurrentPath);
@@ -252,18 +252,18 @@ public sealed class DeviceFilePane : FilePane
 
     protected override void OnBuildContextMenu(ContextMenuStrip menu)
     {
-        menu.Items.Add("⬅ 下载到本机", null, (_, _) => RequestTransferSelection());
-        menu.Items.Add("上传文件到此处…", null, (_, _) => OnPickFilesToUpload(this, EventArgs.Empty));
+        menu.Items.Add(Loc.T("⬅ 下载到本机"), null, (_, _) => RequestTransferSelection());
+        menu.Items.Add(Loc.T("上传文件到此处…"), null, (_, _) => OnPickFilesToUpload(this, EventArgs.Empty));
         menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add("新建文件夹", null, (_, _) => _ = CreateFolderAsync());
-        menu.Items.Add("删除选中", null, (_, _) => _ = DeleteSelectedAsync());
+        menu.Items.Add(Loc.T("新建文件夹"), null, (_, _) => _ = CreateFolderAsync());
+        menu.Items.Add(Loc.T("删除选中"), null, (_, _) => _ = DeleteSelectedAsync());
         menu.Items.Add(new ToolStripSeparator());
     }
 
     async Task CreateFolderAsync()
     {
         if (string.IsNullOrEmpty(CurrentPath)) return;
-        var name = SimpleInputBox.Show(this, "新建文件夹", "文件夹名称：", "新建文件夹");
+        var name = SimpleInputBox.Show(this, Loc.T("新建文件夹"), Loc.T("文件夹名称："), Loc.T("新建文件夹"));
         if (string.IsNullOrWhiteSpace(name)) return;
 
         try
@@ -275,7 +275,7 @@ public sealed class DeviceFilePane : FilePane
         }
         catch (Exception ex)
         {
-            ShowError($"创建失败：{ex.Message}");
+            ShowError(Loc.F("创建失败：{0}", ex.Message));
         }
     }
 
@@ -294,9 +294,9 @@ public sealed class DeviceFilePane : FilePane
         }
 
         var menu = new ContextMenuStrip();
-        menu.Items.Add(_isRoot ? "回到 root 模式" : "退出 run-as 模式", null,
+        menu.Items.Add(_isRoot ? Loc.T("回到 root 模式") : Loc.T("退出 run-as 模式"), null,
             (_, _) => ExitRunAs());
-        menu.Items.Add("切换包名…", null, (_, _) => _ = ApplyRunAsAsync(null));
+        menu.Items.Add(Loc.T("切换包名…"), null, (_, _) => _ = ApplyRunAsAsync(null));
 
         var visited = FavoritesStore.Default.RunAsPackages;
         if (visited.Count > 0)
@@ -337,7 +337,7 @@ public sealed class DeviceFilePane : FilePane
     void UpdateRunAsUi()
     {
         _btnRunAs.Text = RunAsPackage == null ? "run-as…" : $"run-as: {RunAsPackage}";
-        Box.Text = $"Android 设备 — {_serial}{(_isRoot ? "  [root]" : "")}" +
+        Box.Text = Loc.F("Android 设备 — {0}{1}", _serial, _isRoot ? "  [root]" : "") +
                    (RunAsPackage == null ? "" : $"  [run-as: {RunAsPackage}]");
     }
 
@@ -381,8 +381,8 @@ public sealed class DeviceFilePane : FilePane
         if (entries.Count == 0) return;
 
         var names = string.Join(", ", entries.Take(5).Select(e => e.Name));
-        if (entries.Count > 5) names += $" …等 {entries.Count} 项";
-        if (!Confirm($"确定要删除设备上的以下文件/目录吗？\n{names}", "确认删除")) return;
+        if (entries.Count > 5) names += Loc.F(" …等 {0} 项", entries.Count);
+        if (!Confirm(Loc.F("确定要删除设备上的以下文件/目录吗？\n{0}", names), "确认删除")) return;
 
         Pbar.Visible = true;
         try
@@ -390,15 +390,15 @@ public sealed class DeviceFilePane : FilePane
             foreach (var e in entries)
             {
                 var inner = e.IsDir ? $"rm -rf '{e.Path}'" : $"rm -f '{e.Path}'";
-                SetStatus($"删除 {e.Name}…");
-                await ShellOkAsync(inner, $"删除 {e.Name} 失败", 20, NeedsElevation(e.Path));
+                SetStatus(Loc.F("删除 {0}…", e.Name));
+                await ShellOkAsync(inner, Loc.F("删除 {0} 失败", e.Name), 20, NeedsElevation(e.Path));
             }
-            SetStatus($"已删除 {entries.Count} 项");
+            SetStatus(Loc.F("已删除 {0} 项", entries.Count));
             await RefreshAsync();
         }
         catch (Exception ex)
         {
-            ShowError($"删除失败：{ex.Message}");
+            ShowError(Loc.F("删除失败：{0}", ex.Message));
         }
         finally { Pbar.Visible = false; }
     }
@@ -410,7 +410,7 @@ public sealed class DeviceFilePane : FilePane
         var parent = GetParentPath(e.Path) ?? "/";
         var newPath = parent is "" or "/" ? "/" + newName : parent + "/" + newName;
         // 同目录内移动即重命名；提权判定以源路径为准（目标与源同目录）
-        await ShellOkAsync($"mv -f '{e.Path}' '{newPath}'", $"重命名 {e.Name} 失败", 30, NeedsElevation(e.Path));
+        await ShellOkAsync($"mv -f '{e.Path}' '{newPath}'", Loc.F("重命名 {0} 失败", e.Name), 30, NeedsElevation(e.Path));
     }
 
     /// <summary>判断设备端路径是否为目录。</summary>
@@ -463,7 +463,7 @@ public sealed class DeviceFilePane : FilePane
     public async Task MkdirPAsync(string remoteDir)
     {
         if (string.IsNullOrEmpty(remoteDir) || remoteDir == "/") return;
-        await ShellOkAsync($"mkdir -p '{remoteDir}'", $"无法创建 {remoteDir}", 15, NeedsElevation(remoteDir));
+        await ShellOkAsync($"mkdir -p '{remoteDir}'", Loc.F("无法创建 {0}", remoteDir), 15, NeedsElevation(remoteDir));
     }
 
     // ── 传输通道 ──
@@ -554,7 +554,7 @@ public sealed class DeviceFilePane : FilePane
         var tmp = NextRelayPath(remotePath);
         try
         {
-            await ShellOkAsync($"cp '{remotePath}' '{tmp}'", $"无法读取 {remotePath}", elevated: true);
+            await ShellOkAsync($"cp '{remotePath}' '{tmp}'", Loc.F("无法读取 {0}", remotePath), elevated: true);
             // cp 落地的中转文件沿用源权限（常为 0600），属主是提权身份（root 或应用），
             // 不放开读权限的话 sync 依旧取不到；chmod 与清理也必须用同样的身份执行。
             await ShellBestEffortAsync($"chmod a+r '{tmp}'", elevated: true);
@@ -599,7 +599,7 @@ public sealed class DeviceFilePane : FilePane
         try
         {
             await _manager.PushAsync(_serial, localFile, tmp);
-            await ShellOkAsync($"cp '{tmp}' '{remotePath}'", $"无法写入 {remotePath}", elevated: true);
+            await ShellOkAsync($"cp '{tmp}' '{remotePath}'", Loc.F("无法写入 {0}", remotePath), elevated: true);
             // sync 推送的文件属主是 shell，直接落到应用数据目录会让应用自身无法读写，
             // 所以再按目标目录链上最近的已有属主改回去（顺带处理本次新建的目录）。
             if (_isRoot && owner != null)

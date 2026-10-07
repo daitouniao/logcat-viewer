@@ -25,4 +25,16 @@
     <ProjectReference Include="..\..\logcat.csproj" />
   </ItemGroup>
 
+  <!--
+    源码扫描类测试需要仓库根路径。不能用 AppContext.BaseDirectory 往上找：
+    测试可能被 tstrun 之类的外部 runner 从别处启动，输出目录不在仓库内（见 docs/TESTING.md §3）。
+    编译期把绝对路径注入程序集，运行时直接读，不依赖执行位置。
+  -->
+  <ItemGroup>
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+      <_Parameter1>RepoRoot</_Parameter1>
+      <_Parameter2>$([System.IO.Path]::GetFullPath('$(MSBuildProjectDirectory)\..\..'))</_Parameter2>
+    </AssemblyAttribute>
+  </ItemGroup>
+
 </Project>

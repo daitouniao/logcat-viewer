@@ -50,6 +50,9 @@ public sealed class AppSettings
     public string NewlineVis { get; set; } = "↵";
     public int FontPt { get; set; } = 10;
 
+    /// <summary>界面语言（"zh-CN" / "en"）。留空表示按系统区域推断（见 <c>Loc.DetectLang</c>）。</summary>
+    public string Language { get; set; } = "";
+
     // ── 窗口几何（多屏安全：RestoreBounds 统一保存正常态矩形）──
     public Point WindowLocation { get; set; }
     public Size WindowSize { get; set; }

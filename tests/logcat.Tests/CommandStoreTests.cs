@@ -51,6 +51,123 @@ public class CommandStoreTests
         Assert.False(entry.Root);
     }
 
+    // ── 重新加载时补回本地化原文（RemarkZh / CategoryZh）──
+    //
+    // 这两个字段是 [JsonIgnore] 的：中文原文真正持久化在 Category / Remark 里，
+    // Zh 只是内置条目的「原文副本」。不补回来的话**每次非首次启动**内置备注
+    // 都会回退成中文，且不随语言变化——英文界面里整列备注全是中文。
+
+    /// <summary>把 store 的数据序列化成 json 再读回来，模拟「第二次启动」。</summary>
+    static CommandStore RoundTrip(CommandStore store, string path)
+    {
+        var opts = new System.Text.Json.JsonSerializerOptions
+        {
+            WriteIndented = true,
+            Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() },
+        };
+        var snapshot = new CommandStore.StoreData
+        {
+            Categories = store.Categories.ToList(),
+            Favorites = store.Favorites.ToList(),
+            History = store.History.ToList(),
+        };
+        File.WriteAllText(path, System.Text.Json.JsonSerializer.Serialize(snapshot, opts));
+        return CommandStore.LoadFrom(path);
+    }
+
+    [Fact]
+    public void 重载后内置备注仍可本地化()
+    {
+        var path = TempFile("rehydrate-remark");
+        try
+        {
+            var store = Seeded();
+            store.SaveTo(path);
+
+            var reloaded = RoundTrip(store, path);
+
+            var entry = reloaded.Favorites.First(f => f.Command == "logcat -c");
+            var en = Loc.SetLangGuard(UiLang.En);
+            try
+            {
+                Assert.NotNull(entry.RemarkZh);
+                Assert.NotEqual("清空日志缓冲区", entry.RemarkText);
+                Assert.DoesNotContain("清空日志缓冲区", entry.RemarkText);
+            }
+            finally { en(); }
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void 重载后内置中文分类仍可本地化()
+    {
+        var path = TempFile("rehydrate-cat");
+        try
+        {
+            var store = Seeded();
+            store.SaveTo(path);
+
+            var reloaded = RoundTrip(store, path);
+
+            var entry = reloaded.Favorites.First(f => f.Command == "logcat -c");
+            var en = Loc.SetLangGuard(UiLang.En);
+            try
+            {
+                Assert.Equal("Logs & Crashes", entry.CategoryText);
+            }
+            finally { en(); }
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void 重载不改写用户自建条目的备注()
+    {
+        var path = TempFile("rehydrate-user");
+        try
+        {
+            var store = Seeded();
+            // 用户把内置命令的备注改成了自己的话（CommandStore 刻意允许重复命令，
+            // 因为 remark 是用户数据，不参与去重键）
+            var builtin = store.Favorites.First(f => f.Command == "logcat -c");
+            builtin.Remark = "我自己写的说明";
+            store.SaveTo(path);
+
+            var reloaded = RoundTrip(store, path);
+
+            var entry = reloaded.Favorites.First(f => f.Command == "logcat -c");
+            // 原文对不上内置库 -> 不得被当成内置条目强行改回中文原文
+            Assert.Null(entry.RemarkZh);
+            Assert.Equal("我自己写的说明", entry.RemarkText);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void RemarkText与CategoryText不落盘()
+    {
+        // 这两个是显示用计算属性：写进 json 只会让文件膨胀且在切语言后留下
+        // 过期译文（旧版本确实落过盘，bin/ 下的 commands.json 还能看到 RemarkText 字段）
+        var path = TempFile("no-display-persist");
+        try
+        {
+            var store = Seeded();
+            store.SaveTo(path);
+            var json = File.ReadAllText(path);
+            Assert.DoesNotContain("\"RemarkText\"", json);
+            Assert.DoesNotContain("\"CategoryText\"", json);
+        }
+        finally { File.Delete(path); }
+    }
+
+    static string TempFile(string tag)
+    {
+        var dir = Path.Combine(AppContext.BaseDirectory, "tmp");
+        Directory.CreateDirectory(dir);
+        return Path.Combine(dir, $"cmds-{tag}-{Guid.NewGuid():N}.json");
+    }
+
     // ── 分类 ──
 
     [Fact]

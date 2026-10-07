@@ -77,7 +77,7 @@ public sealed class LogcatStream
             var device = devices.FirstOrDefault(d => d.Serial == _serial);
             if (device == null)
             {
-                ErrorOccurred?.Invoke($"设备 {_serial} 未连接");
+                ErrorOccurred?.Invoke(Loc.F("设备 {0} 未连接", _serial));
                 return;
             }
 
@@ -124,7 +124,7 @@ public sealed class LogcatStream
         {
             _logger.LogError(ex, "采集过程中发生异常");
             if (!ct.IsCancellationRequested)
-                ErrorOccurred?.Invoke($"采集异常：{ex.Message}");
+                ErrorOccurred?.Invoke(Loc.F("采集异常：{0}", ex.Message));
         }
         finally
         {

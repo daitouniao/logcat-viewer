@@ -1,3 +1,5 @@
+using logcat.Services;
+
 namespace logcat.Models;
 
 /// <summary>
@@ -43,7 +45,7 @@ public class FilterSpec
         {
             var names = string.Concat(Levels.Where(l => l >= 0 && l < Services.LogParser.LEVEL_NAME.Length)
                 .OrderBy(l => l).Select(l => Services.LogParser.LEVEL_NAME[l]));
-            parts.Add($"级别 {names}");
+            parts.Add(Loc.F("级别 {0}", names));
         }
         if (Tags.Length > 0)
             parts.Add($"tag{(TagExclude ? "!" : "")} {TagOp.ToUpper()}({string.Join(", ", Tags)})");
@@ -54,9 +56,10 @@ public class FilterSpec
         if (Tids.Length > 0)
             parts.Add($"tid{(TidExclude ? "!" : "")}({string.Join(", ", Tids)})");
         if (Minutes.Length > 0)
-            parts.Add($"分钟({string.Join(", ", Minutes)})");
+            parts.Add(Loc.F("分钟({0})", string.Join(", ", Minutes)));
         if (MarkedOnly)
-            parts.Add("仅标记行");
-        return parts.Count > 0 ? string.Join("；", parts) : "（无过滤）";
+            parts.Add(Loc.T("仅标记行"));
+        // 分隔符也本地化：英文态用半角 "; "，否则摘要行会混着中文全角标点
+        return parts.Count > 0 ? string.Join(Loc.T("；"), parts) : Loc.T("（无过滤）");
     }
 }

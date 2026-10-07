@@ -1,3 +1,5 @@
+using logcat.Services;
+
 namespace logcat.Forms;
 
 /// <summary>
@@ -27,12 +29,12 @@ public class RecordDialog : Form
             Text = text
         };
 
-        _ckLiteral = new CheckBox
+        // 绑资源键：切语言时重设文案（而不是停留在构造时的 Loc.T 结果）
+        _ckLiteral = Loc.Bind(new CheckBox
         {
-            Text = @"把字面的 \n 也拆成真实换行",
             Dock = DockStyle.Bottom,
             Height = 30
-        };
+        }, @"把字面的 \n 也拆成真实换行");
         _ckLiteral.CheckedChanged += (_, _) => Refresh();
 
         var btnPanel = new FlowLayoutPanel
@@ -42,8 +44,8 @@ public class RecordDialog : Form
             FlowDirection = FlowDirection.RightToLeft
         };
 
-        var btnClose = new Button { Text = "关闭", DialogResult = DialogResult.OK, AutoSize = true, MinimumSize = new Size(80, 25) };
-        var btnCopy = new Button { Text = "复制", AutoSize = true, MinimumSize = new Size(80, 25) };
+        var btnClose = Loc.Bind(new Button { DialogResult = DialogResult.OK, AutoSize = true, MinimumSize = new Size(80, 25) }, "关闭");
+        var btnCopy = Loc.Bind(new Button { AutoSize = true, MinimumSize = new Size(80, 25) }, "复制");
         btnCopy.Click += (_, _) => logcat.Services.ClipboardHelper.SetText(_text.Text);
 
         btnPanel.Controls.Add(btnClose);

@@ -5,7 +5,7 @@ namespace logcat.Forms;
 /// <summary>
 /// 录屏对话框：通过 screenrecord 录制设备屏幕，完成后拉取到本地。
 /// </summary>
-public class ScreenRecordDialog : Form
+public class ScreenRecordDialog : Form, ILocalizedUi
 {
     readonly AdbManager _manager;
     readonly string _serial;
@@ -24,30 +24,30 @@ public class ScreenRecordDialog : Form
         AutoScaleMode = AutoScaleMode.Dpi;
         _manager = manager;
         _serial = serial;
-        Text = $"录屏 — {serial}";
+        Text = Loc.F("录屏 — {0}", serial);
         Size = new Size(720, 580);
         StartPosition = FormStartPosition.CenterParent;
 
-        _lblRecStat = new Label
+        // 绑资源键：切语言时重设文案 + FitHeight 按新文案重算高度
+        _lblRecStat = Loc.Bind(new Label
         {
             Dock = DockStyle.Fill,
-            Text = "点击「开始录屏」录制设备屏幕",
             TextAlign = ContentAlignment.MiddleCenter,
             BackColor = Color.FromArgb(240, 240, 240),
             BorderStyle = BorderStyle.FixedSingle,
             Font = new Font(Font.FontFamily, 12)
-        };
+        }, "点击「开始录屏」录制设备屏幕");
         var recBtnPanel = new FlowLayoutPanel
         {
             Dock = DockStyle.Bottom,
             Height = 40,
             FlowDirection = FlowDirection.LeftToRight
         };
-        _btnRecStart = new Button { Text = "开始录屏", AutoSize = true, MinimumSize = new Size(100, 25) };
+        _btnRecStart = Loc.Bind(new Button { AutoSize = true, MinimumSize = new Size(100, 25) }, "开始录屏");
         _btnRecStart.Click += async (_, _) => await StartRecording();
-        _btnRecStop = new Button { Text = "停止录屏", AutoSize = true, MinimumSize = new Size(100, 25), Enabled = false };
+        _btnRecStop = Loc.Bind(new Button { AutoSize = true, MinimumSize = new Size(100, 25), Enabled = false }, "停止录屏");
         _btnRecStop.Click += async (_, _) => await StopRecording();
-        _btnRecPull = new Button { Text = "拉取到本地…", AutoSize = true, MinimumSize = new Size(120, 25), Enabled = false };
+        _btnRecPull = Loc.Bind(new Button { AutoSize = true, MinimumSize = new Size(120, 25), Enabled = false }, "拉取到本地…");
         _btnRecPull.Click += OnPullRecording;
         recBtnPanel.Controls.Add(_btnRecStart);
         recBtnPanel.Controls.Add(_btnRecStop);
@@ -72,7 +72,7 @@ public class ScreenRecordDialog : Form
         _btnRecStart.Enabled = false;
         _btnRecStop.Enabled = true;
         _btnRecPull.Enabled = false;
-        _lblRecStat.Text = "录屏中…";
+        _lblRecStat.Text = Loc.T("录屏中…");
 
         // 先删除旧的录屏文件
         try { await _manager.ShellAsync(_serial, $"rm -f {REMOTE_RECORD_PATH}", 5); }
@@ -102,7 +102,7 @@ public class ScreenRecordDialog : Form
         await Task.Delay(1000);
 
         var elapsed = (DateTime.Now - _recordStartTime).TotalSeconds;
-        _lblRecStat.Text = $"录屏完成（{elapsed:F1} 秒），可拉取到本地";
+        _lblRecStat.Text = Loc.F("录屏完成（{0:F1} 秒），可拉取到本地", elapsed);
         _btnRecStart.Enabled = true;
         _btnRecPull.Enabled = true;
     }
@@ -111,9 +111,9 @@ public class ScreenRecordDialog : Form
     {
         using var dlg = new SaveFileDialog
         {
-            Title = "保存录屏",
+            Title = Loc.T("保存录屏"),
             FileName = $"recording_{DateTimeOffset.UtcNow.ToUnixTimeSeconds()}.mp4",
-            Filter = "MP4 视频 (*.mp4)|*.mp4|所有文件 (*.*)|*.*"
+            Filter = Loc.T("MP4 视频 (*.mp4)|*.mp4|所有文件 (*.*)|*.*")
         };
         if (dlg.ShowDialog() != DialogResult.OK) return;
 
@@ -121,11 +121,11 @@ public class ScreenRecordDialog : Form
         {
             using var fs = File.Create(dlg.FileName);
             _manager.Pull(_serial, REMOTE_RECORD_PATH, fs);
-            _lblRecStat.Text = $"已拉取 → {dlg.FileName}";
+            _lblRecStat.Text = Loc.F("已拉取 → {0}", dlg.FileName);
         }
         catch (Exception ex)
         {
-            _lblRecStat.Text = $"拉取失败：{ex.Message}";
+            _lblRecStat.Text = Loc.F("拉取失败：{0}", ex.Message);
         }
     }
 
@@ -134,7 +134,7 @@ public class ScreenRecordDialog : Form
         var elapsed = (DateTime.Now - _recordStartTime).TotalSeconds;
         int mins = (int)(elapsed / 60);
         int secs = (int)(elapsed % 60);
-        _lblRecStat.Text = $"● 录屏中  {mins:D2}:{secs:D2}";
+        _lblRecStat.Text = Loc.F("● 录屏中  {0:D2}:{1:D2}", mins, secs);
     }
 
     protected override void OnFormClosing(FormClosingEventArgs e)
@@ -147,5 +147,15 @@ public class ScreenRecordDialog : Form
         }
         _recTimer.Dispose();
         base.OnFormClosing(e);
+    }
+    /// <summary>
+    /// 切语言后按当前状态重算状态标签——三种状态（录屏中/已停止/拉取结果）
+    /// 是运行时算出来的，没有静态键可绑，只能这里重算。
+    /// </summary>
+    void ILocalizedUi.OnLanguageChanged()
+    {
+        if (_recordStartTime == default) _lblRecStat.Text = Loc.T("点击「开始录屏」录制设备屏幕");
+        else UpdateRecTimer();
+        PerformLayout();
     }
 }

@@ -1,4 +1,4 @@
-using logcat.Controls;
+﻿using logcat.Controls;
 using logcat.Forms;
 using logcat.Models;
 using logcat.Services;
@@ -6,7 +6,7 @@ using Microsoft.Extensions.Logging;
 
 namespace logcat;
 
-public partial class frmMain : Form
+public partial class frmMain : Form, ILocalizedUi
 {
     // ── 数据 ──
     LogDocument? _doc;
@@ -51,6 +51,13 @@ public partial class frmMain : Form
     ToolStripProgressBar _pbar = null!;
     ToolStripComboBox _comboDevice = null!;
 
+    // 状态栏消息（_lblMsg）的「资源键 + 参数」。
+    // 它是 ToolStripStatusLabel 而非普通控件，且文案随运行时状态不断变化，
+    // 不能走 Loc.Bind（绑了也会被后续赋值覆盖），只能记住键、切语言时重算一次。
+    // 进度回调上报的成品串无法反查资源键，用 ShowStatusRaw 时把 _statusKey 清空。
+    string? _statusKey;
+    object?[]? _statusArgs;
+
     // 过滤面板控件
     CheckBox[] _lvlBoxes = new CheckBox[8];
     TextBox _edTag = null!, _edMsg = null!, _edPid = null!, _edTid = null!, _edMin = null!;
@@ -64,6 +71,10 @@ public partial class frmMain : Form
     // 工具栏 Tag/Message 收藏按钮
     ToolStripButton _btnFavTagMenu = null!, _btnFavTagToggle = null!;
     ToolStripButton _btnFavMsgMenu = null!, _btnFavMsgToggle = null!;
+    // 采集启停按钮：用字段引用判定身份，不能靠「按钮文本是否包含某个词」——
+    // 英文态文本是 "▶ Start Capture"，任何按中文子串的 Contains 判断都会永远为 false，
+    // 表现为「开始采集」按钮在英文界面永久灰死、点不动。
+    ToolStripButton _btnAdbStart = null!, _btnAdbStop = null!;
     CheckBox _chkToolbarMarkedOnly = null!, _chkToolbarFollow = null!;
     bool _syncingFilter;
     Label _lblSpec = null!;
@@ -76,6 +87,9 @@ public partial class frmMain : Form
 
     // 菜单项
     ToolStripMenuItem _actJoin = null!, _actSingleExport = null!, _actSaveLog = null!;
+
+    // 「帮助 → 语言」子菜单句柄：切换语言后要同步两项的勾选态
+    ToolStripMenuItem? _mLangMenu;
 
     // 设备操作总窗口（截图 / 录屏 / 文件浏览 / 安装·卸载 APK / 命令 合并为一个页签式窗口，非模态）
     DeviceOpsDialog? _deviceOps;
@@ -115,34 +129,38 @@ public partial class frmMain : Form
         KeyPreview = true;
 
         // ── 菜单（并入工具栏第一行）──
-        var mFile = new ToolStripMenuItem("文件");
-        var mSet = new ToolStripMenuItem("设置");
+        // 注意：菜单/工具栏项一律 Loc.Bind(项, "中文原文")。只写 Loc.T(...) 是一次性赋值，
+        // 控件与资源键之间没有记录，Loc.ApplyTo 遍历时查不到，切语言时该控件完全不刷新。
+        var mFile = Loc.Bind(new ToolStripMenuItem("文件"), "文件");
+        var mSet = Loc.Bind(new ToolStripMenuItem("设置"), "设置");
 
-        var actOpen = new ToolStripMenuItem("打开…", null, (_, _) => OpenFile(), Keys.Control | Keys.O);
-        var actReload = new ToolStripMenuItem("重载", null, (_, _) => Reload(), Keys.F5);
-        var actExport = new ToolStripMenuItem("导出结果…", null, (_, _) => ExportRows(false), Keys.Control | Keys.E);
-        var actExportMarked = new ToolStripMenuItem("导出标记行…", null, (_, _) => ExportRows(true));
-        var actQuit = new ToolStripMenuItem("退出", null, (_, _) => Close(), Keys.Control | Keys.Q);
-        _actSaveLog = new ToolStripMenuItem("保存日志…", null, (_, _) => AdbSaveLog()) { Enabled = false };
+        var actOpen = Loc.Bind(new ToolStripMenuItem("打开…", null, (_, _) => OpenFile(), Keys.Control | Keys.O), "打开…");
+        var actReload = Loc.Bind(new ToolStripMenuItem("重载", null, (_, _) => Reload(), Keys.F5), "重载");
+        var actExport = Loc.Bind(new ToolStripMenuItem("导出结果…", null, (_, _) => ExportRows(false), Keys.Control | Keys.E), "导出结果…");
+        var actExportMarked = Loc.Bind(new ToolStripMenuItem("导出标记行…", null, (_, _) => ExportRows(true)), "导出标记行…");
+        var actQuit = Loc.Bind(new ToolStripMenuItem("退出", null, (_, _) => Close(), Keys.Control | Keys.Q), "退出");
+        _actSaveLog = Loc.Bind(new ToolStripMenuItem("保存日志…", null, (_, _) => AdbSaveLog()) { Enabled = false }, "保存日志…");
         mFile!.DropDownItems.AddRange(new ToolStripItem[] { actOpen, actReload, actExport, actExportMarked, _actSaveLog, new ToolStripSeparator(), actQuit });
 
-        _actJoin = new ToolStripMenuItem("续行合并（堆栈并入上一条记录）") { Checked = true, CheckOnClick = true };
+        _actJoin = Loc.Bind(new ToolStripMenuItem("续行合并（堆栈并入上一条记录）") { Checked = true, CheckOnClick = true }, "续行合并（堆栈并入上一条记录）");
         _actJoin.Click += (_, _) => { _join = _actJoin.Checked; if (_doc != null) StartIndex(_doc.Path); };
         mSet!.DropDownItems.Add(_actJoin);
 
-        _actSingleExport = new ToolStripMenuItem("导出时单行化（换行转 \\n）") { CheckOnClick = true };
+        _actSingleExport = Loc.Bind(new ToolStripMenuItem("导出时单行化（换行转 \\n）") { CheckOnClick = true }, "导出时单行化（换行转 \\n）");
         _actSingleExport.Click += (_, _) => _singleLineExport = _actSingleExport.Checked;
         mSet.DropDownItems.Add(_actSingleExport);
         mSet.DropDownItems.Add(new ToolStripSeparator());
-        mSet.DropDownItems.Add(new ToolStripMenuItem("过滤设置…", null, (_, _) => ShowFilterDialog()));
+        mSet.DropDownItems.Add(Loc.Bind(new ToolStripMenuItem("过滤设置…", null, (_, _) => ShowFilterDialog()), "过滤设置…"));
 
         // ── 帮助菜单 ──
-        var mHelp = new ToolStripMenuItem("帮助");
-        var actAbout = new ToolStripMenuItem("关于…", null, (_, _) => ShowAbout());
-        mHelp!.DropDownItems.Add(actAbout);
+        var mHelp = Loc.Bind(new ToolStripMenuItem("帮助"), "帮助");
+        var actAbout = Loc.Bind(new ToolStripMenuItem("关于…"), "关于…");
+        actAbout.Click += (_, _) => ShowAbout();
+        mHelp.DropDownItems.Add(actAbout);
+        mHelp.DropDownItems.Add(BuildLanguageMenu());
 
         // 字号子菜单
-        var mFont = new ToolStripMenuItem("字号");
+        var mFont = Loc.Bind(new ToolStripMenuItem("字号"), "字号");
         var fontGroup = new ToolStripMenuItem[5];
         int[] fontSizes = { 9, 10, 11, 12, 14 };
         for (int i = 0; i < fontSizes.Length; i++)
@@ -160,17 +178,19 @@ public partial class frmMain : Form
         // 换设备时，让设备操作窗口里绑定设备的页签跟着重建
         _comboDevice.SelectedIndexChanged += (_, _) => _deviceOps?.OnDeviceChanged();
         // 设备操作总入口（截图/录屏/文件浏览/APK/命令）
-        var btnDeviceOps = new ToolStripButton("设备操作", null, (_, _) => ShowDeviceOps(DeviceOpsDialog.PageKind.Command));
-        var btnRefresh = new ToolStripButton("刷新设备", null, (_, _) => _ = AdbRefresh());
+        var btnDeviceOps = Loc.Bind(new ToolStripButton("设备操作", null, (_, _) => ShowDeviceOps(DeviceOpsDialog.PageKind.Command)), "设备操作");
+        var btnRefresh = Loc.Bind(new ToolStripButton("刷新设备", null, (_, _) => _ = AdbRefresh()), "刷新设备");
+        _btnAdbStart = Loc.Bind(new ToolStripButton("▶ 开始采集", null, (_, _) => AdbStartCapture()) { Enabled = false }, "▶ 开始采集");
+        _btnAdbStop = Loc.Bind(new ToolStripButton("■ 停止采集", null, (_, _) => _ = AdbStopCaptureAsync()) { Enabled = false }, "■ 停止采集");
         // 刷新设备紧贴设备列表左侧；开始/停止采集在左侧分组
         ToolStripItem[] adbItems =
         {
             btnDeviceOps,
-            new ToolStripButton("▶ 开始采集", null, (_, _) => AdbStartCapture()) { Enabled = false },
-            new ToolStripButton("■ 停止采集", null, (_, _) => _ = AdbStopCaptureAsync()) { Enabled = false },
+            _btnAdbStart,
+            _btnAdbStop,
             new ToolStripSeparator(),
             btnRefresh,
-            new ToolStripLabel("设备:"),
+            Loc.Bind(new ToolStripLabel("设备:"), "设备:"),
             _comboDevice
         };
         foreach (var it in adbItems) it.Tag = "adb";
@@ -188,56 +208,56 @@ public partial class frmMain : Form
         // ── 第二行工具栏：标记相关按钮 + 快速过滤输入框 ──
         _toolStrip2 = new ToolStrip { GripStyle = ToolStripGripStyle.Hidden, ShowItemToolTips = true };
 
-        _chkToolbarMarkedOnly = new CheckBox { Text = "仅标记行", AutoSize = true };
+        _chkToolbarMarkedOnly = Loc.Bind(new CheckBox { AutoSize = true }, "仅标记行");
         _chkToolbarMarkedOnly.CheckedChanged += (_, _) => { if (!_syncingFilter) OnFilterChanged(); };
-        _chkToolbarFollow = new CheckBox { Text = "跟随尾部", AutoSize = true };
+        _chkToolbarFollow = Loc.Bind(new CheckBox { AutoSize = true }, "跟随尾部");
         _chkToolbarFollow.CheckedChanged += (_, _) => { if (!_syncingFilter && _chkToolbarFollow.Checked && _listView.Rows.Length > 0) ScrollBottom(); };
 
-        _tbMin = new ToolStripTextBox { Width = 80, ToolTipText = "如 05 20（空格分隔）" };
+        _tbMin = Loc.BindTip(new ToolStripTextBox { Width = 80 }, "如 05 20（空格分隔）");
         _tbMin.TextChanged += (_, _) => { SyncToolbarToPanel(_tbMin, _edMin); RefreshFixedOrBoxStyle(); };
         _tbMin.KeyDown += (_, e) => { if (e.KeyCode == Keys.Enter) _ = ApplyFilter(); };
 
-        _tbTag = new ToolStripTextBox { Width = 130, ToolTipText = "多个用空格分隔，短语用双引号包裹" };
+        _tbTag = Loc.BindTip(new ToolStripTextBox { Width = 130 }, "多个用空格分隔，短语用双引号包裹");
         // 工具栏输入永不改写面板 op：op 以面板控件为唯一来源，工具栏框只用背景色提示（ApplyTermBoxStyle）。
         // 曾经的 `_cbTagOp.SelectedItem = "or"` 是并列语句（_syncingFilter 只包住 dst.Text = src.Text），
         // 导致「在面板选 and → 再在工具栏改文本」op 被静默改回 or。
         _tbTag.TextChanged += (_, _) => SyncToolbarToPanel(_tbTag, _edTag);
         _tbTag.KeyDown += (_, e) => { if (e.KeyCode == Keys.Enter) _ = ApplyFilter(); };
 
-        _tbMsg = new ToolStripTextBox { Width = 180, ToolTipText = "多词用空格分隔，短语用双引号包裹" };
+        _tbMsg = Loc.BindTip(new ToolStripTextBox { Width = 180 }, "多词用空格分隔，短语用双引号包裹");
         _tbMsg.TextChanged += (_, _) => SyncToolbarToPanel(_tbMsg, _edMsg);
         _tbMsg.KeyDown += (_, e) => { if (e.KeyCode == Keys.Enter) _ = ApplyFilter(); };
 
         // 工具栏 Tag 收藏按钮：▾ 下拉、★ 收藏/移除
-        _btnFavTagMenu = new ToolStripButton("▾") { Width = 24, ToolTipText = "从收藏中选择（Tag）" };
+        _btnFavTagMenu = Loc.BindTip(new ToolStripButton("▾") { Width = 24 }, "从收藏中选择（Tag）");
         _btnFavTagMenu.Click += (_, _) => ShowFilterFavMenu(_btnFavTagMenu, _tbTag, forTag: true);
-        _btnFavTagToggle = new ToolStripButton("☆") { Width = 24, ToolTipText = "收藏/移除当前内容（Tag）" };
+        _btnFavTagToggle = Loc.BindTip(new ToolStripButton("☆") { Width = 24 }, "收藏/移除当前内容（Tag）");
         _btnFavTagToggle.Click += (_, _) => ToggleFilterFav(_tbTag, forTag: true);
         _btnFavTagToggle.Overflow = ToolStripItemOverflow.Never; // ★ 永不进 overflow
 
         // 工具栏 Message 收藏按钮：▾ 下拉、★ 收藏/移除
-        _btnFavMsgMenu = new ToolStripButton("▾") { Width = 24, ToolTipText = "从收藏中选择（Message）" };
+        _btnFavMsgMenu = Loc.BindTip(new ToolStripButton("▾") { Width = 24 }, "从收藏中选择（Message）");
         _btnFavMsgMenu.Click += (_, _) => ShowFilterFavMenu(_btnFavMsgMenu, _tbMsg, forTag: false);
-        _btnFavMsgToggle = new ToolStripButton("☆") { Width = 24, ToolTipText = "收藏/移除当前内容（Message）" };
+        _btnFavMsgToggle = Loc.BindTip(new ToolStripButton("☆") { Width = 24 }, "收藏/移除当前内容（Message）");
         _btnFavMsgToggle.Click += (_, _) => ToggleFilterFav(_tbMsg, forTag: false);
         _btnFavMsgToggle.Overflow = ToolStripItemOverflow.Never; // ★ 永不进 overflow
 
         _toolStrip2.Items.AddRange(new ToolStripItem[] {
-            new ToolStripLabel("标记:"),
-            new ToolStripButton("◀ 上一个", null, (_, _) => GotoMark(true)),
-            new ToolStripButton("下一个 ▶", null, (_, _) => GotoMark(false)),
-            new ToolStripButton("清除标记", null, (_, _) => ClearMarks()),
+            Loc.Bind(new ToolStripLabel("标记:"), "标记:"),
+            Loc.Bind(new ToolStripButton("◀ 上一个", null, (_, _) => GotoMark(true)), "◀ 上一个"),
+            Loc.Bind(new ToolStripButton("下一个 ▶", null, (_, _) => GotoMark(false)), "下一个 ▶"),
+            Loc.Bind(new ToolStripButton("清除标记", null, (_, _) => ClearMarks()), "清除标记"),
             new ToolStripSeparator(),
             new ToolStripControlHost(_chkToolbarMarkedOnly),
             new ToolStripControlHost(_chkToolbarFollow),
             new ToolStripSeparator(),
-            new ToolStripLabel("分钟"),
+            Loc.Bind(new ToolStripLabel("分钟"), "分钟"),
             _tbMin,
-            new ToolStripLabel("Tag"),
+            Loc.Bind(new ToolStripLabel("Tag"), "Tag"),
             _tbTag,
             _btnFavTagMenu,
             _btnFavTagToggle,
-            new ToolStripLabel("Message"),
+            Loc.Bind(new ToolStripLabel("Message"), "Message"),
             _tbMsg,
             _btnFavMsgMenu,
             _btnFavMsgToggle,
@@ -260,7 +280,7 @@ public partial class frmMain : Form
 
         // ── 状态栏 ──
         _statusStrip = new StatusStrip();
-        _lblFile = new ToolStripStatusLabel("未打开文件 —— 可直接把日志文件拖进窗口") { Spring = true, TextAlign = ContentAlignment.MiddleLeft };
+        _lblFile = new ToolStripStatusLabel(Loc.T("未打开文件 —— 可直接把日志文件拖进窗口")) { Spring = true, TextAlign = ContentAlignment.MiddleLeft };
         _lblStat = new ToolStripStatusLabel("");
         _lblPos = new ToolStripStatusLabel("");
         _lblMsg = new ToolStripStatusLabel("");
@@ -295,6 +315,61 @@ public partial class frmMain : Form
         {
             if (IsHandleCreated) BeginInvoke(new Action(RefreshFavStars));
         };
+
+        // ── 语言切换 ──
+        // 由 Loc.ApplyToAllForms 回调 ILocalizedUi.OnLanguageChanged 做实际刷新。
+        // 不再订阅 LanguageChanged 事件：事件表是静态的，窗体关掉不退订会一直持有它。
+    }
+
+    /// <summary>
+    /// 构建「帮助 → 语言」子菜单：简体中文 / English 互斥勾选。
+    /// 切换后由 <see cref="Loc.SetLang"/> 统一重刷所有已打开窗体（文本、字体、宽度），
+    /// 本窗口再补做语言相关的额外动作（见 <see cref="OnLanguageChanged"/>）。
+    /// </summary>
+    ToolStripMenuItem BuildLanguageMenu()
+    {
+        // 资源键必须是中文原文，不能写 Loc.T(...)：英文态下 Loc.T 返回的是英文译文，
+        // 键就变成 "Help"，之后无论切到哪种语言都查不到译文，永久停在英文。
+        var mLang = Loc.Bind(new ToolStripMenuItem("语言"), "语言");
+        var itemZh = Loc.Bind(new ToolStripMenuItem("简体中文"), "简体中文");
+        var itemEn = Loc.Bind(new ToolStripMenuItem("English"), "English");
+        // 两项互斥：手工同步 Checked，不交给 CheckOnClick（点已选中项时它不会翻转）
+        itemZh.Click += (_, _) => Loc.SetLang(UiLang.ZhCn);
+        itemEn.Click += (_, _) => Loc.SetLang(UiLang.En);
+        mLang.DropDownItems.AddRange(new ToolStripItem[] { itemZh, itemEn });
+        _mLangMenu = mLang;
+        SyncLangChecks(mLang);
+        return mLang;
+    }
+
+    void SyncLangChecks(ToolStripMenuItem mLang)
+    {
+        if (mLang.DropDownItems.Count < 2) return;
+        if (mLang.DropDownItems[0] is ToolStripMenuItem itemZh) itemZh.Checked = Loc.Current == UiLang.ZhCn;
+        if (mLang.DropDownItems[1] is ToolStripMenuItem itemEn) itemEn.Checked = Loc.Current == UiLang.En;
+    }
+
+    /// <summary>语言切换后的额外动作（<see cref="Loc.ApplyToAllForms"/> 已刷过绑定文本/字体/宽度）。
+    /// 只处理绑定机制覆盖不到的部分。</summary>
+    void ILocalizedUi.OnLanguageChanged()
+    {
+        // 语言子菜单的勾选态：菜单项是用 Loc.Bind 建的，勾选态不在绑定范围内
+        if (_mLangMenu != null) SyncLangChecks(_mLangMenu);
+        // 过滤面板在 FilterDialog 里，且该窗口在首次 Show 之前不在 Application.OpenForms 里
+        // （启动时就被 new 出来了），Loc.ApplyToAllForms 扫不到它 → 「启动中文 → 切英文 →
+        // 才点开过滤设置」时整个面板保持中文。必须由宿主显式补刷。
+        Loc.ApplyToDetached(_filterDialog);
+        // 刷完文案后按实测重新撑开窗口（英文文案更长，只放大不缩小）
+        _filterDialog?.PositionAboveOwner();
+        // 工具栏文案变长会挤占设备下拉框
+        LayoutDeviceCombo();
+        // 状态栏文本由数据算出，不走绑定
+        RefreshStatusBar();
+        // 工具栏 Tag/Message 的 tooltip 由 TermTip 拼出（op / 大小写 / 排除三个维度），
+        // 同样只能重算，不能靠绑定刷新
+        ApplyTermBoxStyle();
+        // 设备操作总窗口：把语言变化转发给各嵌入页签（它们 TopLevel=false，不在 OpenForms 里）
+        _deviceOps?.ForwardLanguageChanged();
     }
 
     // 设备下拉框占满工具栏剩余宽度
@@ -318,15 +393,16 @@ public partial class frmMain : Form
 
     void ShowAbout() => MessageBox.Show(this,
         $"{AppInfo.ProductName} {AppInfo.DisplayVersion}\n\n" +
-        "Windows 桌面端 Android 日志（logcat）查看器\n\n" +
-        "许可：Apache License 2.0（详见 LICENSE）\n" +
-        "第三方声明：见程序目录下 THIRD-PARTY-NOTICES.md\n" +
+        // 三段各自 Loc.T，换行符由本处拼接（不进资源键）
+        Loc.T("Windows 桌面端 Android 日志（logcat）查看器") + "\n\n" +
+        Loc.T("许可：Apache License 2.0（详见 LICENSE）") + "\n" +
+        Loc.T("第三方声明：见程序目录下 THIRD-PARTY-NOTICES.md") + "\n" +
         "Copyright 2026 logcat viewer contributors",
-        "关于", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        Loc.T("关于"), MessageBoxButtons.OK, MessageBoxIcon.Information);
 
     void BuildFilterPanel()
     {
-        _panel = new GroupBox { Text = "过滤", Dock = DockStyle.Fill };
+        _panel = Loc.Bind(new GroupBox { Dock = DockStyle.Fill }, "过滤");
         var mainLayout = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
@@ -340,7 +416,7 @@ public partial class frmMain : Form
 
         // 级别行
         var lvlPanel = new FlowLayoutPanel { AutoSize = true, WrapContents = false };
-        lvlPanel.Controls.Add(new Label { Text = "级别", AutoSize = true, Padding = new Padding(0, 4, 8, 0) });
+        lvlPanel.Controls.Add(Loc.Bind(new Label { AutoSize = true, Padding = new Padding(0, 4, 8, 0) }, "级别"));
         for (int i = 0; i < 8; i++)
         {
             int code = i;
@@ -355,19 +431,19 @@ public partial class frmMain : Form
             if (i > 0) lvlPanel.Controls.Add(_lvlBoxes[i]);
         }
         // AutoSize + MinimumSize：按钮宽度随文字自适应，任何 DPI/字体下都不会裁字
-        var btnAll = new Button { Text = "全选", AutoSize = true, MinimumSize = new Size(50, 25) };
+        var btnAll = Loc.Bind(new Button { AutoSize = true, MinimumSize = new Size(50, 25) }, "全选");
         btnAll.Click += (_, _) => { for (int i = 1; i < 8; i++) _lvlBoxes[i].Checked = true; };
-        var btnNone = new Button { Text = "清空", AutoSize = true, MinimumSize = new Size(50, 25) };
+        var btnNone = Loc.Bind(new Button { AutoSize = true, MinimumSize = new Size(50, 25) }, "清空");
         btnNone.Click += (_, _) => { for (int i = 1; i < 8; i++) _lvlBoxes[i].Checked = false; };
         lvlPanel.Controls.Add(btnAll);
         lvlPanel.Controls.Add(btnNone);
 
         // 应用/重置 与选项合并到级别行
-        var btnApply = new Button { Text = "应用  (Ctrl+Enter)", AutoSize = true, MinimumSize = new Size(140, 25) };
+        var btnApply = Loc.Bind(new Button { AutoSize = true, MinimumSize = new Size(140, 25) }, "应用  (Ctrl+Enter)");
         btnApply.Click += (_, _) => _ = ApplyFilter();
-        var btnReset = new Button { Text = "重置", AutoSize = true, MinimumSize = new Size(60, 25) };
+        var btnReset = Loc.Bind(new Button { AutoSize = true, MinimumSize = new Size(60, 25) }, "重置");
         btnReset.Click += (_, _) => ResetFilter();
-        _chkAuto = new CheckBox { Text = "自动应用", AutoSize = true, Checked = true };
+        _chkAuto = Loc.Bind(new CheckBox { AutoSize = true, Checked = true }, "自动应用");
         lvlPanel.Controls.Add(new Label { Text = "    ", AutoSize = true });
         lvlPanel.Controls.Add(btnApply);
         lvlPanel.Controls.Add(btnReset);
@@ -391,27 +467,27 @@ public partial class frmMain : Form
         // PID / TID / 分钟 行（含过滤条件说明）
         var pidTidPanel = new FlowLayoutPanel { AutoSize = true, WrapContents = false };
         pidTidPanel.Controls.Add(new Label { Text = "PID", AutoSize = true, Padding = new Padding(0, 4, 4, 0) });
-        _edPid = new TextBox { Width = 130, PlaceholderText = "多值用空格分隔" };
+        _edPid = Loc.BindHint(new TextBox { Width = 130 }, "多值用空格分隔");
         _edPid.TextChanged += (_, _) => { RefreshFixedOrBoxStyle(); OnFilterChanged(); };
         _edPid.KeyDown += (_, e) => { if (e.KeyCode == Keys.Enter) _ = ApplyFilter(); };
         pidTidPanel.Controls.Add(_edPid);
-        _ckPidEx = new CheckBox { Text = "排除", AutoSize = true };
+        _ckPidEx = Loc.Bind(new CheckBox { AutoSize = true }, "排除");
         _ckPidEx.CheckedChanged += (_, _) => { RefreshFixedOrBoxStyle(); OnFilterChanged(); };
         pidTidPanel.Controls.Add(_ckPidEx);
         pidTidPanel.Controls.Add(new Label { Text = "TID", AutoSize = true, Padding = new Padding(8, 4, 4, 0) });
-        _edTid = new TextBox { Width = 130, PlaceholderText = "多值用空格分隔" };
+        _edTid = Loc.BindHint(new TextBox { Width = 130 }, "多值用空格分隔");
         _edTid.TextChanged += (_, _) => { RefreshFixedOrBoxStyle(); OnFilterChanged(); };
         _edTid.KeyDown += (_, e) => { if (e.KeyCode == Keys.Enter) _ = ApplyFilter(); };
         pidTidPanel.Controls.Add(_edTid);
-        _ckTidEx = new CheckBox { Text = "排除", AutoSize = true };
+        _ckTidEx = Loc.Bind(new CheckBox { AutoSize = true }, "排除");
         _ckTidEx.CheckedChanged += (_, _) => { RefreshFixedOrBoxStyle(); OnFilterChanged(); };
         pidTidPanel.Controls.Add(_ckTidEx);
-        pidTidPanel.Controls.Add(new Label { Text = "分钟", AutoSize = true, Padding = new Padding(8, 4, 4, 0) });
-        _edMin = new TextBox { Width = 160, PlaceholderText = "如 05 20（空格分隔）" };
+        pidTidPanel.Controls.Add(Loc.Bind(new Label { AutoSize = true, Padding = new Padding(8, 4, 4, 0) }, "分钟"));
+        _edMin = Loc.BindHint(new TextBox { Width = 160 }, "如 05 20（空格分隔）");
         _edMin.TextChanged += (_, _) => { SyncPanelToToolbar(_edMin, _tbMin); RefreshFixedOrBoxStyle(); OnFilterChanged(); };
         _edMin.KeyDown += (_, e) => { if (e.KeyCode == Keys.Enter) _ = ApplyFilter(); };
         pidTidPanel.Controls.Add(_edMin);
-        _lblSpec = new Label { Text = "（无过滤）", AutoSize = true, Padding = new Padding(8, 6, 0, 0), ForeColor = Color.Gray };
+        _lblSpec = Loc.Bind(new Label { AutoSize = true, Padding = new Padding(8, 6, 0, 0), ForeColor = Color.Gray }, "（无过滤）");
         pidTidPanel.Controls.Add(_lblSpec);
         mainLayout.Controls.Add(pidTidPanel, 0, 3);
 
@@ -504,12 +580,12 @@ public partial class frmMain : Form
     {
         var parts = new List<string>
         {
-            "包含匹配",
-            op == "and" ? "全部词命中（AND）" : "任一词命中（OR）",
-            caseSensitive ? "区分大小写" : "忽略大小写",
+            Loc.T("包含匹配"),
+            op == "and" ? Loc.T("全部词命中（AND）") : Loc.T("任一词命中（OR）"),
+            caseSensitive ? Loc.T("区分大小写") : Loc.T("忽略大小写"),
         };
-        if (exclude) parts.Add("已排除命中项");
-        return $"{label}：" + string.Join("；", parts) + "（设置在「过滤设置」里）";
+        if (exclude) parts.Add(Loc.T("已排除命中项"));
+        return $"{label}{Loc.T("：")}" + string.Join(Loc.T("；"), parts) + Loc.T("（设置在「过滤设置」里）");
     }
 
     // ── 工具栏与过滤窗口输入框双向同步 ──
@@ -538,8 +614,7 @@ public partial class frmMain : Form
         // 固定列宽（AutoSize=false）：原写法 AutoSize=true 会被文字实际宽度覆盖，
         // 「Tag」比「Message」窄，导致两行的下拉框、复选框列不对齐
         panel.Controls.Add(new Label { Text = label, AutoSize = false, Width = 62, Height = 25, TextAlign = ContentAlignment.MiddleLeft });
-        ed = new TextBox { Width = 280 };
-        ed.PlaceholderText = placeholder;
+        ed = Loc.BindHint(new TextBox { Width = 280 }, placeholder);
         var box = ed;
         box.TextChanged += (_, _) =>
         {
@@ -551,13 +626,14 @@ public partial class frmMain : Form
         panel.Controls.Add(ed);
 
         // 收藏：▾ 从收藏选择，★ 收藏/移除当前内容
-        var favTip = new ToolTip();
+        // 提示气泡走 Loc.BindTip（程序级 ToolTip 实例）：WinForms 的 tooltip 挂在组件上，
+        // 局部 new 出来的实例切语言后不会重新 SetToolTip，文案会停在旧语言。
         var btnFavPick = new Button { Text = "▾", AutoSize = true, MinimumSize = new Size(28, 25), Margin = new Padding(2, 0, 0, 0) };
-        favTip.SetToolTip(btnFavPick, "从收藏中选择");
+        Loc.BindTip(btnFavPick, "从收藏中选择");
         btnFavPick.Click += (_, _) => ShowFilterFavMenu(btnFavPick, box, forTag);
         panel.Controls.Add(btnFavPick);
         var btnFavToggle = new Button { Text = "★", AutoSize = true, MinimumSize = new Size(28, 25), Margin = new Padding(2, 0, 0, 0) };
-        favTip.SetToolTip(btnFavToggle, "收藏当前内容（已收藏则移除）");
+        Loc.BindTip(btnFavToggle, "收藏当前内容（已收藏则移除）");
         btnFavToggle.Click += (_, _) => ToggleFilterFav(box, forTag);
         panel.Controls.Add(btnFavToggle);
 
@@ -566,10 +642,10 @@ public partial class frmMain : Form
         cbOp.SelectedItem = defaultOp;
         cbOp.SelectedIndexChanged += (_, _) => { ApplyTermBoxStyle(); OnFilterChanged(); };
         panel.Controls.Add(cbOp);
-        ckCase = new CheckBox { Text = "大小写", AutoSize = true };
+        ckCase = Loc.Bind(new CheckBox { AutoSize = true }, "大小写");
         ckCase.CheckedChanged += (_, _) => { ApplyTermBoxStyle(); OnFilterChanged(); };
         panel.Controls.Add(ckCase);
-        ckEx = new CheckBox { Text = "排除", AutoSize = true };
+        ckEx = Loc.Bind(new CheckBox { AutoSize = true }, "排除");
         ckEx.CheckedChanged += (_, _) => { ApplyTermBoxStyle(); OnFilterChanged(); };
         panel.Controls.Add(ckEx);
     }
@@ -587,7 +663,7 @@ public partial class frmMain : Form
 
         if (list.Count == 0)
         {
-            menu.Items.Add(new ToolStripMenuItem("（暂无收藏，点 ★ 收藏当前内容）") { Enabled = false });
+            menu.Items.Add(new ToolStripMenuItem(Loc.T("（暂无收藏，点 ★ 收藏当前内容）")) { Enabled = false });
         }
         else
         {
@@ -603,12 +679,12 @@ public partial class frmMain : Form
                 menu.Items.Add(mi);
             }
             if (menu.Items.Count == 0)
-                menu.Items.Add(new ToolStripMenuItem("（无匹配收藏）") { Enabled = false });
+                menu.Items.Add(new ToolStripMenuItem(Loc.T("（无匹配收藏）")) { Enabled = false });
 
             menu.Items.Add(new ToolStripSeparator());
-            menu.Items.Add("清空收藏", null, (_, _) =>
+            menu.Items.Add(Loc.T("清空收藏"), null, (_, _) =>
             {
-                if (MessageBox.Show(this, $"确定清空{(forTag ? "Tag" : "Message")}收藏？", "清空收藏",
+                if (MessageBox.Show(this, Loc.F("确定清空{0}收藏？", forTag ? "Tag" : "Message"), "清空收藏",
                     MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
                 FilterFavList(forTag).Clear();
                 FavoritesStore.Default.Save();
@@ -627,7 +703,7 @@ public partial class frmMain : Form
 
         if (list.Count == 0)
         {
-            menu.Items.Add(new ToolStripMenuItem("（暂无收藏，点 ★ 收藏当前内容）") { Enabled = false });
+            menu.Items.Add(new ToolStripMenuItem(Loc.T("（暂无收藏，点 ★ 收藏当前内容）")) { Enabled = false });
         }
         else
         {
@@ -643,12 +719,12 @@ public partial class frmMain : Form
                 menu.Items.Add(mi);
             }
             if (menu.Items.Count == 0)
-                menu.Items.Add(new ToolStripMenuItem("（无匹配收藏）") { Enabled = false });
+                menu.Items.Add(new ToolStripMenuItem(Loc.T("（无匹配收藏）")) { Enabled = false });
 
             menu.Items.Add(new ToolStripSeparator());
-            menu.Items.Add("清空收藏", null, (_, _) =>
+            menu.Items.Add(Loc.T("清空收藏"), null, (_, _) =>
             {
-                if (MessageBox.Show(this, $"确定清空{(forTag ? "Tag" : "Message")}收藏？", "清空收藏",
+                if (MessageBox.Show(this, Loc.F("确定清空{0}收藏？", forTag ? "Tag" : "Message"), "清空收藏",
                     MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
                 FilterFavList(forTag).Clear();
                 FavoritesStore.Default.Save();
@@ -693,7 +769,7 @@ public partial class frmMain : Form
 
         bool added = forTag ? fav.ToggleTagFilter(text) : fav.ToggleMsgFilter(text);
         fav.Save();
-        ShowStatus(added ? $"已收藏：{text}" : $"已移除收藏：{text}");
+        if (added) ShowStatus("已收藏：{0}", text); else ShowStatus("已移除收藏：{0}", text);
         RefreshFavStars();
     }
 
@@ -706,7 +782,7 @@ public partial class frmMain : Form
 
         bool added = forTag ? fav.ToggleTagFilter(text) : fav.ToggleMsgFilter(text);
         fav.Save();
-        ShowStatus(added ? $"已收藏：{text}" : $"已移除收藏：{text}");
+        if (added) ShowStatus("已收藏：{0}", text); else ShowStatus("已移除收藏：{0}", text);
         RefreshFavStars();
     }
 
@@ -765,8 +841,8 @@ public partial class frmMain : Form
         {
             using var dlg = new OpenFileDialog
             {
-                Title = "打开日志文件",
-                Filter = "日志文件 (*.log *.txt)|*.log;*.txt|所有文件 (*.*)|*.*"
+                Title = Loc.T("打开日志文件"),
+                Filter = Loc.T("日志文件 (*.log *.txt)|*.log;*.txt|所有文件 (*.*)|*.*")
             };
             if (dlg.ShowDialog() != DialogResult.OK) return;
             path = dlg.FileName;
@@ -797,7 +873,7 @@ public partial class frmMain : Form
         _ctsWorker = cts;
         int gen = ++_workerGen;
         _pbar.Visible = true; _pbar.Value = 0;
-        _lblMsg.Text = "建立索引…";
+        ShowStatus("建立索引…");
         var sw = System.Diagnostics.Stopwatch.StartNew();
 
         try
@@ -808,7 +884,7 @@ public partial class frmMain : Form
                     if (_workerGen == gen)
                     {
                         _pbar.Value = (int)(p.pct * 100);
-                        _lblMsg.Text = p.msg;
+                        ShowStatusRaw(p.msg);
                     }
                 }), cts.Token);
 
@@ -823,14 +899,14 @@ public partial class frmMain : Form
         catch (OperationCanceledException) { }
         catch (Exception ex)
         {
-            ShowError($"建立索引失败：{ex.Message}");
+            ShowError(Loc.F("建立索引失败：{0}", ex.Message));
         }
         finally
         {
             if (_workerGen == gen)
             {
                 _pbar.Visible = false;
-                _lblMsg.Text = "";
+                ShowStatusRaw("");
             }
         }
     }
@@ -843,7 +919,7 @@ public partial class frmMain : Form
         _ctsWorker = cts;
         int gen = ++_workerGen;
         _pbar.Visible = true;
-        _lblMsg.Text = "检查更新…";
+        ShowStatus("检查更新…");
 
         try
         {
@@ -856,7 +932,7 @@ public partial class frmMain : Form
                 kind = await Task.Run(() => doc.Reload(join: _join,
                     progress: new Progress<(double, string)>(p =>
                     {
-                        if (_workerGen == gen) { _pbar.Value = (int)(p.Item1 * 100); _lblMsg.Text = p.Item2; }
+                        if (_workerGen == gen) { _pbar.Value = (int)(p.Item1 * 100); ShowStatusRaw(p.Item2); }
                     }), ct: cts.Token), cts.Token);
             }
             finally { _docBusy.Release(); }
@@ -868,8 +944,8 @@ public partial class frmMain : Form
             await ApplyFilter(snap);
         }
         catch (OperationCanceledException) { }
-        catch (Exception ex) { ShowError($"重载失败：{ex.Message}"); }
-        finally { if (_workerGen == gen) { _pbar.Visible = false; _lblMsg.Text = ""; } }
+        catch (Exception ex) { ShowError(Loc.F("重载失败：{0}", ex.Message)); }
+        finally { if (_workerGen == gen) { _pbar.Visible = false; ShowStatusRaw(""); } }
     }
 
     // ── 过滤 ──
@@ -889,7 +965,7 @@ public partial class frmMain : Form
         var cts = new CancellationTokenSource();
         _ctsWorker = cts;
         int gen = ++_workerGen;
-        if (!quiet) { _pbar.Visible = true; _pbar.Value = 0; _lblMsg.Text = "过滤…"; }
+        if (!quiet) { _pbar.Visible = true; _pbar.Value = 0; ShowStatus("过滤…"); }
         var sw = System.Diagnostics.Stopwatch.StartNew();
 
         // 普通（非重载/非静默）过滤：捕获选中行锚点，过滤后固定回原屏幕位置
@@ -907,7 +983,7 @@ public partial class frmMain : Form
                 rows = await FilterEngine.ApplyFilterAsync(doc, spec, _marked,
                     quiet ? null : new Progress<(double, string)>(p =>
                     {
-                        if (_workerGen == gen) { _pbar.Value = (int)(p.Item1 * 100); _lblMsg.Text = p.Item2; }
+                        if (_workerGen == gen) { _pbar.Value = (int)(p.Item1 * 100); ShowStatusRaw(p.Item2); }
                     }), cts.Token);
                 filteredDocRows = doc.RowCount;
             }
@@ -936,10 +1012,10 @@ public partial class frmMain : Form
             }
         }
         catch (OperationCanceledException) { }
-        catch (Exception ex) { ShowError($"过滤失败：{ex.Message}"); }
+        catch (Exception ex) { ShowError(Loc.F("过滤失败：{0}", ex.Message)); }
         finally
         {
-            if (_workerGen == gen && !quiet) { _pbar.Visible = false; _lblMsg.Text = ""; }
+            if (_workerGen == gen && !quiet) { _pbar.Visible = false; ShowStatusRaw(""); }
         }
     }
 
@@ -1015,7 +1091,7 @@ public partial class frmMain : Form
         _ctsWorker = null;
         _workerGen++;
         _pbar.Visible = false;
-        _lblMsg.Text = "";
+        ShowStatusRaw("");
     }
 
     // ── 标记 ──
@@ -1081,14 +1157,14 @@ public partial class frmMain : Form
             rows = _listView.Rows;
             hint = "filtered";
         }
-        if (rows.Length == 0) { ShowError("没有可导出的行"); return; }
+        if (rows.Length == 0) { ShowError(Loc.T("没有可导出的行")); return; }
 
         string baseName = System.IO.Path.GetFileNameWithoutExtension(_doc.Path);
         using var dlg = new SaveFileDialog
         {
-            Title = "导出",
+            Title = Loc.T("导出"),
             FileName = $"{baseName}_{hint}.log",
-            Filter = "日志文件 (*.log *.txt)|*.log;*.txt|所有文件 (*.*)|*.*"
+            Filter = Loc.T("日志文件 (*.log *.txt)|*.log;*.txt|所有文件 (*.*)|*.*")
         };
         if (dlg.ShowDialog() != DialogResult.OK) return;
 
@@ -1102,13 +1178,13 @@ public partial class frmMain : Form
                 var doc = _doc;
                 if (doc == null) { _pbar.Visible = false; return; }
                 n = await FilterEngine.ExportRowsAsync(doc, rows, dlg.FileName, _singleLineExport,
-                    new Progress<(double, string)>(p => { _pbar.Value = (int)(p.Item1 * 100); _lblMsg.Text = p.Item2; }));
+                    new Progress<(double, string)>(p => { _pbar.Value = (int)(p.Item1 * 100); ShowStatusRaw(p.Item2); }));
             }
             finally { _docBusy.Release(); }
-            ShowStatus($"已导出 {n:N0} 行 → {dlg.FileName}");
+            ShowStatus("已导出 {0:N0} 行 → {1}", n, dlg.FileName);
         }
-        catch (Exception ex) { ShowError($"导出失败：{ex.Message}"); }
-        finally { _pbar.Visible = false; _lblMsg.Text = ""; }
+        catch (Exception ex) { ShowError(Loc.F("导出失败：{0}", ex.Message)); }
+        finally { _pbar.Visible = false; ShowStatusRaw(""); }
     }
 
     // ── 交互 ──
@@ -1132,7 +1208,7 @@ public partial class frmMain : Form
     void ShowDetail(int docRow)
     {
         if (docRow < 0 || _doc == null) return;
-        new RecordDialog(_listView.FullText(docRow), $"记录 #{docRow + 1}").ShowDialog(this);
+        new RecordDialog(_listView.FullText(docRow), Loc.F("记录 #{0}", docRow + 1)).ShowDialog(this);
     }
 
     void OnListViewKeyDown(object? sender, KeyEventArgs e)
@@ -1170,32 +1246,32 @@ public partial class frmMain : Form
         var selected = _listView.SelectedIndices.Cast<int>().Select(i => _listView.DocRow(i)).Where(d => d >= 0).ToArray();
         if (selected.Length == 0) selected = new[] { docRow };
 
-        menu.Items.Add($"复制原始文本（{selected.Length} 行）", null, (_, _) => CopyRows(selected));
-        menu.Items.Add("复制为表格行", null, (_, _) => CopyRowsFormatted(selected));
+        menu.Items.Add(Loc.F("复制原始文本（{0} 行）", selected.Length), null, (_, _) => CopyRows(selected));
+        menu.Items.Add(Loc.T("复制为表格行"), null, (_, _) => CopyRowsFormatted(selected));
         menu.Items.Add(new ToolStripSeparator());
 
         string tag = _doc?.TagOf(docRow) ?? "";
         if (!string.IsNullOrEmpty(tag))
-            menu.Items.Add($"按此 tag 过滤：{tag}", null, (_, _) => { _edTag.Text = tag; _ = ApplyFilter(); });
+            menu.Items.Add(Loc.F("按此 tag 过滤：{0}", tag), null, (_, _) => { _edTag.Text = tag; _ = ApplyFilter(); });
 
         if (_doc != null)
         {
             int pid = _doc.Pid[docRow], tid = _doc.Tid[docRow];
-            if (pid >= 0) menu.Items.Add($"按此 PID 过滤：{pid}", null, (_, _) => { _edPid.Text = pid.ToString(); _ = ApplyFilter(); });
-            if (tid >= 0) menu.Items.Add($"按此 TID 过滤：{tid}", null, (_, _) => { _edTid.Text = tid.ToString(); _ = ApplyFilter(); });
+            if (pid >= 0) menu.Items.Add(Loc.F("按此 PID 过滤：{0}", pid), null, (_, _) => { _edPid.Text = pid.ToString(); _ = ApplyFilter(); });
+            if (tid >= 0) menu.Items.Add(Loc.F("按此 TID 过滤：{0}", tid), null, (_, _) => { _edTid.Text = tid.ToString(); _ = ApplyFilter(); });
 
             long ts = _doc.Ts[docRow];
             if (ts >= 0)
             {
                 int minute = (int)((ts / 60000) % 60);
-                menu.Items.Add($"按此分钟过滤：{minute:D2}", null, (_, _) => { _edMin.Text = minute.ToString(); _ = ApplyFilter(); });
+                menu.Items.Add(Loc.F("按此分钟过滤：{0:D2}", minute), null, (_, _) => { _edMin.Text = minute.ToString(); _ = ApplyFilter(); });
             }
         }
 
         menu.Items.Add(new ToolStripSeparator());
         bool isMarked = _marked.Contains(docRow);
-        menu.Items.Add(isMarked ? "取消标记" : "标记（M）", null, (_, _) => ToggleMark(docRow));
-        menu.Items.Add("查看完整记录", null, (_, _) => ShowDetail(docRow));
+        menu.Items.Add(isMarked ? Loc.T("取消标记") : Loc.T("标记（M）"), null, (_, _) => ToggleMark(docRow));
+        menu.Items.Add(Loc.T("查看完整记录"), null, (_, _) => ShowDetail(docRow));
 
         menu.Show(_listView, location);
     }
@@ -1212,7 +1288,8 @@ public partial class frmMain : Form
     {
         if (docRows.Length == 0) return;
         var text = string.Join("\n", docRows.Select(dr => _listView.FullText(dr)));
-        ShowStatus(ClipboardHelper.SetText(text) ? $"已复制 {docRows.Length} 行" : "复制失败：剪贴板被其他程序占用");
+        if (ClipboardHelper.SetText(text)) ShowStatus("已复制 {0} 行", docRows.Length);
+        else ShowStatus("复制失败：剪贴板被其他程序占用");
     }
 
     void CopyRowsFormatted(int[] modelRows)
@@ -1230,7 +1307,7 @@ public partial class frmMain : Form
             lines.Add(string.Join("\t", cells));
         }
         ClipboardHelper.SetText(string.Join("\n", lines));
-        ShowStatus($"已复制 {modelRows.Length} 行");
+        ShowStatus("已复制 {0} 行", modelRows.Length);
     }
 
     void FindStep(bool back)
@@ -1264,7 +1341,7 @@ public partial class frmMain : Form
             if (ok)
             {
                 SelectRow(mr);
-                ShowStatus($"命中第 {mr + 1:N0} 行");
+                ShowStatus("命中第 {0:N0} 行", mr + 1);
                 return;
             }
         }
@@ -1307,14 +1384,46 @@ public partial class frmMain : Form
         if (top >= 0 && _doc != null)
         {
             int dr = _listView.DocRow(top);
-            _lblPos.Text = $"视口 {top + 1:N0}/{_listView.Rows.Length:N0} (记录 #{dr + 1})";
+            _lblPos.Text = Loc.F("视口 {0:N0}/{1:N0} (记录 #{2})", top + 1, _listView.Rows.Length, dr + 1);
         }
     }
 
     void UpdateStat()
     {
         int total = _doc?.RowCount ?? 0;
-        _lblStat.Text = $"总 {total:N0} 条 | 命中 {_listView.Rows.Length:N0} | 标记 {_marked.Count:N0} | 索引 {_indexMs:F0} ms | 过滤 {_filterMs:F0} ms";
+        _lblStat.Text = Loc.F("总 {0:N0} 条 | 命中 {1:N0} | 标记 {2:N0} | 索引 {3:F0} ms | 过滤 {4:F0} ms",
+            total, _listView.Rows.Length, _marked.Count, _indexMs, _filterMs);
+    }
+
+    /// <summary>
+    /// 语言切换后重算状态栏里「由数据算出来的文本」。
+    /// 这些串不能走 <see cref="Loc.Bind"/>（内容依赖运行时状态），只能在切换后重算一次。
+    /// </summary>
+    void RefreshStatusBar()
+    {
+        // 文件标签：路径 + 大小（实时采集时是另一种形态）
+        if (_doc != null) _lblFile.Text = $"{_doc.Path}   ({HumanSize(_doc.Size)})";
+        else if (_adbTempPath != null) _lblFile.Text = Loc.F("[实时采集] {0}", _adbTempPath);
+        else _lblFile.Text = Loc.T("未打开文件 —— 可直接把日志文件拖进窗口");
+
+        UpdateStat();
+
+        // 视口位置（复用 OnScrolled 缓存的顶行索引，LogListView 未公开 TopIndex）
+        int top = _lastVsb;
+        if (top >= 0 && _doc != null)
+        {
+            int dr = _listView.DocRow(top);
+            _lblPos.Text = Loc.F("视口 {0:N0}/{1:N0} (记录 #{2})", top + 1, _listView.Rows.Length, dr + 1);
+        }
+        else _lblPos.Text = "";
+
+        // 过滤条件摘要
+        _lblSpec.Text = _spec.Describe();
+
+        // 消息标签：文案是运行时算出来的（刷新中/ 无设备 / 已复制 N 行 …），
+        // 不能走 Loc.Bind，只能记住 ShowStatus 登记的资源键在此重算。
+        // ShowStatusRaw 登记的键为 null（进度上报、已翻好的成品串），保持原样。
+        if (_statusKey != null) _lblMsg.Text = Loc.F(_statusKey, _statusArgs ?? Array.Empty<object?>());
     }
 
     void ApplyFont(int pt)
@@ -1548,7 +1657,7 @@ public partial class frmMain : Form
         catch (Exception ex)
         {
             _logger.LogWarning("ADB 初始化失败: {0}", ex.Message);
-            _lblMsg.Text = "ADB 不可用";
+            ShowStatus("ADB 不可用");
         }
     }
 
@@ -1571,7 +1680,7 @@ public partial class frmMain : Form
     async Task AdbRefresh()
     {
         if (_adbManager == null) return;
-        _lblMsg.Text = "刷新中…";
+        ShowStatus("刷新中…");
         try
         {
             var devices = await _adbManager.ListDevicesAsync();
@@ -1586,13 +1695,13 @@ public partial class frmMain : Form
             }
             else
             {
-                _lblMsg.Text = "无设备";
+                ShowStatus("无设备");
             }
             SetAdbButtons(true);
         }
         catch (Exception ex)
         {
-            _lblMsg.Text = $"刷新失败: {ex.Message}";
+            ShowStatus("刷新失败: {0}", ex.Message);
         }
     }
 
@@ -1645,7 +1754,7 @@ public partial class frmMain : Form
         };
         _streamThread.ErrorOccurred += msg => SafeInvoke(() =>
         {
-            _lblMsg.Text = msg;
+            ShowStatusRaw(msg);
         });
         _streamThread.Stopped += () => SafeInvoke(() =>
         {
@@ -1691,15 +1800,8 @@ public partial class frmMain : Form
     void UpdateAdbCaptureUI()
     {
         bool hasDevice = _comboDevice.Items.Count > 0;
-        foreach (ToolStripItem item in _toolStrip.Items)
-        {
-            if (item.Tag is "adb" && item is ToolStripButton btn)
-            {
-                var btnText = btn.Text ?? ""; // WinForms 的 Text getter 注解为可返回 null
-                if (btnText.Contains("开始采集")) btn.Enabled = hasDevice && !_adbCapturing;
-                if (btnText.Contains("停止") && !btnText.Contains("开始")) btn.Enabled = hasDevice && _adbCapturing;
-            }
-        }
+        _btnAdbStart.Enabled = hasDevice && !_adbCapturing;
+        _btnAdbStop.Enabled = hasDevice && _adbCapturing;
         _actSaveLog.Enabled = !_adbCapturing && _adbTempPath != null;
     }
 
@@ -1707,18 +1809,18 @@ public partial class frmMain : Form
     {
         if (string.IsNullOrEmpty(_adbTempPath) || !File.Exists(_adbTempPath))
         {
-            ShowError("没有可保存的日志");
+            ShowError(Loc.T("没有可保存的日志"));
             return;
         }
         using var dlg = new SaveFileDialog
         {
-            Title = "保存日志",
+            Title = Loc.T("保存日志"),
             FileName = $"logcat_{DateTime.Now:yyyyMMdd_HHmmss}.log",
-            Filter = "日志文件 (*.log *.txt)|*.log;*.txt|所有文件 (*.*)|*.*"
+            Filter = Loc.T("日志文件 (*.log *.txt)|*.log;*.txt|所有文件 (*.*)|*.*")
         };
         if (dlg.ShowDialog() != DialogResult.OK) return;
         File.Copy(_adbTempPath, dlg.FileName, true);
-        ShowStatus($"日志已保存 → {dlg.FileName}");
+        ShowStatus("日志已保存 → {0}", dlg.FileName);
     }
 
     // ── ADB 增量同步 ──
@@ -1745,7 +1847,7 @@ public partial class frmMain : Form
                     if (_workerGen != gen) { _adbIndexing = false; return; }
                     _doc = doc;
                     _listView.SetDocument(doc);
-                    _lblFile.Text = $"[实时采集] {_adbTempPath}";
+                    _lblFile.Text = Loc.F("[实时采集] {0}", _adbTempPath);
                     _adbIndexing = false;
                     await ApplyFilter();
                 }
@@ -1803,7 +1905,7 @@ public partial class frmMain : Form
     void AdbUpdateStat()
     {
         if (_adbCapturing)
-            _lblMsg.Text = $"采集中… {_adbLiveCount:N0} 行";
+            ShowStatus("采集中… {0:N0} 行", _adbLiveCount);
     }
 
     // ── 设备操作总窗口（截图 / 录屏 / 文件浏览 / 安装·卸载 APK / 命令 合并为一个页签式窗口）──
@@ -1824,7 +1926,7 @@ public partial class frmMain : Form
     {
         if (_adbManager == null)
         {
-            ShowError("ADB 不可用");
+            ShowError(Loc.T("ADB 不可用"));
             return;
         }
         if (_deviceOps == null || _deviceOps.IsDisposed)
@@ -1861,7 +1963,28 @@ public partial class frmMain : Form
     }
 
     // ── 辅助 ──
-    void ShowStatus(string text) => _statusStrip.Items.OfType<ToolStripStatusLabel>().First(l => l == _lblMsg).Text = text;
+
+    /// <summary>
+    /// 显示一条状态栏消息，并记住它的资源键与参数，切语言时按新语言重算。
+    /// <paramref name="zh"/> 传<b>中文原文</b>（不是 Loc.T 的结果）。
+    /// </summary>
+    void ShowStatus(string zh, params object?[] args)
+    {
+        _statusKey = zh;
+        _statusArgs = args;
+        _lblMsg.Text = Loc.F(zh, args);
+    }
+
+    /// <summary>
+    /// 显示一条<b>不参与</b>切语言重算的状态栏消息（内容是运行时数据或已翻好的成品串，
+    /// 例如后台进度上报的「扫描行…」，无法反查资源键）。
+    /// </summary>
+    void ShowStatusRaw(string text)
+    {
+        _statusKey = null;
+        _statusArgs = null;
+        _lblMsg.Text = text;
+    }
 
     /// <summary>后台线程安全投递到 UI 线程：BeginInvoke 非阻塞，句柄未建/正在销毁时静默丢弃。</summary>
     void SafeInvoke(Action action)
@@ -1877,7 +2000,7 @@ public partial class frmMain : Form
     void ShowError(string text)
     {
         _lblMsg.Text = text;
-        MessageBox.Show(this, text, "错误", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        MessageBox.Show(this, text, Loc.T("错误"), MessageBoxButtons.OK, MessageBoxIcon.Warning);
     }
 
     static string HumanSize(long n)

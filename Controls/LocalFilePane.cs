@@ -13,30 +13,30 @@ public sealed class LocalFilePane : FilePane
     protected override string DragFormat => LocalDragFormat;
     protected override string PeerDragFormat => DeviceDragFormat;
 
-    public LocalFilePane() : base("本机电脑") { }
+    public LocalFilePane() : base(Loc.T("本机电脑")) { }
 
     // ── 列与行 ──
 
     protected override void CreateColumns(ListView list)
     {
-        list.Columns.Add("名称", 250);
-        list.Columns.Add("大小", 90, HorizontalAlignment.Right);
-        list.Columns.Add("类型", 100);
-        list.Columns.Add("修改日期", 140);
+        Loc.BindCol(new ColumnHeader { Text = Loc.T("名称"), Width = 250 }, "名称");
+        Loc.BindCol(new ColumnHeader { Text = Loc.T("大小"), Width = 90, TextAlign = HorizontalAlignment.Right }, "大小");
+        Loc.BindCol(new ColumnHeader { Text = Loc.T("类型"), Width = 100 }, "类型");
+        Loc.BindCol(new ColumnHeader { Text = Loc.T("修改日期"), Width = 140 }, "修改日期");
     }
 
     protected override string[] GetRow(FileEntry e) => new[]
     {
         (e.IsDir ? "📁 " : "📄 ") + e.Name,
         e.IsDir ? "" : HumanSize(e.Size),
-        e.IsDir ? "文件夹" : TypeText(e.Name),
+        e.IsDir ? Loc.T("文件夹") : TypeText(e.Name),
         e.DateStr,
     };
 
     static string TypeText(string name)
     {
         var ext = Path.GetExtension(name);
-        return string.IsNullOrEmpty(ext) ? "文件" : $"{ext.TrimStart('.').ToUpperInvariant()} 文件";
+        return string.IsNullOrEmpty(ext) ? "文件" : Loc.F("{0} 文件", ext.TrimStart('.').ToUpperInvariant());
     }
 
     // ── 路径 ──
@@ -44,7 +44,10 @@ public sealed class LocalFilePane : FilePane
     protected override string NormalizePath(string path)
     {
         var p = (path ?? "").Trim().Trim('"');
-        if (p is "" or "此电脑" or "我的电脑") return "";
+        // 不用 `p is "" or Loc.T(...)` 形式：C# 会把 Loc.T(...) 当成「类型模式」而非方法调用，
+        // 编译报 CS0426。两种语言的「此电脑」都要认——切语言后 DisplayPath 的输出语言会变。
+        if (p.Length == 0 || p == "此电脑" || p == "我的电脑"
+            || p == Loc.T("此电脑") || p == Loc.T("我的电脑")) return "";
 
         p = p.Replace('/', '\\');
 
@@ -58,7 +61,7 @@ public sealed class LocalFilePane : FilePane
         return p;
     }
 
-    protected override string DisplayPath(string path) => path.Length == 0 ? "此电脑" : path;
+    protected override string DisplayPath(string path) => path.Length == 0 ? Loc.T("此电脑") : path;
 
     protected override string? GetParentPath(string path)
     {
@@ -91,7 +94,7 @@ public sealed class LocalFilePane : FilePane
                         Name = d.Name,
                         Path = d.Name,
                         IsDir = true,
-                        Permissions = d.IsReady ? DriveLabel(d) : "未就绪",
+                        Permissions = d.IsReady ? DriveLabel(d) : Loc.T("未就绪"),
                     };
                 }
                 catch
@@ -122,12 +125,12 @@ public sealed class LocalFilePane : FilePane
 
     static string DescribeDriveType(DriveType t) => t switch
     {
-        DriveType.Fixed => "本地磁盘",
-        DriveType.Removable => "可移动磁盘",
-        DriveType.CDRom => "光盘驱动器",
-        DriveType.Network => "网络驱动器",
-        DriveType.Ram => "RAM 磁盘",
-        _ => "驱动器",
+        DriveType.Fixed => Loc.T("本地磁盘"),
+        DriveType.Removable => Loc.T("可移动磁盘"),
+        DriveType.CDRom => Loc.T("光盘驱动器"),
+        DriveType.Network => Loc.T("网络驱动器"),
+        DriveType.Ram => Loc.T("RAM 磁盘"),
+        _ => Loc.T("驱动器"),
     };
 
     static FileEntry FromFs(FileSystemInfo info)
@@ -145,7 +148,7 @@ public sealed class LocalFilePane : FilePane
     }
 
     protected override void OnLoadFailed(string path, Exception ex) =>
-        ShowError($"无法打开 {path}\n\n{ex.Message}");
+        ShowError(Loc.F("无法打开 {0}\n\n{1}", path, ex.Message));
 
     // ── 按钮 ──
 
@@ -176,11 +179,11 @@ public sealed class LocalFilePane : FilePane
 
     protected override void OnBuildContextMenu(ContextMenuStrip menu)
     {
-        menu.Items.Add("➡ 上传到设备", null, (_, _) => RequestTransferSelection());
+        menu.Items.Add(Loc.T("➡ 上传到设备"), null, (_, _) => RequestTransferSelection());
         menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add("新建文件夹", null, OnNewFolder);
-        menu.Items.Add("在资源管理器打开", null, (_, _) => OpenInExplorer(CurrentPath));
-        menu.Items.Add("删除选中", null, async (_, _) => await DeleteSelectedAsync());
+        menu.Items.Add(Loc.T("新建文件夹"), null, OnNewFolder);
+        menu.Items.Add(Loc.T("在资源管理器打开"), null, (_, _) => OpenInExplorer(CurrentPath));
+        menu.Items.Add(Loc.T("删除选中"), null, async (_, _) => await DeleteSelectedAsync());
         menu.Items.Add(new ToolStripSeparator());
     }
 
@@ -201,11 +204,11 @@ public sealed class LocalFilePane : FilePane
     {
         if (string.IsNullOrEmpty(CurrentPath))
         {
-            ShowError("请先进入一个具体目录，再新建文件夹。");
+            ShowError(Loc.T("请先进入一个具体目录，再新建文件夹。"));
             return;
         }
 
-        var name = SimpleInputBox.Show(this, "新建文件夹", "文件夹名称：", "新建文件夹");
+        var name = SimpleInputBox.Show(this, Loc.T("新建文件夹"), Loc.T("文件夹名称："), Loc.T("新建文件夹"));
         if (string.IsNullOrWhiteSpace(name)) return;
 
         try
@@ -216,7 +219,7 @@ public sealed class LocalFilePane : FilePane
         }
         catch (Exception ex)
         {
-            ShowError($"创建失败：{ex.Message}");
+            ShowError(Loc.F("创建失败：{0}", ex.Message));
         }
     }
 
@@ -226,8 +229,8 @@ public sealed class LocalFilePane : FilePane
         if (entries.Count == 0) return;
 
         var names = string.Join(", ", entries.Take(5).Select(e => e.Name));
-        if (entries.Count > 5) names += $" …等 {entries.Count} 项";
-        if (!Confirm($"确定要删除本机上的以下文件/目录吗？\n{names}\n\n（此操作不可撤销）", "确认删除")) return;
+        if (entries.Count > 5) names += Loc.F(" …等 {0} 项", entries.Count);
+        if (!Confirm(Loc.F("确定要删除本机上的以下文件/目录吗？\n{0}\n\n（此操作不可撤销）", names), "确认删除")) return;
 
         int failed = 0;
         var errors = new System.Text.StringBuilder();
@@ -245,8 +248,8 @@ public sealed class LocalFilePane : FilePane
             }
         }
 
-        if (failed > 0) ShowError($"{failed} 项删除失败：\n{errors}");
-        else SetStatus($"已删除 {entries.Count} 项");
+        if (failed > 0) ShowError(Loc.F("{0} 项删除失败：\n{1}", failed, errors));
+        else SetStatus(Loc.F("已删除 {0} 项", entries.Count));
 
         await RefreshAsync();
     }

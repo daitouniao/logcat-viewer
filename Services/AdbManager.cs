@@ -150,7 +150,7 @@ public sealed class AdbManager : IDisposable
                 CreateNoWindow = true,
                 StandardOutputEncoding = Encoding.UTF8,
                 StandardErrorEncoding = Encoding.UTF8,
-            }) ?? throw new InvalidOperationException("adb 启动失败");
+            }) ?? throw new InvalidOperationException("adb 启动失败");   // 异常消息按约定保持中文，不本地化
         }
         catch (Exception ex)
         {

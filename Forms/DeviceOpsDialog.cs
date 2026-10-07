@@ -10,7 +10,7 @@ namespace logcat.Forms;
 /// 页签按需创建（第一次点对应入口时才建）；换设备时重建绑定设备的页签，
 /// 命令窗口因为走回调（执行时才取设备），天然跟随主窗口当前选中设备，不需要重建。
 /// </summary>
-public class DeviceOpsDialog : Form
+public class DeviceOpsDialog : Form, ILocalizedUi
 {
     public enum PageKind { Screenshot, Record, Files, ApkInstall, ApkUninstall, Command }
 
@@ -31,7 +31,8 @@ public class DeviceOpsDialog : Form
         _serialProvider = serialProvider;
         _rootProvider = rootProvider;
 
-        Text = "设备操作";
+        Text = Loc.T("设备操作");   // TabPage 标题由 ForwardLanguageChanged 按 kind 重算
+        Loc.Bind(this, "设备操作");   // 登记资源键，切语言时 ApplyTo 才能重设标题
         Size = new Size(1160, 760);
         MinimumSize = new Size(920, 600);
         // CenterParent 只对模态 ShowDialog 生效，Show(owner) 非模态会落到系统默认位置（常在主屏），
@@ -88,14 +89,37 @@ public class DeviceOpsDialog : Form
 
     static string Title(PageKind kind) => kind switch
     {
-        PageKind.Screenshot => "截图",
-        PageKind.Record => "录屏",
-        PageKind.Files => "文件浏览",
-        PageKind.ApkInstall => "安装 APK",
-        PageKind.ApkUninstall => "卸载 APK",
-        PageKind.Command => "命令窗口",
+        PageKind.Screenshot => Loc.T("截图"),
+        PageKind.Record => Loc.T("录屏"),
+        PageKind.Files => Loc.T("文件浏览"),
+        PageKind.ApkInstall => Loc.T("安装 APK"),
+        PageKind.ApkUninstall => Loc.T("卸载 APK"),
+        PageKind.Command => Loc.T("命令窗口"),
         _ => "?"
     };
+
+    /// <summary>
+    /// 语言切换后刷新：页签标题 + 各嵌入页的内容。
+    /// 嵌入页 <see cref="TopLevel"/>=false，**不在** <c>Application.OpenForms</c> 里，
+    /// <see cref="Loc.ApplyToAllForms"/> 遍历不到，必须由本宿主显式转发。
+    /// </summary>
+    public void ForwardLanguageChanged()
+    {
+        Text = Loc.T("设备操作");
+        foreach (var (kind, entry) in _pages)
+        {
+            if (entry.Page.IsDisposed || entry.Form.IsDisposed) continue;
+            entry.Page.Text = Title(kind);
+            // 嵌入页不走 OpenForms，绑定文本/字体/宽度要逐个刷
+            Loc.ApplyTo(entry.Form);
+            Loc.FitWidths(entry.Form);
+            if (entry.Form is ILocalizedUi ui) ui.OnLanguageChanged();
+            DpiFix.Apply(entry.Form);
+        }
+        _tabs.PerformLayout();
+    }
+
+    void ILocalizedUi.OnLanguageChanged() => ForwardLanguageChanged();
 
     /// <summary>
     /// 打开（或切换到）某页。设备相关页需要主窗口已选设备，失败弹提示并返回 false。
@@ -141,7 +165,7 @@ public class DeviceOpsDialog : Form
         var serial = _serialProvider();
         if (kind != PageKind.Command && string.IsNullOrEmpty(serial))
         {
-            MessageBox.Show(this, "请先在主窗口选择设备", "设备操作",
+            MessageBox.Show(this, Loc.T("请先在主窗口选择设备"), Loc.T("设备操作"),
                 MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return null;
         }

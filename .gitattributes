@@ -1,0 +1,13 @@
+# 统一换行：仓库内存 LF，检出为 CRLF（配合 core.autocrlf=true 的 Windows 开发）。
+# 没有这一条时，编辑器/脚本写入的文件会以 LF 落盘，与 autocrlf 的预期不一致，
+# git 每次都刷 "LF will be replaced by CRLF" 警告，diff 里也会混入整文件改写噪音。
+* text=auto eol=crlf
+
+# 二进制：禁止任何行尾转换（GitHub Linguist 靠这个识别语言，别让它失效）
+*.png binary
+*.ico binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.zip binary
+*.mp4 binary

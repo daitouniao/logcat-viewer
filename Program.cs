@@ -15,7 +15,9 @@ namespace logcat
             // GDI 回退字体「测量宽度 ≠ 绘制宽度」，按钮/页签的中文会被裁成残缺字形
             // （实测 125% 缩放下「新建」只画出「新」）。改用原生中文字体后测量与绘制一致。
             ApplicationConfiguration.Initialize();
-            Application.SetDefaultFont(new Font("Microsoft YaHei UI", 9F));
+            //字体随界面语言切换（中文必须用雅黑：Segoe UI 无中文字形，高 DPI 下会被裁字）
+            Application.SetDefaultFont(logcat.Services.Loc.UiFont);
+            logcat.Services.Loc.SetDefaultFont(logcat.Services.Loc.UiFont);
             logcat.Services.StartupLog.Write("[启动] 初始化完成，准备启动主窗口");
 
             Application.Run(new frmMain());

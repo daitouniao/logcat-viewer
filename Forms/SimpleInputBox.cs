@@ -1,3 +1,5 @@
+using logcat.Services;
+
 namespace logcat.Forms;
 
 /// <summary>单行文本输入框。</summary>
@@ -33,14 +35,14 @@ public static class SimpleInputBox
         };
         var btnOk = new Button
         {
-            Text = "确定",
+            Text = Loc.T("确定"),
             DialogResult = DialogResult.OK,
             Location = new Point(276, 98),
             Width = 75,
         };
         var btnCancel = new Button
         {
-            Text = "取消",
+            Text = Loc.T("取消"),
             DialogResult = DialogResult.Cancel,
             Location = new Point(357, 98),
             Width = 75,

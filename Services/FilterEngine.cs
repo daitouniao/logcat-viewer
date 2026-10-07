@@ -184,7 +184,7 @@ public static class FilterEngine
                 if (ok != spec.MsgExclude)
                     result.Add(r);
             }
-            progress?.Report(((double)e / total, $"匹配 message {e}/{total}"));
+            progress?.Report(((double)e / total, Loc.F("匹配 message {0}/{1}", e, total)));
             ct.ThrowIfCancellationRequested();
         }
         return result.ToArray();
@@ -226,7 +226,7 @@ public static class FilterEngine
     {
         int n = doc.RowCount;
         if (n == 0) return Array.Empty<int>();
-        progress?.Report((0.0, "过滤…"));
+        progress?.Report((0.0, Loc.T("过滤…")));
 
         var allLevels = LogParser.ALL_LEVELS;
         var candidates = new List<int>(n);
@@ -283,7 +283,7 @@ public static class FilterEngine
             candidates.Add(i);
         }
 
-        progress?.Report((0.35, $"候选 {candidates.Count:N0} 行"));
+        progress?.Report((0.35, Loc.F("候选 {0:N0} 行", candidates.Count)));
         ct.ThrowIfCancellationRequested();
 
         int[] cand = candidates.ToArray();
@@ -296,7 +296,7 @@ public static class FilterEngine
                     progress.Report((0.35 + 0.65 * p.Item1, p.Item2))) : null, ct);
         }
 
-        progress?.Report((1.0, "完成"));
+        progress?.Report((1.0, Loc.T("完成")));
         return cand;
     }
 
@@ -386,7 +386,7 @@ public static class FilterEngine
                 f.WriteByte((byte)'\n');
             }
             written = e;
-            progress?.Report(((double)e / total, $"导出 {e:N0}/{total:N0}"));
+            progress?.Report(((double)e / total, Loc.F("导出 {0:N0}/{1:N0}", e, total)));
             ct.ThrowIfCancellationRequested();
         }
         return written;

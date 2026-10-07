@@ -8,10 +8,12 @@ namespace logcat.Forms;
 /// 或在 adb install 被禁用时改用设备端 <c>pm install</c>（先推送 APK 到临时目录再安装）。
 /// APK 路径可收藏复用。
 /// </summary>
-public sealed class ApkInstallDialog : Form
+public sealed class ApkInstallDialog : Form, ILocalizedUi
 {
     readonly AdbManager _manager;
     readonly string _serial;
+    // root 开关要参与标题/设备标签的本地化重算（Loc.F 带参数），故留字段
+    readonly bool _isRoot;
     readonly FavoritesStore _fav = FavoritesStore.Default;
 
     readonly IProgress<string> _progress;
@@ -38,7 +40,8 @@ public sealed class ApkInstallDialog : Form
         _serial = serial;
         _progress = new Progress<string>(AppendOutput);
 
-        Text = $"安装 APK — {serial}";
+        _isRoot = isRoot;
+        Text = Loc.F("安装 APK — {0}", serial);
         Size = new Size(780, 700);
         MinimumSize = new Size(700, 600);
         StartPosition = FormStartPosition.CenterParent;
@@ -48,7 +51,7 @@ public sealed class ApkInstallDialog : Form
         LoadOptions();
         UpdateInstallRootEnabled();
         RefreshApkCombo();
-        _lblDevice.Text = $"设备：{serial}{(isRoot ? "  [root]" : "")}";
+        _lblDevice.Text = Loc.F("设备：{0}{1}", serial, isRoot ? "  [root]" : "");
         FormClosed += (_, _) => { SaveOptions(); try { _cts?.Cancel(); } catch { } _cts?.Dispose(); };
     }
 
@@ -80,7 +83,7 @@ public sealed class ApkInstallDialog : Form
         var installPanel = BuildInstallPanel();
         root.Controls.Add(installPanel, 0, 1);
 
-        var outGroup = new GroupBox { Text = "输出", Dock = DockStyle.Fill, Padding = new Padding(6, 4, 6, 6) };
+        var outGroup = Loc.Bind(new GroupBox { Dock = DockStyle.Fill, Padding = new Padding(6, 4, 6, 6) }, "输出");
         _txtOut = new TextBox
         {
             Dock = DockStyle.Fill,
@@ -127,60 +130,65 @@ public sealed class ApkInstallDialog : Form
     {
         var panel = new Panel { Dock = DockStyle.Fill, Padding = new Padding(8) };
 
-        panel.Controls.Add(new Label { Text = "APK 文件:", Location = new Point(10, 16), AutoSize = true });
+        panel.Controls.Add(Loc.Bind(new Label { Location = new Point(10, 16), AutoSize = true }, "APK 文件:"));
+        // 绝对定位：下拉框宽度固定，三个按钮按实测文本宽度从右往左排（英文更宽，整排向左让位）
+        const int rightEdge = 660;
         _cboApk = new ComboBox { Location = new Point(86, 12), Width = 372, DropDownStyle = ComboBoxStyle.DropDown };
         panel.Controls.Add(_cboApk);
-        var btnBrowse = new Button { Text = "浏览…", Location = new Point(464, 11), Size = new Size(62, 25) };
-        btnBrowse.Click += (_, _) => BrowseApk();
-        panel.Controls.Add(btnBrowse);
-        var btnFavApk = new Button { Text = "★ 收藏", Location = new Point(530, 11), Size = new Size(62, 25) };
-        btnFavApk.Click += (_, _) => FavApk();
-        panel.Controls.Add(btnFavApk);
-        var btnUnfavApk = new Button { Text = "☆ 移除", Location = new Point(596, 11), Size = new Size(62, 25) };
-        btnUnfavApk.Click += (_, _) => UnfavApk();
+        var btnUnfavApk = Loc.SizedButton("☆ 移除", 62, 25);
+        btnUnfavApk.Location = new Point(rightEdge - btnUnfavApk.Width, 11);
         panel.Controls.Add(btnUnfavApk);
+        var btnFavApk = Loc.SizedButton("★ 收藏", 62, 25);
+        btnFavApk.Location = new Point(btnUnfavApk.Left - 4 - btnFavApk.Width, 11);
+        panel.Controls.Add(btnFavApk);
+        var btnBrowse = Loc.SizedButton("浏览…", 62, 25);
+        btnBrowse.Location = new Point(btnFavApk.Left - 4 - btnBrowse.Width, 11);
+        panel.Controls.Add(btnBrowse);
+        btnBrowse.Click += (_, _) => BrowseApk();
+        btnFavApk.Click += (_, _) => FavApk();
+        btnUnfavApk.Click += (_, _) => UnfavApk();
 
-        panel.Controls.Add(new Label { Text = "安装方式:", Location = new Point(10, 52), AutoSize = true });
+        panel.Controls.Add(Loc.Bind(new Label { Location = new Point(10, 52), AutoSize = true }, "安装方式:"));
         _rbAdbInstall = new RadioButton { Text = "adb install", Location = new Point(86, 49), AutoSize = true, Checked = true };
-        _rbPmInstall = new RadioButton { Text = "pm install（adb 安装被禁用时，先推送到设备再装）", Location = new Point(200, 49), AutoSize = true };
+        _rbPmInstall = Loc.Bind(new RadioButton { Location = new Point(200, 49), AutoSize = true }, "pm install（adb 安装被禁用时，先推送到设备再装）");
         foreach (var rb in new[] { _rbAdbInstall, _rbPmInstall })
             rb.CheckedChanged += (_, _) => UpdateInstallRootEnabled();
         panel.Controls.Add(_rbAdbInstall);
         panel.Controls.Add(_rbPmInstall);
 
-        panel.Controls.Add(new Label { Text = "参数:", Location = new Point(10, 86), AutoSize = true });
-        _ckR = new CheckBox { Text = "-r 覆盖安装（保留数据）", Location = new Point(86, 83), AutoSize = true, Checked = true };
-        _ckD = new CheckBox { Text = "-d 允许降级", Location = new Point(266, 83), AutoSize = true };
-        _ckG = new CheckBox { Text = "-g 授予全部权限", Location = new Point(380, 83), AutoSize = true };
-        _ckT = new CheckBox { Text = "-t 允许测试包", Location = new Point(520, 83), AutoSize = true };
+        panel.Controls.Add(Loc.Bind(new Label { Location = new Point(10, 86), AutoSize = true }, "参数:"));
+        _ckR = Loc.Bind(new CheckBox { Location = new Point(86, 83), AutoSize = true, Checked = true }, "-r 覆盖安装（保留数据）");
+        _ckD = Loc.Bind(new CheckBox { Location = new Point(266, 83), AutoSize = true }, "-d 允许降级");
+        _ckG = Loc.Bind(new CheckBox { Location = new Point(380, 83), AutoSize = true }, "-g 授予全部权限");
+        _ckT = Loc.Bind(new CheckBox { Location = new Point(520, 83), AutoSize = true }, "-t 允许测试包");
         panel.Controls.AddRange(new Control[] { _ckR, _ckD, _ckG, _ckT });
 
-        _ckInstallRoot = new CheckBox { Text = "以 root 执行（su -c 包裹，仅 pm install 生效）", Location = new Point(86, 116), AutoSize = true, Enabled = false };
+        _ckInstallRoot = Loc.Bind(new CheckBox { Location = new Point(86, 116), AutoSize = true, Enabled = false }, "以 root 执行（su -c 包裹，仅 pm install 生效）");
         panel.Controls.Add(_ckInstallRoot);
-        panel.Controls.Add(new Label { Text = "临时目录:", Location = new Point(400, 118), AutoSize = true });
+        panel.Controls.Add(Loc.Bind(new Label { Location = new Point(400, 118), AutoSize = true }, "临时目录:"));
         _txtTmp = new TextBox { Location = new Point(470, 114), Width = 188, Text = "/data/local/tmp" };
         panel.Controls.Add(_txtTmp);
 
-        _btnInstall = new Button { Text = "安装", Location = new Point(86, 150), Size = new Size(120, 32) };
+        _btnInstall = Loc.Bind(new Button { Location = new Point(86, 150), Size = new Size(120, 32) }, "安装");
         _btnInstall.Click += (_, _) => DoInstall();
         panel.Controls.Add(_btnInstall);
-        panel.Controls.Add(new Label
-        {
-            Text = "提示：pm install 完成后会自动清理临时 APK。输出里出现 Success 即安装成功。",
-            Location = new Point(216, 158),
-            AutoSize = true,
-            ForeColor = Color.DimGray,
-        });
+        panel.Controls.Add(Loc.Bind(new Label { Location = new Point(216, 158), AutoSize = true, ForeColor = Color.DimGray }, "提示：pm install 完成后会自动清理临时 APK。输出里出现 Success 即安装成功。"));
 
         return panel;
     }
 
-    static Button BarButton(string text, int width) => new()
+    /// <summary>
+    /// 工具栏按钮。宽度不能用固定值：<paramref name="width"/> 只是<b>中文态</b>的宽度，
+    /// 英文文案普遍更长（"复制输出" 78px→"Copy Output" 96px），固定宽度必裁字。
+    /// 改用 AutoSize +中文宽度下限，并走 <c>Loc.Bind</c> 绑定资源键——
+    /// 只用 <c>Text = Loc.T(…)</c> 赋值的话，切语言时文本与宽度都停在旧值上。
+    /// </summary>
+    static Button BarButton(string text, int zhWidth) => Loc.Bind(new Button
     {
-        Text = text,
-        Size = new Size(width, 25),
+        AutoSize = true,
+        MinimumSize = new Size(zhWidth, 25),
         Margin = new Padding(2, 4, 0, 0),
-    };
+    }, text);
 
     // ── 收藏 ──
 
@@ -196,8 +204,8 @@ public sealed class ApkInstallDialog : Form
     {
         using var dlg = new OpenFileDialog
         {
-            Title = "选择要安装的 APK",
-            Filter = "APK 文件 (*.apk)|*.apk|所有文件 (*.*)|*.*",
+            Title = Loc.T("选择要安装的 APK"),
+            Filter = Loc.T("APK 文件 (*.apk)|*.apk|所有文件 (*.*)|*.*"),
         };
         var last = _cboApk.Text.Trim();
         if (last.Length > 0)
@@ -212,20 +220,20 @@ public sealed class ApkInstallDialog : Form
     void FavApk()
     {
         var path = _cboApk.Text.Trim().Trim('"');
-        if (path.Length == 0) { Status("APK 路径为空，无法收藏"); return; }
+        if (path.Length == 0) { Status(Loc.T("APK 路径为空，无法收藏")); return; }
         _fav.AddApkPath(path);
         _fav.Save();
         RefreshApkCombo();
-        Status($"已收藏：{path}");
+        Status(Loc.F("已收藏：{0}", path));
     }
 
     void UnfavApk()
     {
         var path = _cboApk.Text.Trim().Trim('"');
-        if (!_fav.RemoveApkPath(path)) { Status("该路径未在收藏中"); return; }
+        if (!_fav.RemoveApkPath(path)) { Status(Loc.T("该路径未在收藏中")); return; }
         _fav.Save();
         RefreshApkCombo();
-        Status($"已移除收藏：{path}");
+        Status(Loc.F("已移除收藏：{0}", path));
     }
 
     // ── root 选项联动 ──
@@ -279,8 +287,8 @@ public sealed class ApkInstallDialog : Form
     {
         if (_busy) return;
         var apk = _cboApk.Text.Trim().Trim('"');
-        if (apk.Length == 0) { Status("请选择或输入 APK 文件路径"); return; }
-        if (!File.Exists(apk)) { Status($"找不到文件：{apk}"); return; }
+        if (apk.Length == 0) { Status(Loc.T("请选择或输入 APK 文件路径")); return; }
+        if (!File.Exists(apk)) { Status(Loc.F("找不到文件：{0}", apk)); return; }
 
         var flags = InstallFlags();
         bool pm = _rbPmInstall.Checked;
@@ -295,14 +303,14 @@ public sealed class ApkInstallDialog : Form
                 var args = AdbManager.AdbArgs($"{head} \"{apk}\"", _serial);
                 AppendOutput($"> adb {args}");
                 int code = await AdbManager.RunAdbAsync(args, _progress, _cts!.Token);
-                AppendOutput($"— 退出码 {code}");
-                Status(code == 0 ? "adb install 完成，请检查输出中的 Success" : $"adb install 结束（退出码 {code}）");
+                AppendOutput(Loc.F("— 退出码 {0}", code));
+                Status(code == 0 ? "adb install 完成，请检查输出中的 Success" : Loc.F("adb install 结束（退出码 {0}）", code));
             }
             else
             {
                 var tmpDir = string.IsNullOrWhiteSpace(_txtTmp.Text) ? "/data/local/tmp" : _txtTmp.Text.Trim().TrimEnd('/');
                 var remote = $"{tmpDir}/{Path.GetFileName(apk)}";
-                AppendOutput($"> 推送 {apk} → {_serial}:{remote}");
+                AppendOutput(Loc.F("> 推送 {0} → {1}:{2}", apk, _serial, remote));
                 await _manager.PushAsync(_serial, apk, remote);
 
                 var cmd = $"pm install{(flags.Length > 0 ? " " + flags : "")} '{remote}'";
@@ -311,14 +319,14 @@ public sealed class ApkInstallDialog : Form
 
                 // 临时文件用尽力清理，失败不影响结果
                 try { await _manager.ShellAsync(_serial, Wrap($"rm -f '{remote}'", root), 15); } catch { }
-                Status("pm install 执行完毕，请检查输出中的 Success/Failure");
+                Status(Loc.T("pm install 执行完毕，请检查输出中的 Success/Failure"));
             }
             _fav.AddApkPath(apk);
             _fav.Save();
             RefreshApkCombo();
         }
-        catch (OperationCanceledException) { Status("已取消"); }
-        catch (Exception ex) { AppendOutput("!! " + Friendly(ex)); Status("安装失败：" + Friendly(ex)); }
+        catch (OperationCanceledException) { Status(Loc.T("已取消")); }
+        catch (Exception ex) { AppendOutput("!! " + Friendly(ex)); Status(Loc.F("安装失败：{0}", Friendly(ex))); }
         finally { End(); }
     }
 
@@ -333,7 +341,7 @@ public sealed class ApkInstallDialog : Form
         _cts = new CancellationTokenSource();
         _btnInstall.Enabled = false;
         _btnStop.Enabled = true;
-        Status("执行中…");
+        Status(Loc.T("执行中…"));
         return true;
     }
 
@@ -350,7 +358,7 @@ public sealed class ApkInstallDialog : Form
     {
         if (!_busy) return;
         try { _cts?.Cancel(); } catch { }
-        Status("停止中…");
+        Status(Loc.T("停止中…"));
     }
 
     // ── 输出 ──
@@ -365,9 +373,9 @@ public sealed class ApkInstallDialog : Form
 
     void CopyOutput()
     {
-        if (_txtOut.TextLength == 0) { Status("没有输出可复制"); return; }
+        if (_txtOut.TextLength == 0) { Status(Loc.T("没有输出可复制")); return; }
         ClipboardHelper.SetText(_txtOut.Text);
-        Status("输出已复制到剪贴板");
+        Status(Loc.T("输出已复制到剪贴板"));
     }
 
     void Status(string text) => _lblStat.Text = text;
@@ -376,7 +384,7 @@ public sealed class ApkInstallDialog : Form
     {
         var msg = ex.Message ?? "";
         if (msg.Contains("unresponsive", StringComparison.OrdinalIgnoreCase))
-            msg = "命令没有返回输出：可能是命令不存在、权限不足，或被设备限制（可试试勾选 root 或改用 pm 通道）";
+            msg = Loc.T("命令没有返回输出：可能是命令不存在、权限不足，或被设备限制（可试试勾选 root 或改用 pm 通道）");
         var inner = ex.InnerException?.Message;
         if (!string.IsNullOrEmpty(inner) && !msg.Contains(inner, StringComparison.Ordinal))
             msg += $"（{inner}）";
@@ -387,5 +395,14 @@ public sealed class ApkInstallDialog : Form
     {
         try { _cts?.Cancel(); } catch { }
         base.OnFormClosing(e);
+    }
+    /// <summary>
+    /// 切语言后重算标题与设备标签——两者都是带参数的 <c>Loc.F</c>（设备序列号是变量），
+    /// 没法用 <c>Loc.Bind</c> 绑静态资源键，只能在这里重算。
+    /// </summary>
+    void ILocalizedUi.OnLanguageChanged()
+    {
+        Text = Loc.F("安装 APK — {0}", _serial);
+        _lblDevice.Text = Loc.F("设备：{0}{1}", _serial, _isRoot ? "  [root]" : "");
     }
 }

@@ -369,7 +369,7 @@ public class LogListView : ListView
         if (_newlineVis != null && (msg.Contains('\n') || msg.Contains('\r')))
             msg = msg.Replace("\r\n", _newlineVis).Replace("\n", _newlineVis).Replace("\r", _newlineVis);
         if (msg.Length > MSG_LIMIT)
-            msg = msg[..MSG_LIMIT] + $" …(+{msg.Length - MSG_LIMIT} 字符)";
+            msg = msg[..MSG_LIMIT] + Loc.F(" …(+{0} 字符)", msg.Length - MSG_LIMIT);
 
         string lvlName = lvl > 0 && lvl < LogParser.LEVEL_NAME.Length ? LogParser.LEVEL_NAME[lvl] : "";
 

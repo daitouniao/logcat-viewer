@@ -5,8 +5,15 @@ namespace logcat.Forms;
 /// <summary>
 /// run-as 模式设置：选择应用包名（含访问过的收藏）与中转目录。
 /// </summary>
-public class RunAsDialog : Form
+public class RunAsDialog : Form, ILocalizedUi
 {
+    /// <summary>中转目录机制说明文案（两段）。</summary>
+    const string HINT =
+        "受限目录（/data/data 等）的文件先复制到中转目录，再经 sync 通道收发；" +
+        "中转目录需为 shell 可读写的路径（sdcard 下均可）。";
+
+    Label _hint = null!;
+
     readonly ComboBox _cboPkg;
     readonly TextBox _txtRelay;
 
@@ -20,7 +27,8 @@ public class RunAsDialog : Form
     {
         AutoScaleDimensions = new SizeF(96F, 96F);
         AutoScaleMode = AutoScaleMode.Dpi;
-        Text = "run-as 模式";
+        Text = Loc.T("run-as 模式");
+        Loc.Bind(this, "run-as 模式");   // 登记资源键，切语言时 ApplyTo 才能重设标题
         Size = new Size(480, 240);
         StartPosition = FormStartPosition.CenterParent;
         FormBorderStyle = FormBorderStyle.FixedDialog;
@@ -28,12 +36,11 @@ public class RunAsDialog : Form
         MinimizeBox = false;
         ShowInTaskbar = false;
 
-        var lblPkg = new Label
+        var lblPkg = Loc.Bind(new Label
         {
-            Text = "应用包名（可输入，或从访问过的包名中选择）：",
             Location = new Point(12, 14),
             Size = new Size(440, 18),
-        };
+        }, "应用包名（可输入，或从访问过的包名中选择）：");
         _cboPkg = new ComboBox
         {
             DropDownStyle = ComboBoxStyle.DropDown,
@@ -45,12 +52,12 @@ public class RunAsDialog : Form
         if (_cboPkg.Items.Count > 0 && _cboPkg.Items[0] is string recent)
             _cboPkg.Text = recent;
 
-        var btnRemove = new Button
+        // 绑资源键 + 按语言给宽度：英文 "Remove Favorite" 需 119px，
+        // 固定 92px 会裁字（实测差 27px）
+        var btnRemove = Loc.Bind(new Button
         {
-            Text = "移除收藏",
             Location = new Point(360, 34),
-            Size = new Size(92, 24),
-        };
+            Size = new Size(Loc.W(92, 124), 24) }, "移除收藏");
         btnRemove.Click += (_, _) =>
         {
             var pkg = Package;
@@ -59,12 +66,11 @@ public class RunAsDialog : Form
                 _cboPkg.Items.Remove(pkg);
         };
 
-        var lblRelay = new Label
+        var lblRelay = Loc.Bind(new Label
         {
-            Text = "中转目录（设备端路径，默认放 Download）：",
             Location = new Point(12, 70),
             Size = new Size(440, 18),
-        };
+        }, "中转目录（设备端路径，默认放 Download）：");
         _txtRelay = new TextBox
         {
             Text = defaultRelay,
@@ -72,38 +78,56 @@ public class RunAsDialog : Form
             Width = 340,
         };
 
-        var hint = new Label
+        // 同CommandEditDialog：说明 Label 高度必须随语言重算，
+        // 英文这段比中文长一倍以上（实测 1269px vs 715px），固定 34px 必然截断。
+        _hint = Loc.Bind(new Label
         {
-            Text = "受限目录（/data/data 等）的文件先复制到中转目录，再经 sync 通道收发；" +
-                   "中转目录需为 shell 可读写的路径（sdcard 下均可）。",
             Location = new Point(12, 124),
             Size = new Size(440, 34),
             ForeColor = Color.DimGray,
-        };
+        }, HINT);
+        Loc.FitHeight(_hint, 440);
 
-        var btnOk = new Button { Text = "确定", Location = new Point(276, 166), Size = new Size(75, 24) };
-        var btnCancel = new Button { Text = "取消", DialogResult = DialogResult.Cancel, Location = new Point(357, 166), Size = new Size(75, 24) };
+        // 绝对定位布局：按钮宽度按实测文本给（英文比中文宽），整对右边缘对齐
+        var btnOk = Loc.SizedButton("确定");
+        var btnCancel = Loc.SizedButton("取消");
+        btnCancel.DialogResult = DialogResult.Cancel;
+        Loc.LayoutButtonPair(this, btnOk, btnCancel, 428, 166);
 
         btnOk.Click += (_, _) =>
         {
             if (Package.Length == 0)
             {
-                MessageBox.Show(this, "请输入应用包名。", "run-as", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                MessageBox.Show(this, Loc.T("请输入应用包名。"), "run-as", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
             }
             if (!RelayDir.StartsWith('/') || RelayDir.Length < 2)
             {
-                MessageBox.Show(this, "中转目录必须是设备端绝对路径（以 / 开头）。",
+                MessageBox.Show(this, Loc.T("中转目录必须是设备端绝对路径（以 / 开头）。"),
                     "run-as", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
             }
             DialogResult = DialogResult.OK;
         };
 
-        Controls.AddRange(new Control[] { lblPkg, _cboPkg, btnRemove, lblRelay, _txtRelay, hint, btnOk, btnCancel });
+        // btnOk / btnCancel 已由 Loc.LayoutButtonPair 加入（它按语言算右对齐位置）
+        Controls.AddRange(new Control[] { lblPkg, _cboPkg, btnRemove, lblRelay, _txtRelay, _hint });
         AcceptButton = btnOk;
         CancelButton = btnCancel;
         ActiveControl = _cboPkg;
         _cboPkg.SelectAll();
+    }
+    /// <summary>
+    /// 切语言后重算说明 Label 的高度，并把下方的按钮对整体下移，
+    /// 否则英文文案变长后说明会压住确定/取消。
+    /// </summary>
+    void ILocalizedUi.OnLanguageChanged()
+    {
+        Loc.FitHeight(_hint, _hint.Width);
+        int btnTop = 138 + _hint.Height + 12;
+        foreach (Control c in Controls)
+            if (c is Button { Text: var t } && (t == Loc.T("确定") || t == Loc.T("取消")))
+                c.Top = btnTop;
+        PerformLayout();
     }
 }

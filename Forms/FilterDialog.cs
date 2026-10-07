@@ -21,7 +21,8 @@ public class FilterDialog : Form
         _applyAll = applyAll;
         _filterPanel = filterPanel;
 
-        Text = "过滤设置";
+        Text = Loc.T("过滤设置");
+        Loc.Bind(this, "过滤设置");   // 登记资源键，切语言时 ApplyTo 才能重设标题
         ShowInTaskbar = false;
         StartPosition = FormStartPosition.Manual;
         FormBorderStyle = FormBorderStyle.SizableToolWindow;
@@ -36,6 +37,11 @@ public class FilterDialog : Form
         // 显示与 DPI 切换后都按面板实测的期望尺寸重设窗口
         Shown += (_, _) =>
         {
+            // 兜底刷一次当前语言：本窗口在首次 Show 之前不在 Application.OpenForms 里，
+            // Loc.ApplyToAllForms 扫不到（宿主 frmMain 也会在 OnLanguageChanged 里补刷一次，
+            // 这里防的是「构造时语言 ≠ 首次显示时语言」的其他路径）。
+            // Shown 早于宿主调用的 PositionAboveOwner，刷完再量尺寸才不会量到旧文案的高度。
+            Loc.ApplyTo(this);
             DpiDiag.Log("FilterDialog.Shown", this);
             LogPanelFit("Shown");
         };
