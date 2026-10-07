@@ -8,31 +8,23 @@ A Windows desktop viewer for Android logs (`logcat`). Built with WinForms on .NE
 
 **English** | [简体中文](README.zh-CN.md)
 
-> **Note:** the application UI is currently **Chinese-only**. The feature list below describes what the app does; the UI strings themselves are not yet translated.
+> The UI speaks **both Chinese and English** and switches at runtime — `Help → Language`, no restart. First launch follows your system locale; the choice is remembered in `settings.json`.
 
 ![logcat viewer — filtering demo](docs/images/main.gif)
 
-## Core advantages
+## Log viewing
 
 Most logcat viewers choke on large captures. This one keeps the text on disk (mmap) and only the fixed-width columns in memory, so a multi-GB log file opens without loading it into RAM and scrolls at a stable frame rate.
 
-|                                |                                                                                                          |
-| ------------------------------ | -------------------------------------------------------------------------------------------------------- |
-| **Instant open on huge files** | Memory-mapped + parallel block indexing, with a cancellable progress bar                                 |
-| **Virtual list**               | Only visible rows are rendered, so scrolling stays smooth at 10M+ rows                                   |
-| **Six formats auto-detected**  | `threadtime` / `time` / `long` / `brief` / `tag` / `ymd`, via a byte-level fast path with regex fallback |
-| **Multi-line joining**         | Stack traces and wrapped messages fold back into their parent record (toggleable)                        |
-| **Level colours**              | V/D/I/W/E/F/A colour-coded                                                                               |
-| **Full record view**           | Double-click a row (`Enter`) to see the untruncated original text                                        |
-
-## Log viewing
-
-- **Memory-mapped + parallel indexing**: text stays on disk, only the columnar index lives in RAM; open multi-GB files without loading them; progress bar during indexing, cancellable at any time
-- **Virtual list**: only renders visible rows — smooth scrolling at 10M+ lines
-- **Six log formats auto-detected**: `threadtime` / `time` / `long` / `brief` / `tag` / `ymd` via a byte-level fast path with regex fallback
-- **Multi-line joining**: stack traces and wrapped messages fold back into their parent record (toggleable)
-- **Level colours**: V/D/I/W/E/F/A each have their own colour
-- **Full record view**: double-click a row or press `Enter` to see the untruncated original text in a pop-up
+| Capability | How it works |
+| --- | --- |
+| **Instant open on huge files** | Memory-mapped + parallel block indexing, with a cancellable progress bar |
+| **Virtual list** | Only visible rows are rendered, so scrolling stays smooth at 10M+ rows |
+| **Six formats auto-detected** | `threadtime` / `time` / `long` / `brief` / `tag` / `ymd`, via a byte-level fast path with regex fallback |
+| **Multi-line joining** | Stack traces and wrapped messages fold back into their parent record (toggleable) |
+| **Level colours** | V/D/I/W/E/F/A colour-coded |
+| **Full record view** | Double-click a row (`Enter`) to see the untruncated original text |
+| **Incremental reload** | `F5` re-reads only the appended tail, with line-boundary alignment across batch edges |
 
 ## Filtering
 
@@ -110,7 +102,7 @@ Verification: `Log\startup.log` (next to the exe) records the screen topology, t
 
 ### High-DPI support
 
-All 14 hand-written forms declare `AutoScaleMode.Dpi` and scale with the system DPI, so button text is no longer clipped on high-scaling displays. The default font is Microsoft YaHei UI, which fixes the missing-CJK-glyph problem that made Chinese text render as clipped glyphs under GDI font fallback at high DPI.
+The 12 hand-written dialogs under `Forms/` declare `AutoScaleMode.Dpi` and scale with the system DPI, so button text is no longer clipped on high-scaling displays. The app font follows the UI language — Microsoft YaHei UI for Chinese, which fixes the missing-CJK-glyph problem that made Chinese text render as clipped glyphs under GDI font fallback at high DPI; Segoe UI for English.
 
 Multi-monitor with different scaling (e.g. primary 150%, secondary 100%):
 - Filter window height auto-adjusts to content after showing
@@ -119,6 +111,17 @@ Multi-monitor with different scaling (e.g. primary 150%, secondary 100%):
 - DpiFix dynamically expands TableLayoutPanel rows and fixed-height button bars that would otherwise overflow
 
 Verification: DPI measurements and fallback actions are logged to `Log\startup.log` (next to the exe) `[DPI]` section.
+
+### Bilingual UI (Chinese / English)
+
+The entire UI is available in both languages and switches **at runtime** — no restart.
+
+- **Switching**: `Help → Language → 简体中文 / English`; the choice is persisted to `settings.json`
+- **Default**: first launch follows the system locale (`CultureInfo.CurrentUICulture`); a corrupt or missing setting falls back to it
+- **What gets re-measured on switch**: not just text. The whole UI is built in code (`frmMain.Designer.cs` is 37 lines), so switching re-walks every open form and applies the target language's font — Microsoft YaHei UI for Chinese (Segoe UI has no CJK glyphs and clips them at high DPI), Segoe UI for English — then re-measures fixed-width buttons and absolutely-positioned dialogs, which are ~30–50% wider in English
+- **Scope**: ~566 translated strings across 9 tables, plus per-language fixed widths for columns and dialogs
+
+A language layout audit walks the control tree in both languages at minimum / default / half width and asserts **zero clipped labels**.
 
 ## Requirements
 
@@ -145,8 +148,8 @@ You can also open `logcat.slnx` / `logcat.csproj` directly in Visual Studio.
 ## Tests
 
 Log parsing, the columnar index (including incremental append and line-boundary alignment), the filter
-engine and the persistence stores are covered by xUnit tests. The UI and device/system-integration layers
-are intentionally excluded from the coverage scope.
+engine, the persistence stores and the localization tables are covered by xUnit tests. The UI and
+device/system-integration layers are intentionally excluded from the coverage scope.
 
 ```powershell
 # run the suite
@@ -157,11 +160,11 @@ dotnet test tests/logcat.Tests/logcat.Tests.csproj --collect:"XPlat Code Coverag
 python tests/coverage-report.py     # writes tests/coverage-report.html
 ```
 
-Current status: **351 tests, all passing**; **98.31%** line coverage (1,695 / 1,724 lines), **88.41%** branch coverage (992 / 1,122 branches).
+Current status: **412 tests, all passing**; **99.38%** line coverage (2,226 / 2,240 lines), **87.56%** branch coverage (1,028 / 1,174 branches).
 
 The scope is defined in `tests/logcat.Tests/coverlet.runsettings` and excludes two groups:
 
-- **UI layer** — `Forms` / `Controls` / `frmMain` / `Program`, plus `DpiFix` / `DpiDiag` (high-DPI layout fallback and diagnostics): WinForms construction and layout depend on a message pump and STA threads, so unit-testing them is costly and low-value.
+- **UI layer** — `Forms` / `Controls` / `frmMain` / `Program`, plus `DpiFix` / `DpiDiag` / `Loc`: WinForms construction and layout depend on a message pump and STA threads, so unit-testing them is costly and low-value. `Loc` is excluded for the same reason as `DpiFix` — half of it is control-tree walking, font swapping and pixel measurement, which only mean something against a real form. Its sibling `LocTable.*` (pure data translation tables) is **kept in scope** and is guarded by 18 `LocTableTests` assertions, including source scans that catch untranslated strings.
 - **Device / system integration layer** — `AdbManager` (needs a real adb server and device), `LogcatStream` (device stream), `ClipboardHelper` (Windows clipboard), `StartupLog` (writes into the user profile).
 
 > In a restricted sandbox (some IDE-managed terminals) the test host may be denied writes to `%TEMP%`, which
@@ -227,6 +230,8 @@ Models/
   FavoriteDir.cs        Favourite directory
   CommandEntry.cs       Favourite command / execution record / channel enum
 Services/
+  Loc.cs                Localization runtime (resource keys, binding, font swap, per-language width fitting)
+  LocTable.*.cs         Translation tables split by area (Common / MainUi / FilterUi / FileUi / ApkUi / DeviceUi / CommandUi / CommandWindow / RuntimeMsg)
   DpiDiag.cs            High-DPI layout diagnostics (writes to startup.log [DPI] section)
   DpiFix.cs             High-DPI layout fallback (expands overflowing TLP rows and fixed-height button bars)
   StartupLog.cs         Startup diagnostic log (exe-relative `Log\startup.log`)
@@ -237,12 +242,17 @@ Services/
   LogcatStream.cs       Live logcat capture stream
   FavoritesStore.cs     Favourites persistence (directories, run-as packages, APK paths, app packages, tag/message filter conditions)
   CommandStore.cs       Command categories / favourites / history persistence + built-in command library
-  AppSettings.cs        User-level settings (window geometry, display options, last paths, install/uninstall options; JSON in exe-relative `settings.json`)
+  AppSettings.cs        User-level settings (window geometry, display options, last paths, UI language, install/uninstall options; JSON in exe-relative `settings.json`)
   AppInfo.cs            Product name and version (reads Assembly InformationalVersion)
 tests/
   coverage-report.py    Coverage report generation (coverlet cobertura XML → readable HTML)
-  logcat.Tests/         xUnit test project (351 tests: log parsing / columnar index / filter engine / persistence)
+  logcat.Tests/         xUnit test project (412 tests: log parsing / columnar index / filter engine / persistence / localization)
     coverlet.runsettings Coverage scope (Include / Exclude rules)
+docs/
+  ROADMAP.md            Prioritized feature roadmap and acceptance criteria
+  TESTING.md            How to run the suite and produce coverage (single entry point)
+  UT-AUDIT.md           Mutation-testing audit — where the tests actually bite
+  PUBLISHING.md         Release procedure
 LICENSE                 Apache-2.0 full text
 THIRD-PARTY-NOTICES.md  Third-party licences
 DISCLAIMER.md           Disclaimer full text
@@ -250,7 +260,7 @@ DISCLAIMER.md           Disclaimer full text
 
 ## Data storage
 
-- User settings (window position/size/state, continuation merging, auto-apply, font size, newline visibility, last browse paths, install/uninstall options) are persisted as JSON to `settings.json` (next to the exe)
+- User settings (window position/size/state, continuation merging, auto-apply, font size, newline visibility, **UI language**, last browse paths, install/uninstall options) are persisted as JSON to `settings.json` (next to the exe)
 - Favourites (device/local directories with aliases, run-as packages, APK paths, app packages, tag/message filter conditions; up to 60 per list, most-recent first) go to `favorites.json` (next to the exe)
 - Command categories, favourites, history, and placeholder values go to `commands.json` (next to the exe, first open writes the built-in library)
 - Live capture writes to `logcat_live_*.log` in the system temp directory, cleaned up on window close

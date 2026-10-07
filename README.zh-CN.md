@@ -13,30 +13,24 @@ Windows 桌面端 Android 日志（logcat）查看器。基于 WinForms，使用
 - GitHub（镜像）：<https://github.com/daitouniao/logcat-viewer>
 
 > 当前版本 **V0.1.2**。版本号以 [logcat.csproj](logcat.csproj) 的 `<Version>` 为唯一来源，发布时只改该处，程序标题、关于对话框与 exe 文件属性会自动同步。
+>
+> 界面**中英双语**，`帮助 → 语言` 运行时即时切换，选择记在 `settings.json`；首次启动跟随系统区域。
 
 ![logcat viewer — 过滤演示](docs/images/main.gif)
 
-## 核心优势
+## 日志查看
 
 大多数 logcat 查看器在处理大日志文件时会卡顿。本工具将文本保留在磁盘上（mmap），仅将固定宽度的列数据加载到内存中，因此即使数 GB 的日志文件也能秒开，滚动帧率稳定。
 
-|                                |                                                              |
-| ------------------------------ | ------------------------------------------------------------ |
-| **大文件秒开**                 | 内存映射 + 并行分块建索引，可随时取消                         |
-| **虚拟列表**                   | 只渲染可见行，10M+ 行时滚动依然流畅                           |
-| **六种格式自动识别**           | `threadtime` / `time` / `long` / `brief` / `tag` / `ymd`，字节级快速路径 + 正则回退 |
-| **续行合并**                   | 异常堆栈、多行正文可并入上一条记录（可开关）                   |
-| **级别配色**                   | V/D/I/W/E/F/A 分色显示                                       |
-| **完整记录查看**               | 双击行或 `Enter` 查看未被截断的原文                           |
-
-## 日志查看
-
-- **内存映射 + 并行建索引**：文本留在磁盘，仅列式索引驻留内存；打开数 GB 文件无需全量加载；索引期间显示进度条，可随时取消
-- **虚拟列表**：只渲染可见行，10M+ 行滚动流畅
-- **六种格式自动识别**：`threadtime` / `time` / `long` / `brief` / `tag` / `ymd`，字节级快速路径 + 正则回退
-- **续行合并**：异常堆栈、多行正文可并入上一条记录（可开关）
-- **级别配色**：V/D/I/W/E/F/A 各有专属颜色
-- **完整记录查看**：双击行或按 `Enter` 在弹出窗口查看未被截断的原文
+| 能力 | 实现 |
+| --- | --- |
+| **大文件秒开** | 内存映射 + 并行分块建索引，可随时取消 |
+| **虚拟列表** | 只渲染可见行，10M+ 行时滚动依然流畅 |
+| **六种格式自动识别** | `threadtime` / `time` / `long` / `brief` / `tag` / `ymd`，字节级快速路径 + 正则回退 |
+| **续行合并** | 异常堆栈、多行正文可并入上一条记录（可开关） |
+| **级别配色** | V/D/I/W/E/F/A 分色显示 |
+| **完整记录查看** | 双击行或 `Enter` 查看未被截断的原文 |
+| **增量重载** | `F5` 只重读追加的尾部，批次边界做行对齐，多行日志不会被切断 |
 
 ## 过滤
 
@@ -116,7 +110,7 @@ Windows 桌面端 Android 日志（logcat）查看器。基于 WinForms，使用
 
 ### 高 DPI 适配
 
-全部 14 个手写窗体声明 `AutoScaleMode.Dpi`，随系统 DPI 缩放——2K 等高缩放屏上不再出现按钮文字被截断。默认字体统一为「微软雅黑 UI」，修复默认 Segoe UI 无中文字形导致的高 DPI 中文裁字。
+`Forms/` 下 12 个手写窗体声明 `AutoScaleMode.Dpi`，随系统 DPI 缩放——2K 等高缩放屏上不再出现按钮文字被截断。界面字体随语言切换：中文用「微软雅黑 UI」，修复默认 Segoe UI 无中文字形导致的高 DPI 中文裁字；英文用原生 Segoe UI。
 
 多屏不同缩放（如主屏 150%、副屏 100%）下的兜底：
 - 过滤设置窗口高度在显示后按内容实测撑开
@@ -125,6 +119,17 @@ Windows 桌面端 Android 日志（logcat）查看器。基于 WinForms，使用
 - DpiFix 动态撑大「装不下内容的 TableLayoutPanel 绝对行」与「固定高停靠按钮栏」
 
 验证方式：`Log\startup.log`（exe 同级目录）的 `[DPI]` 段记录各窗口的 DPI、实测需要尺寸与兜底动作
+
+### 中英双语界面
+
+全部界面文案都有中英两版，**运行时即时切换**，无需重启。
+
+- **切换入口**：`帮助 → 语言 → 简体中文 / English`，选择写入 exe 同级目录的 `settings.json`
+- **默认语言**：首次启动跟随系统区域（`CultureInfo.CurrentUICulture`）；设置缺失或损坏时也回退到它
+- **切换时不只换文字**：整个 UI 是代码构建的（`frmMain.Designer.cs` 只有 37 行），所以切换会遍历所有已打开窗体，换上目标语言的字体（中文用「微软雅黑 UI」——Segoe UI 无中文字形，高 DPI 下会被裁字；英文用原生 Segoe UI），再按实测文本宽度重算定宽按钮与绝对定位对话框的尺寸——英文普遍比同义中文长 30~50%
+- **规模**：9 张分表共约 566 条译文，另有一批按语言区分的列宽与对话框尺寸常量
+
+双语布局审计会在两种语言下按「最小 / 默认 / 半宽」三档遍历控件树，断言**裁字数为 0**。
 
 ## 快速开始
 
@@ -152,7 +157,7 @@ dotnet publish -c Release   # 发布
 
 ## 单元测试
 
-日志解析、列式索引（含增量追加与行边界对齐）、过滤引擎、各类持久化存储都有 xUnit 测试覆盖；UI 层与设备/系统集成层不在单测口径内。
+日志解析、列式索引（含增量追加与行边界对齐）、过滤引擎、各类持久化存储与本地化译文表都有 xUnit 测试覆盖；UI 层与设备/系统集成层不在单测口径内。
 
 ```powershell
 # 跑全量测试
@@ -163,11 +168,14 @@ dotnet test tests/logcat.Tests/logcat.Tests.csproj --collect:"XPlat Code Coverag
 python tests/coverage-report.py     # 输出 tests/coverage-report.html
 ```
 
-当前状态：**351 个用例全部通过**，行覆盖率 **98.31%**（1,695 / 1,724 行），分支覆盖率 **88.41%**（992 / 1,122 分支）。
+当前状态：**412 个用例全部通过**，行覆盖率 **99.38%**（2,226 / 2,240 行），分支覆盖率 **87.56%**（1,028 / 1,174 分支）。
 
 覆盖口径见 `tests/logcat.Tests/coverlet.runsettings`，排除两类代码：
-- **UI 层**：`Forms` / `Controls` / `frmMain` / `Program`，以及 `DpiFix` / `DpiDiag`
+- **UI 层**：`Forms` / `Controls` / `frmMain` / `Program`，以及 `DpiFix` / `DpiDiag` / `Loc`。`Loc`（本地化运行时）与 `DpiFix` 同理——它一半的代码是控件树遍历、字体替换与文本像素测量，没有真实窗体与消息泵无从验证
 - **系统/设备集成层**：`AdbManager`、`LogcatStream`、`ClipboardHelper`、`StartupLog`
+
+> 与 `Loc` 同目录的 `LocTable.*`（纯数据译文表）**不排除**：它是本轮 i18n 的核心验证面，由 `LocTableTests` 的 18 条断言盯住（含扫源码查漏翻）。
+> 判断标准是「这条代码能否在无窗体条件下被有意义地验证」，不是「这个文件新不新」。
 
 > 在受限沙箱（部分 IDE 托管终端）里测试宿主可能被拒绝写入 `%TEMP%`，导致大量用例失败。
 > 把临时目录指到工作区内：`TMP=<工作区内目录> TEMP=<同> dotnet test ...`，详见 [`docs/PUBLISHING.md`](docs/PUBLISHING.md)。
@@ -231,6 +239,8 @@ Models/
   FavoriteDir.cs        收藏目录
   CommandEntry.cs       收藏命令 / 执行记录 / 通道枚举
 Services/
+  Loc.cs                本地化运行时（资源键、控件绑定、字体切换、按语言实测宽度）
+  LocTable.*.cs         按区域拆分的译文表（Common / MainUi / FilterUi / FileUi / ApkUi / DeviceUi / CommandUi / CommandWindow / RuntimeMsg）
   DpiDiag.cs            高 DPI 布局诊断打点（写入 startup.log [DPI] 段）
   DpiFix.cs             高 DPI 布局兜底（显示后按内容实测撑大装不下的 TLP 绝对行与固定高停靠栏）
   StartupLog.cs         启动诊断日志（exe 同级目录 Log\startup.log，多屏几何与 DPI 排查用）
@@ -241,12 +251,17 @@ Services/
   LogcatStream.cs       实时 logcat 采集流
   FavoritesStore.cs     收藏持久化（目录、run-as 包名、APK 路径、应用包名、tag / message 过滤条件）
   CommandStore.cs       命令分类 / 收藏 / 历史持久化 + 内置命令库
-  AppSettings.cs        用户级设置（窗口几何、显示选项、上次路径、安装/卸载窗口选项，JSON 持久化到 exe 同级目录 settings.json）
+  AppSettings.cs        用户级设置（窗口几何、显示选项、上次路径、界面语言、安装/卸载窗口选项，JSON 持久化到 exe 同级目录 settings.json）
   AppInfo.cs            产品名与版本号（读取程序集 InformationalVersion，标题与关于对话框共用）
 tests/
   coverage-report.py      覆盖率报告生成（coverlet 的 cobertura XML → 可读 HTML）
-  logcat.Tests/           xUnit 测试工程（351 个用例：日志解析 / 列式索引 / 过滤引擎 / 持久化存储）
+  logcat.Tests/           xUnit 测试工程（412 个用例：日志解析 / 列式索引 / 过滤引擎 / 持久化 / 本地化）
     coverlet.runsettings  覆盖率统计口径（Include / Exclude 规则）
+docs/
+  ROADMAP.md              功能优先级路线图与验收口径
+  TESTING.md              怎么跑测试、怎么出覆盖率（唯一操作入口）
+  UT-AUDIT.md             变异测试审计——测试到底咬不咬得住
+  PUBLISHING.md           发布流程
 LICENSE                 Apache-2.0 全文
 THIRD-PARTY-NOTICES.md  第三方库与工具链的许可声明
 DISCLAIMER.md           免责声明全文
@@ -254,7 +269,7 @@ DISCLAIMER.md           免责声明全文
 
 ## 数据存储
 
-- 用户设置统一以 JSON 持久化到 exe 同级目录 `settings.json`：窗口位置/大小/状态（多屏记忆已验证可用）、续行合并、自动应用、字号、换行可视符、上次浏览路径，以及安装/卸载窗口的通道、安装参数、临时目录、root 与「保留数据」选项
+- 用户设置统一以 JSON 持久化到 exe 同级目录 `settings.json`：窗口位置/大小/状态（多屏记忆已验证可用）、续行合并、自动应用、字号、换行可视符、界面语言、上次浏览路径，以及安装/卸载窗口的通道、安装参数、临时目录、root 与「保留数据」选项
 - 各类收藏以 JSON 持久化到 exe 同级目录 `favorites.json`：设备端/本机端目录收藏（含别名）、run-as 包名、APK 本机路径、应用包名、tag 与 message 过滤条件，每类上限 60 条（最近使用在前）
 - 命令窗口的分类、收藏、历史与占位符取值以 JSON 持久化到 exe 同级目录 `commands.json`（首次打开时写入内置命令库）
 - 实时采集的日志写入系统临时目录 `logcat_live_*.log`，关闭窗口时释放

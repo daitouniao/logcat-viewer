@@ -175,8 +175,9 @@ def main():
   <div class="note">
     <b>统计口径</b>：仅统计可单测的业务逻辑层（Services / Models）。
     <ul>
-      <li>已排除 UI 层：<code>Forms</code> / <code>Controls</code> / <code>frmMain</code> / <code>Program</code> / <code>DpiFix</code> / <code>DpiDiag</code>——WinForms 代码依赖消息泵与 STA 线程，DPI 兜底与诊断打点要真实窗口和缩放链路才有意义，单测成本高、收益低。</li>
+      <li>已排除 UI 层：<code>Forms</code> / <code>Controls</code> / <code>frmMain</code> / <code>Program</code> / <code>DpiFix</code> / <code>DpiDiag</code> / <code>Loc</code>——WinForms 代码依赖消息泵与 STA 线程；DPI 兜底、诊断打点与本地化的控件树遍历 / 字体测量都要真实窗口才有意义，单测成本高、收益低。</li>
       <li>已排除系统/设备集成层：<code>AdbManager</code>（需真实 adb 与设备）、<code>LogcatStream</code>（需设备流）、<code>ClipboardHelper</code>（Windows 剪贴板）、<code>StartupLog</code>（固定写用户目录）。</li>
+      <li><code>LocTable.*</code>（纯数据译文表）<b>不</b>排除：它是本轮 i18n 的核心验证面，由 <code>LocTableTests</code> 的 18 条断言盯住（含扫源码查漏翻）。</li>
       <li>排除规则见 <code>tests/logcat.Tests/coverlet.runsettings</code>。</li>
     </ul>
   </div>

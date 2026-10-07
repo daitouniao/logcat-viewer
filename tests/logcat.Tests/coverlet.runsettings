@@ -11,11 +11,15 @@
 
           <!--
             覆盖率口径说明：只统计可单测的业务逻辑层，排除两类代码——
-            1) UI 层：Forms / Controls / frmMain / Program，以及 DpiFix / DpiDiag。
+            1) UI 层：Forms / Controls / frmMain / Program，以及 DpiFix / DpiDiag / Loc。
                WinForms 控件的构造、布局、事件绑定依赖消息泵与 STA 线程，单测成本极高且收益很低，
                行业惯例是交给 UI 自动化或人工验收，不计入单测覆盖率。
                DpiFix（按实测内容撑大装不下的 TLP 绝对行）与 DpiDiag（把 DPI/字体快照写进 startup.log）
                同属这一层：前者要真实窗口与缩放链路才有意义，后者固定写 %LOCALAPPDATA% 且只是诊断打点。
+               Loc（本地化运行时）同理：它一半的代码是控件树遍历（ApplyTo/Walk/SwapFont/AllControls）、
+               字体选择与文本像素测量（TextWidth/FitWidth/FitHeight），没有真实窗体与消息泵无从验证。
+               注意与它同目录的 LocTable.* 不排除——那是纯数据的译文表，
+               由 LocTableTests 的 18 条断言（含源码扫描漏翻检测）盯住，是本轮 i18n 的核心验证面。
             2) 系统/设备集成层：
                - AdbManager 需要真实 adb server 与已连接设备，只测了 ShellQuote/AdbArgs 两个纯函数；
                - LogcatStream 需要真实设备流；
@@ -23,10 +27,10 @@
                - StartupLog 固定写入 %LOCALAPPDATA%，测试会污染用户数据。
             另外排除 WinForms SDK 源生成的 ApplicationConfiguration（框架样板，无业务逻辑）。
           -->
-          <Exclude>[logcat]logcat.ApplicationConfiguration,[logcat]logcat.Forms.*,[logcat]logcat.Controls.*,[logcat]logcat.frmMain,[logcat]logcat.Program,[logcat]logcat.Services.AdbManager,[logcat]logcat.Services.LogcatStream,[logcat]logcat.Services.ClipboardHelper,[logcat]logcat.Services.StartupLog,[logcat]logcat.Services.DpiFix,[logcat]logcat.Services.DpiDiag</Exclude>
+          <Exclude>[logcat]logcat.ApplicationConfiguration,[logcat]logcat.Forms.*,[logcat]logcat.Controls.*,[logcat]logcat.frmMain,[logcat]logcat.Program,[logcat]logcat.Services.AdbManager,[logcat]logcat.Services.LogcatStream,[logcat]logcat.Services.ClipboardHelper,[logcat]logcat.Services.StartupLog,[logcat]logcat.Services.DpiFix,[logcat]logcat.Services.DpiDiag,[logcat]logcat.Services.Loc</Exclude>
 
           <!-- 双保险：按源文件路径再排除一次（防止重命名后类型级规则失配） -->
-          <ExcludeByFile>**/Forms/*.cs,**/Controls/*.cs,**/frmMain.cs,**/frmMain.Designer.cs,**/Program.cs,**/Services/DpiFix.cs,**/Services/DpiDiag.cs</ExcludeByFile>
+          <ExcludeByFile>**/Forms/*.cs,**/Controls/*.cs,**/frmMain.cs,**/frmMain.Designer.cs,**/Program.cs,**/Services/DpiFix.cs,**/Services/DpiDiag.cs,**/Services/Loc.cs</ExcludeByFile>
 
           <!-- 自动属性是编译器生成的样板，但这里保持默认统计，避免显得虚高 -->
           <SkipAutoProps>false</SkipAutoProps>
