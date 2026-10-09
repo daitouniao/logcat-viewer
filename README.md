@@ -126,16 +126,22 @@ A language layout audit walks the control tree in both languages at minimum / de
 
 ## Requirements
 
-- **Windows**
-- **.NET 10 SDK** (`net10.0-windows`, WinForms) — required to build; not needed to run a published build
-- **`adb`** on your `PATH` for the ADB features (the app will try to start the ADB server itself)
+**To run a published build — nothing but Windows.** The binaries are self-contained: the .NET
+runtime ships inside the folder, so there is nothing to install first.
+
+- **Windows x64** (10 or later)
+- **`adb`** on your `PATH` — only for the device features (live capture, screenshots, file
+  transfer, APK install). The app starts the ADB server itself if it isn't running. Everything
+  else (opening and filtering log files) works without it.
+
+**To build from source:** .NET 10 SDK (`net10.0-windows`, WinForms).
 
 ## Build and run
 
 ```powershell
 dotnet build                # build
 dotnet run                  # run
-dotnet publish -c Release   # publish
+dotnet publish -c Release   # publish (self-contained, ~120 MB)
 ```
 
 You can also open `logcat.slnx` / `logcat.csproj` directly in Visual Studio.

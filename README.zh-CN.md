@@ -136,16 +136,21 @@ Windows 桌面端 Android 日志（logcat）查看器。基于 WinForms，使用
 
 ### 环境要求
 
-- Windows
-- .NET 10 SDK（`net10.0-windows`，WinForms）
-- 使用 ADB 功能需要 `adb` 可用（程序会自动尝试启动 ADB server）
+**运行已发布版本：只需 Windows，不用装任何东西。** 发行包是自包含的 ——
+.NET 运行时就在包内，下载后直接解压双击即可。
+
+- Windows x64（10 及以上）
+- 使用 ADB 功能需要 `adb` 在 `PATH` 中（实时采集、截图、文件互传、APK 安装等；
+  程序会自动尝试启动 ADB server）。**不涉及设备的功能（打开 / 过滤日志文件）
+  不需要 adb。**
+- 从源码构建才需要 .NET 10 SDK（`net10.0-windows`，WinForms）
 
 ### 构建与运行
 
 ```powershell
 dotnet build                # 构建
 dotnet run                  # 运行
-dotnet publish -c Release   # 发布
+dotnet publish -c Release   # 发布（自包含，约 120 MB）
 ```
 
 也可直接用 Visual Studio 打开 `logcat.slnx` / `logcat.csproj`。

@@ -80,15 +80,95 @@ gh repo edit daitouniao/logcat-viewer `
 git add <files>
 git commit -m "..."
 git push                    # = git push origin master，发往 GitCode 主仓库
+git push github master      # GitHub 镜像（Push 镜像已于 2026-10-10 确认失效，改直推）
 ```
 
-GitHub 镜像由 GitCode 侧自动同步（**Push 镜像**），无需手工推。若同步尚未生效、
-需要临时手动补推，用下面的写法（注意要绕开会挂死的 credential-helper-selector）：
+> ⚠️ **两个远端都要推**。GitCode 的 Push 镜像已确认失效（用户手动触发同步也失败），
+> 别再依赖它。两边的 master 应始终是同一个 SHA；不一致时以GitCode 为准补推。
+>
+> 推 GitHub 要绕开会挂死的 credential-helper-selector：
+> ```powershell
+> $GCM = '!"C:/Users/Administrator/.workbuddy/binaries/PortableGit/versions/1.2.0/mingw64/bin/git-credential-manager.exe"'
+> git -c credential.helper= -c credential.helper=$GCM push github master
+> ```
+>
+> **判断推送是否成功要看远端 SHA，不能看 exit code。** GitCode 的 post-receive
+> 服务端钩子会在推送完成后返回 `接收端返回: 70`，此时推送其实已成功。
+
+### 3.2 发布：必须先清空目标目录（2026-10-10 新增）
 
 ```powershell
-$GCM = '!"C:/Users/Administrator/.workbuddy/binaries/PortableGit/versions/1.2.0/mingw64/bin/git-credential-manager.exe"'
-git -c credential.helper= -c credential.helper=$GCM push github master
+Remove-Item -Recurse -Force publish\Release\V0.1.2   # 先删干净
+dotnet publish logcat.csproj -c Release -p:PublishDir=publish\Release\V0.1.2\
+Compress-Archive -Path publish\Release\V0.1.2\* -DestinationPath publish\Release\V0.1.2.zip -Force
 ```
+
+**`dotnet publish` 不会清空目标目录**，历史文件会留在原地并被一起打进 zip。
+实测踩到过：自包含改造后重发，目录里还留着上一次 `dotnet test` 期间
+被复制进去的 `coverlet.collector.dll`、`Microsoft.TestPlatform.*.dll`
+（时间戳差一个月），以及 `logcat.pdb`。
+
+判断产物是否干净，别只看体积，要看**时间戳**和**关键字**：
+
+```powershell
+ls -la --time-style=+%m-%d_%H:%M publish\Release\V0.1.2\logcat.exe   # 本次生成的时间
+ls publish\Release\V0.1.2\*.pdb2>$null; if ($?) { "有 pdb" } else { "无 pdb" }
+Select-String -Path publish\Release\V0.1.2\*.* -Pattern 'xunit|coverlet|TestPlatform' -List
+```
+
+> `DebugType=none` / `DebugSymbols=false` **只管本项目产物**，
+> 管不住依赖包以「库资产」路径复制进来的 pdb —— 与 Avalonia 那个
+> `libSkiaSharp.pdb` 80MB 是同一类问题（见 MEMORY.md）。
+
+### 3.3 发布形态：自包含（2026-10-10 改）
+
+`logcat.csproj` 与 `Properties/PublishProfiles/FolderProfile.pubxml` **两处都**设了
+`RuntimeIdentifier=win-x64` + `SelfContained=true`。两处都要改—— VS 的发布
+配置以 pubxml 为准，它会覆盖 csproj 里的 `SelfContained`。
+
+> ⚠️ **`FolderProfile.pubxml` 被 `.gitignore` 排除（`*.pubxml`），不入库。**
+> 它的 `<PublishDir>` 里还硬编码了版本号 `publish\Release\V0.1.2`，改版本时
+> **本机这份文件也要跟着改**，漏改会发到旧目录（本项目已踩过一次）。
+> 换机器 / 重新 clone 后这份文件会消失，必须按本节重建：
+>
+> ```xml
+> <Project>
+>   <PropertyGroup>
+>     <Configuration>Release</Configuration>
+>     <Platform>Any CPU</Platform>
+>     <PublishDir>publish\Release\V0.1.3</PublishDir>   <!-- 版本号跟着发布版本走 -->
+>     <PublishProtocol>FileSystem</PublishProtocol>
+>     <_TargetId>Folder</_TargetId>
+>     <TargetFramework>net10.0-windows</TargetFramework>
+>     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+>     <SelfContained>true</SelfContained>
+>     <DebugType>none</DebugType>
+>     <DebugSymbols>false</DebugSymbols>
+>   </PropertyGroup>
+> </Project>
+> ```
+>
+> 注意 `csproj` 里的 `PropertyGroup` 是**无条件生效**的（不走 pubxml 时也一样），
+> 所以命令行 `dotnet publish -c Release -p:PublishDir=...` 也能得到自包含产物；
+> 但从 VS 发布面板走 pubxml 就以文件为准。
+
+| | 旧（框架依赖） | 新（自包含） |
+|---|---|---|
+| 目录体积 | 1.8 MB | **120 MB** |
+| 目标机要求 | 必须预装 .NET 10 Desktop Runtime | **只需 Windows** |
+
+旧版的 runtimeconfig 声明依赖 `Microsoft.NETCore.App` / `Microsoft.WindowsDesktop.App`
+10.0.0，而目录内无 `coreclr.dll` —— 没装运行时的机器双击即报错，
+而README 当时写着"运行已发布版本不需要 SDK"。**"下载即用"的前提不成立。**
+
+- **不要用 `PublishSingleFile`**：实测单文件 exe 启动失败
+  （`Failed to map file ... error 5` / `Couldn't memory map the bundle file`，
+  非沙箱复测同样失败）。保持多文件形态。
+- 验证是否真自包含：`runtimeconfig.json` 里 `frameworks` 字段应为**空**，
+  且目录内有 `coreclr.dll` / `hostfxr.dll` / `hostpolicy.dll`。
+- ⚠️ 本机 `hostfxr.dll` 加载会报 `0x80070005`（与 `dotnet test` 同一个问题，
+  环境权限所致，**不代表产物有问题**）。所以本机无法用"能否启动"验证自包含，
+  改用「runtimeconfig 无外部依赖 + coreclr.dll 在包内」这两个结构判据。
 
 ### 3.1 ✅ 已解决：GitCode 曾拒收推送（Pull 镜像导致仓库只读）
 
