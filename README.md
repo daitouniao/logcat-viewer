@@ -3,6 +3,7 @@
 [![Version: V0.1.2](https://img.shields.io/badge/version-V0.1.2-green)](logcat.csproj)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
 [![Platform: Windows](https://img.shields.io/badge/platform-Windows-lightgrey)](#requirements)
+[![CI](https://github.com/daitouniao/logcat-viewer/actions/workflows/ci.yml/badge.svg)](https://github.com/daitouniao/logcat-viewer/actions/workflows/ci.yml)
 
 A Windows desktop viewer for Android logs (`logcat`). Built with WinForms on .NET 10, it opens **tens of millions of log lines instantly** using memory-mapped files and a columnar index — and it also drives your device over ADB: live capture, screenshots, screen recording, two-pane file transfer, and APK install/uninstall.
 

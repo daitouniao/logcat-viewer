@@ -1,0 +1,65 @@
+name: Bug report
+description: Report a crash, wrong output, or behavior that doesn't match the documentation.
+title: "[bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for filing a bug report. Please fill in every section you can — the more context, the faster it gets fixed.
+  - type: input
+    id: version
+    label: Version
+    description: The version you are running (Help → About, or the window title).
+    placeholder: V0.1.2
+    required: true
+  - type: input
+    id: os
+    label: OS
+    description: Windows version and build number (e.g. Windows 11 24H2).
+    placeholder: Windows 11 24H2
+    required: true
+  - type: dropdown
+    id: area
+    label: Area
+    description: Which part of the tool is affected?
+    options:
+      - Log file viewing / large files
+      - Filtering / export
+      - Live logcat capture
+      - ADB device features (screenshot / record / files / APK)
+      - Command window
+      - UI / layout / DPI / language
+      - Other
+    required: true
+  - type: textarea
+    id: steps
+    label: Steps to reproduce
+    description: The exact sequence of actions that leads to the problem.
+    placeholder: |
+      1. Open a log file of ...
+      2. Click ...
+      3. Wait ...
+    required: true
+  - type: textarea
+    id: expected
+    label: Expected behavior
+    required: true
+  - type: textarea
+    id: actual
+    label: Actual behavior
+    description: What actually happens. For crashes, include the exception text.
+    required: true
+  - type: textarea
+    id: log
+    label: startup.log
+    description: Optional. The app writes a diagnostic log to `Log\startup.log` next to the exe. Attach it or paste the relevant lines.
+    render: plaintext
+  - type: textarea
+    id: sample
+    label: Sample log file
+    description: Optional. A small log file that reproduces the issue (a few hundred lines is plenty). Drag it into this field.
+  - type: textarea
+    id: extra
+    label: Anything else
+    description: Screenshots, device model, adb version, workarounds you found, etc.

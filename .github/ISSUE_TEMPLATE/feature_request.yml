@@ -1,0 +1,27 @@
+name: Feature request
+description: Suggest an idea or improvement for the project.
+title: "[feature] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the suggestion! A quick check of [`docs/ROADMAP.md`](../../docs/ROADMAP.md) will tell you whether it is already planned.
+  - type: textarea
+    id: problem
+    label: What problem does it solve?
+    description: Describe the pain point or the scenario where you wish the tool could do more.
+    placeholder: I often need to ... but currently ...
+    required: true
+  - type: textarea
+    id: solution
+    label: Suggested solution
+    description: How should it work? Screens, keys, CLI-style commands, config options — anything helps.
+  - type: textarea
+    id: alt
+    label: Alternatives considered
+    description: Other ways you could imagine solving the same problem, or similar tools that do it.
+  - type: textarea
+    id: extra
+    label: Anything else
+    description: Related links, samples, references.
