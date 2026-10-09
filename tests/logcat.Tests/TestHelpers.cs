@@ -3,6 +3,38 @@ using System.Text;
 
 namespace logcat.Tests;
 
+/// <summary>
+/// 固定界面语言执行一段测试代码，结束后自动还原。
+///
+/// 存在的理由：i18n 落地后，大量被测输出（<c>FilterSpec.Describe</c>、
+/// 进度上报文案、通道显示名…）走 <c>Loc.T</c>/<c>Loc.F</c>，**结果随界面语言变化**。
+/// 测试若直接硬编码中文期望值，结果就取决于机器的系统区域：本地中文全绿，
+/// CI runner 上是英文环境就整片红（2026-10-10 实测 412 条里 9 条失败）。
+///
+/// 用法：断言要跟语言绑定时用这两条helper，<b>并且在两种语言下各断言一次</b>——
+/// 只测一种语言的话，把被测代码退回硬编码中文仍然全绿，抓不住回归。
+/// 注意：被测输出是"生成那一刻"按当时语言算出来的，涉及生成动作（如Build）
+/// 的断言必须在 helper 内部<b>重新生成</b>，事后切语言比对拿到的是旧语言的串。
+/// </summary>
+static class LangScope
+{
+    /// <summary>固定为中文界面跑 <paramref name="body"/>，结束后自动还原语言。</summary>
+    public static void InZh(System.Action body)
+    {
+        var restore = Services.Loc.SetLangGuard(Services.UiLang.ZhCn);
+        try { body(); }
+        finally { restore(); }
+    }
+
+    /// <summary>固定为英文界面跑 <paramref name="body"/>，结束后自动还原语言。</summary>
+    public static void InEn(System.Action body)
+    {
+        var restore = Services.Loc.SetLangGuard(Services.UiLang.En);
+        try { body(); }
+        finally { restore(); }
+    }
+}
+
 /// <summary>临时文件的公共根目录：tests/logcat.Tests/tmp，由各 Temp* 帮助类共用。</summary>
 static class TempRoot
 {

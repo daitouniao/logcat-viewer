@@ -351,12 +351,26 @@ public class LogDocumentTests
     [Fact]
     public void Build上报扫描与合并进度()
     {
-        using var tmp = new TempLogFile(Line(T1, 'I', "Tag", "a") + Line(T2, 'I', "Tag", "b"));
-        var progress = new ProgressRecorder();
-        using var doc = LogDocument.Build(tmp.Path, progress: progress);
-
-        Assert.Contains(progress.Items, p => p.msg.Contains("扫描行"));
-        Assert.Contains(progress.Items, p => p.msg.Contains("合并索引"));
+        // 进度文案走 Loc，随界面语言变化。断言比对 Loc.T 的返回值本身而不是
+        // 硬编码中文，否则英文 runner 上必然匹配不到（2026-10-10 CI 实测）。
+        // 必须在各语言语境内【重新 Build】—— 上报文本是 Build 当刻按当时语言
+        // 生成的，事后切语言再比对拿到的是旧语言的串，比对无意义。
+        LangScope.InZh(() =>
+        {
+            using var tmp = new TempLogFile(Line(T1, 'I', "Tag", "a") + Line(T2, 'I', "Tag", "b"));
+            var progress = new ProgressRecorder();
+            using var doc = LogDocument.Build(tmp.Path, progress: progress);
+            Assert.Contains(progress.Items, p => p.msg.Contains(Loc.T("扫描行…")));
+            Assert.Contains(progress.Items, p => p.msg.Contains(Loc.T("合并索引…")));
+        });
+        LangScope.InEn(() =>
+        {
+            using var tmp = new TempLogFile(Line(T1, 'I', "Tag", "a") + Line(T2, 'I', "Tag", "b"));
+            var progress = new ProgressRecorder();
+            using var doc = LogDocument.Build(tmp.Path, progress: progress);
+            Assert.Contains(progress.Items, p => p.msg.Contains(Loc.T("扫描行…")));
+            Assert.Contains(progress.Items, p => p.msg.Contains(Loc.T("合并索引…")));
+        });
     }
 
     [Fact]
@@ -938,7 +952,7 @@ public class LogDocumentTests
         var progress = new ProgressRecorder();
         using (var doc = LogDocument.Build(tmp.Path, progress: progress))
             Assert.Equal(120_000, doc.RowCount);
-        Assert.Contains(progress.Items, p => p.msg.Contains("扫描行") && p.pct > 0);
+        Assert.Contains(progress.Items, p => p.msg.Contains(Loc.T("扫描行…")) && p.pct > 0);
 
         using var cts = new CancellationTokenSource();
         Assert.Throws<OperationCanceledException>(

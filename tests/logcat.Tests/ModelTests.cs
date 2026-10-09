@@ -46,71 +46,111 @@ public class ModelTests
     }
 
     // ── FilterSpec.Describe ──
+    //
+    // Describe() 全部走 Loc.T / Loc.F，因此结果随界面语言变化。断言必须
+    // 显式钉住语言，否则测试结果取决于机器的系统区域：本地中文全绿，
+    // CI runner 上是英文环境就会红一片（2026-10-10 实测 9 条失败中的 7 条
+    // 正是这个原因，见 docs/TESTING.md）。
+    //
+    // 每条用例都在两种语言下各断言一次：中文侧钉住既有行为，英文侧钉住
+    // "确实走了 Loc 而不是硬编码中文"。只断言一种语言的话，把 Describe 退回
+    // 硬编码中文（或改成恒返回中文）在另一种语言下依然全绿，抓不住。
 
     [Fact]
     public void Describe空条件()
     {
-        Assert.Equal("（无过滤）", new FilterSpec().Describe());
+        LangScope.InZh(() => Assert.Equal("（无过滤）", new FilterSpec().Describe()));
+        LangScope.InEn(() => Assert.Equal("(no filter)", new FilterSpec().Describe()));
     }
 
     [Fact]
     public void Describe传全集级别视为无过滤()
     {
-        // 与 IsEmpty 的全集短路对称：Describe 也必须短路。
-        // 变异实测：删掉 FilterSpec.cs:42 的全集判断后，Describe 仍返回「（无过滤）」而测试全绿。
-        Assert.Equal("（无过滤）", new FilterSpec { Levels = new[] { 7, 1, 5, 3, 2, 6, 4 } }.Describe());
-        // 顺序无关：乱序全集同样视为无过滤
-        Assert.Equal("（无过滤）", new FilterSpec { Levels = new[] { 3, 1, 2, 4, 5, 6, 7 } }.Describe());
-        // 少一个级别就不是全集，必须输出（LEVEL_NAME 下标 1..7 = V D I W E F A，此处缺下标 4=W）
-        Assert.Equal("级别 VDIEFA", new FilterSpec { Levels = new[] { 7, 1, 5, 3, 2, 6 } }.Describe());
+        LangScope.InZh(() =>
+        {
+            // 与 IsEmpty 的全集短路对称：Describe 也必须短路。
+            // 变异实测：删掉 FilterSpec.cs:42 的全集判断后，Describe 仍返回「（无过滤）」而测试全绿。
+            Assert.Equal("（无过滤）", new FilterSpec { Levels = new[] { 7, 1, 5, 3, 2, 6, 4 } }.Describe());
+            // 顺序无关：乱序全集同样视为无过滤
+            Assert.Equal("（无过滤）", new FilterSpec { Levels = new[] { 3, 1, 2, 4, 5, 6, 7 } }.Describe());
+            // 少一个级别就不是全集，必须输出（LEVEL_NAME 下标 1..7 = V D I W E F A，此处缺下标 4=W）
+            Assert.Equal("级别 VDIEFA", new FilterSpec { Levels = new[] { 7, 1, 5, 3, 2, 6 } }.Describe());
+        });
+        // 全集短路在英文语境下同样成立（短路与语言无关，但钉住避免回归）
+        LangScope.InEn(() => Assert.Equal("(no filter)", new FilterSpec { Levels = new[] { 7, 1, 5, 3, 2, 6, 4 } }.Describe()));
     }
 
     [Fact]
     public void Describe级别按字母序拼接()
     {
-        Assert.Equal("级别 VE", new FilterSpec { Levels = new[] { LogParser.LVL_E, LogParser.LVL_V } }.Describe());
+        LangScope.InZh(() => Assert.Equal("级别 VE", new FilterSpec { Levels = new[] { LogParser.LVL_E, LogParser.LVL_V } }.Describe()));
+        LangScope.InEn(() => Assert.Equal("Level VE", new FilterSpec { Levels = new[] { LogParser.LVL_E, LogParser.LVL_V } }.Describe()));
     }
 
     [Fact]
     public void Describe各级别名()
     {
-        Assert.Equal("级别 W", new FilterSpec { Levels = new[] { LogParser.LVL_W } }.Describe());
+        LangScope.InZh(() => Assert.Equal("级别 W", new FilterSpec { Levels = new[] { LogParser.LVL_W } }.Describe()));
+        LangScope.InEn(() => Assert.Equal("Level W", new FilterSpec { Levels = new[] { LogParser.LVL_W } }.Describe()));
     }
 
     [Fact]
     public void Describetag与排除标记()
     {
-        Assert.Equal("tag OR(a, b)", new FilterSpec { Tags = new[] { "a", "b" } }.Describe());
-        Assert.Equal("tag! AND(a)", new FilterSpec { Tags = new[] { "a" }, TagOp = "and", TagExclude = true }.Describe());
+        // tag / msg / pid / tid 这几个字段名是技术标识，未进Loc 表，两种语言一致
+        LangScope.InZh(() => Assert.Equal("tag OR(a, b)", new FilterSpec { Tags = new[] { "a", "b" } }.Describe()));
+        LangScope.InZh(() => Assert.Equal("tag! AND(a)", new FilterSpec { Tags = new[] { "a" }, TagOp = "and", TagExclude = true }.Describe()));
+        LangScope.InEn(() => Assert.Equal("tag OR(a, b)", new FilterSpec { Tags = new[] { "a", "b" } }.Describe()));
+        LangScope.InEn(() => Assert.Equal("tag! AND(a)", new FilterSpec { Tags = new[] { "a" }, TagOp = "and", TagExclude = true }.Describe()));
     }
 
     [Fact]
     public void Describemessage与排除标记()
     {
-        Assert.Equal("msg AND(x)", new FilterSpec { Msg = new[] { "x" } }.Describe());
-        Assert.Equal("msg! OR(x)", new FilterSpec { Msg = new[] { "x" }, MsgOp = "or", MsgExclude = true }.Describe());
+        LangScope.InZh(() => Assert.Equal("msg AND(x)", new FilterSpec { Msg = new[] { "x" } }.Describe()));
+        LangScope.InZh(() => Assert.Equal("msg! OR(x)", new FilterSpec { Msg = new[] { "x" }, MsgOp = "or", MsgExclude = true }.Describe()));
+        LangScope.InEn(() => Assert.Equal("msg AND(x)", new FilterSpec { Msg = new[] { "x" } }.Describe()));
+        LangScope.InEn(() => Assert.Equal("msg! OR(x)", new FilterSpec { Msg = new[] { "x" }, MsgOp = "or", MsgExclude = true }.Describe()));
     }
 
     [Fact]
     public void Describepid与tid()
     {
-        Assert.Equal("pid(1, 2)", new FilterSpec { Pids = new[] { 1, 2 } }.Describe());
-        Assert.Equal("pid!(1)", new FilterSpec { Pids = new[] { 1 }, PidExclude = true }.Describe());
-        Assert.Equal("tid(3)", new FilterSpec { Tids = new[] { 3 } }.Describe());
-        Assert.Equal("tid!(3)", new FilterSpec { Tids = new[] { 3 }, TidExclude = true }.Describe());
+        LangScope.InZh(() =>
+        {
+            Assert.Equal("pid(1, 2)", new FilterSpec { Pids = new[] { 1, 2 } }.Describe());
+            Assert.Equal("pid!(1)", new FilterSpec { Pids = new[] { 1 }, PidExclude = true }.Describe());
+            Assert.Equal("tid(3)", new FilterSpec { Tids = new[] { 3 } }.Describe());
+            Assert.Equal("tid!(3)", new FilterSpec { Tids = new[] { 3 }, TidExclude = true }.Describe());
+        });
+        LangScope.InEn(() =>
+        {
+            Assert.Equal("pid(1, 2)", new FilterSpec { Pids = new[] { 1, 2 } }.Describe());
+            Assert.Equal("pid!(1)", new FilterSpec { Pids = new[] { 1 }, PidExclude = true }.Describe());
+            Assert.Equal("tid(3)", new FilterSpec { Tids = new[] { 3 } }.Describe());
+            Assert.Equal("tid!(3)", new FilterSpec { Tids = new[] { 3 }, TidExclude = true }.Describe());
+        });
     }
 
     [Fact]
     public void Describe分钟与仅标记行()
     {
-        Assert.Equal("分钟(0, 1)", new FilterSpec { Minutes = new[] { 0, 1 } }.Describe());
-        Assert.Equal("仅标记行", new FilterSpec { MarkedOnly = true }.Describe());
+        LangScope.InZh(() =>
+        {
+            Assert.Equal("分钟(0, 1)", new FilterSpec { Minutes = new[] { 0, 1 } }.Describe());
+            Assert.Equal("仅标记行", new FilterSpec { MarkedOnly = true }.Describe());
+        });
+        LangScope.InEn(() =>
+        {
+            Assert.Equal("Minute(0, 1)", new FilterSpec { Minutes = new[] { 0, 1 } }.Describe());
+            Assert.Equal("Marked only", new FilterSpec { MarkedOnly = true }.Describe());
+        });
     }
 
     [Fact]
     public void Describe多条件用分号连接()
     {
-        var spec = new FilterSpec
+        FilterSpec Make() => new FilterSpec
         {
             Levels = new[] { LogParser.LVL_E },
             Tags = new[] { "T" },
@@ -118,7 +158,9 @@ public class ModelTests
             Pids = new[] { 9 },
             MarkedOnly = true,
         };
-        Assert.Equal("级别 E；tag OR(T)；msg AND(m)；pid(9)；仅标记行", spec.Describe());
+        // 分隔符本身是 Loc 键：中文"；"，英文"; "（注意分号后带一个空格）
+        LangScope.InZh(() => Assert.Equal("级别 E；tag OR(T)；msg AND(m)；pid(9)；仅标记行", Make().Describe()));
+        LangScope.InEn(() => Assert.Equal("Level E; tag OR(T); msg AND(m); pid(9); Marked only", Make().Describe()));
     }
 
     // ── DeviceInfo ──
@@ -177,8 +219,21 @@ public class ModelTests
     [Fact]
     public void CommandKind显示名()
     {
-        Assert.Equal("设备 shell", CommandKind.Shell.Text());
-        Assert.Equal("本机 adb", CommandKind.Adb.Text());
+        // 通道显示名走 Loc，与界面语言联动（其余断言是技术标识，两种语言一致）
+        LangScope.InZh(() =>
+        {
+            Assert.Equal("设备 shell", CommandKind.Shell.Text());
+            Assert.Equal("本机 adb", CommandKind.Adb.Text());
+        });
+        LangScope.InEn(() =>
+        {
+            Assert.Equal("Device shell", CommandKind.Shell.Text());
+            Assert.Equal("Local adb", CommandKind.Adb.Text());
+            // Of 必须认英文显示名：切换语言时下拉框可能是用旧语言填过的
+            Assert.Equal(CommandKind.Adb, CommandKinds.Of("Local adb"));
+            Assert.Equal(CommandKind.Shell, CommandKinds.Of("Device shell"));
+        });
+
         Assert.Equal(CommandKind.Adb, CommandKinds.Of(CommandKinds.AdbText));
         Assert.Equal(CommandKind.Shell, CommandKinds.Of(CommandKinds.ShellText));
         Assert.Equal(CommandKind.Shell, CommandKinds.Of(null));
