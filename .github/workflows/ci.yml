@@ -9,6 +9,7 @@ jobs:
   test:
     # WinForms (net10.0-windows) 无法在 Linux 上编译运行，测试必须在 Windows 上跑
     runs-on: windows-latest
+    timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -18,9 +19,34 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
-      # NuGet.config 已配置可用源（<clear/> 覆盖全局源），此处只需还原 + 测试
-      - name: Restore
-        run: dotnet restore tests/logcat.Tests/logcat.Tests.csproj
+      # NuGet.config 已用<clear/> 覆盖全局源（全局的 nuget.cdn.azure.cn 已下线，
+      # 会 NU1301）。CI 必须在仓库根执行才能读到它 —— 所有路径都用相对根目录的写法。
+      - name: Show environment
+        run: |
+          Write-Host "--- dotnet ---"
+          dotnet --info
+          Write-Host "--- nuget sources ---"
+          dotnet nuget list source
 
+      # 先单独 build，把"编译失败"和"测试失败"分成两步，
+      # 否则两者都只表现为 exit code 1，日志里看不出是哪一种。
+      - name: Build
+        run: dotnet build tests/logcat.Tests/logcat.Tests.csproj -c Release -v normal
+
+      # 不加 --no-restore：让 restore 与 build 的产物保持一致，
+      # 避免 ProjectReference 主工程的 assets 与测试工程不同步。
       - name: Test
-        run: dotnet test tests/logcat.Tests/logcat.Tests.csproj --no-restore -v minimal
+        run: >
+          dotnet test tests/logcat.Tests/logcat.Tests.csproj
+          -c Release --no-build -v normal --logger "console;verbosity=detailed"
+
+      # 测试失败时把完整日志也吐出来，便于在网页上直接看到失败用例名。
+      - name: Upload test logs on failure
+        if: failure()
+        run: |
+          Get-ChildItem -Recurse -Filter "*.trx" -ErrorAction SilentlyContinue |
+            ForEach-Object { Write-Host "=== $($_.FullName) ==="; Get-Content $_.FullName }
+          Get-ChildItem -Recurse -Path tests -Filter "*.log" -ErrorAction SilentlyContinue |
+            Where-Object { $_.DirectoryName -like "*tmp*" } |
+            Select-Object -First 20 |
+            ForEach-Object { Write-Host "=== $($_.FullName) ==="; Get-Content $_.FullName -TotalCount 50 }
