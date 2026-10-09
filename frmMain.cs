@@ -1695,6 +1695,8 @@ public partial class frmMain : Form, ILocalizedUi
             }
             else
             {
+                // Items.Clear() 后 SelectedIndex 归 -1，但 Text 会残留旧设备序列号，需显式清空
+                _comboDevice.Text = string.Empty;
                 ShowStatus("无设备");
             }
             SetAdbButtons(true);
@@ -1712,8 +1714,16 @@ public partial class frmMain : Form, ILocalizedUi
         _comboDevice.Items.Clear();
         foreach (var d in devices)
             _comboDevice.Items.Add(d.ToString());
-        if (devices.Count > 0 && _comboDevice.SelectedIndex < 0)
+        if (devices.Count > 0)
+        {
+            // Items.Clear() 后 SelectedIndex 必为 -1，重选第一台
             _comboDevice.SelectedIndex = 0;
+        }
+        else
+        {
+            // Items.Clear() 后 SelectedIndex 归 -1，但 Text 会残留旧设备序列号，需显式清空
+            _comboDevice.Text = string.Empty;
+        }
         SetAdbButtons(true);
     }
 
