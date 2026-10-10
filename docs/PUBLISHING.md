@@ -122,39 +122,30 @@ Select-String -Path publish\Release\V0.1.2\*.* -Pattern 'xunit|coverlet|TestPlat
 
 ### 3.3 发布形态：自包含（2026-10-10 改）
 
-`logcat.csproj` 与 `Properties/PublishProfiles/FolderProfile.pubxml` **两处都**设了
-`RuntimeIdentifier=win-x64` + `SelfContained=true`。两处都要改—— VS 的发布
-配置以 pubxml 为准，它会覆盖 csproj 里的 `SelfContained`。
+`logcat.csproj` 里 `<SelfContained>` 的默认值是 **false**，**由发布命令用
+`-p:SelfContained=true -p:RuntimeIdentifier=win-x64` 打开**（见 3.2 的命令）。
 
-> ⚠️ **`FolderProfile.pubxml` 被 `.gitignore` 排除（`*.pubxml`），不入库。**
-> 它的 `<PublishDir>` 里还硬编码了版本号 `publish\Release\V0.1.2`，改版本时
-> **本机这份文件也要跟着改**，漏改会发到旧目录（本项目已踩过一次）。
-> 换机器 / 重新 clone 后这份文件会消失，必须按本节重建：
+> ⚠️ **`SelfContained=true` 绝不能无条件写进 csproj。**
+> 它会沿 `ProjectReference` 传染：测试工程 `logcat.Tests.csproj` 是框架依赖的，
+> 引用一个自包含的主工程会报
+> `NETSDK1151: 自包含的可执行文件不能由非自包含的可执行文件引用`，
+> **直接打断 CI**。本项目踩过一次：先是无条件写进 csproj，tstrun 立刻编不过；
+> 改用 `Condition` 判断 `Configuration` 也不行 —— 出现了**build 时泄漏、
+> publish 时不生效**的反向问题。
+> 最终形态是「csproj 声明默认 false + 命令行显式打开」——
+> **条件表达式不可靠，宁可多打一个参数。**
 >
-> ```xml
-> <Project>
->   <PropertyGroup>
->     <Configuration>Release</Configuration>
->     <Platform>Any CPU</Platform>
->     <PublishDir>publish\Release\V0.1.3</PublishDir>   <!-- 版本号跟着发布版本走 -->
->     <PublishProtocol>FileSystem</PublishProtocol>
->     <_TargetId>Folder</_TargetId>
->     <TargetFramework>net10.0-windows</TargetFramework>
->     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
->     <SelfContained>true</SelfContained>
->     <DebugType>none</DebugType>
->     <DebugSymbols>false</DebugSymbols>
->   </PropertyGroup>
-> </Project>
+> 改完 csproj 必跑两个场景验证：
+> ```powershell
+> dotnet build tests\logcat.Tests\logcat.Tests.csproj -c Release
+>   # 须 0 错误，且 bin\Release\net10.0-windows\win-x64\ 【无】coreclr.dll
+> dotnet publish logcat.csproj -c Release -p:SelfContained=true -p:RuntimeIdentifier=win-x64 -p:PublishDir=<tmp>\
+>   # 须【有】coreclr.dll，体积约 120 MB
 > ```
->
-> 注意 `csproj` 里的 `PropertyGroup` 是**无条件生效**的（不走 pubxml 时也一样），
-> 所以命令行 `dotnet publish -c Release -p:PublishDir=...` 也能得到自包含产物；
-> 但从 VS 发布面板走 pubxml 就以文件为准。
 
-| | 旧（框架依赖） | 新（自包含） |
+| |旧（框架依赖） | 新（自包含） |
 |---|---|---|
-| 目录体积 | 1.8 MB | **120 MB** |
+| 目录体积 | 1.8 MB | **120 MB**（zip 约 48 MB） |
 | 目标机要求 | 必须预装 .NET 10 Desktop Runtime | **只需 Windows** |
 
 旧版的 runtimeconfig 声明依赖 `Microsoft.NETCore.App` / `Microsoft.WindowsDesktop.App`
@@ -169,6 +160,35 @@ Select-String -Path publish\Release\V0.1.2\*.* -Pattern 'xunit|coverlet|TestPlat
 - ⚠️ 本机 `hostfxr.dll` 加载会报 `0x80070005`（与 `dotnet test` 同一个问题，
   环境权限所致，**不代表产物有问题**）。所以本机无法用"能否启动"验证自包含，
   改用「runtimeconfig 无外部依赖 + coreclr.dll 在包内」这两个结构判据。
+
+### 3.4 pubxml 需手动同步（不入库）
+
+`Properties/PublishProfiles/FolderProfile.pubxml` 被 `.gitignore` 的 `*.pubxml` 排除，
+**不入库**。它有两处必须与实际发布保持一致：
+
+1. `<PublishDir>` 里硬编码了版本号（当前 `publish\Release\V0.1.2`）——
+   改版本时**本机这份文件也要跟着改**，漏改会发到旧目录（本项目已踩过一次）。
+2. `<SelfContained>` / `<RuntimeIdentifier>`：从 VS 发布面板发布会以本文件为准，
+   覆盖 csproj 设置。保持与 3.3 一致。
+
+换机器 / 重新 clone 后这份文件会消失，按此模板重建：
+
+```xml
+<Project>
+  <PropertyGroup>
+    <Configuration>Release</Configuration>
+    <Platform>Any CPU</Platform>
+    <PublishDir>publish\Release\V0.1.3</PublishDir>   <!-- 版本号跟着发布版本走 -->
+    <PublishProtocol>FileSystem</PublishProtocol>
+    <_TargetId>Folder</_TargetId>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
+    <DebugType>none</DebugType>
+    <DebugSymbols>false</DebugSymbols>
+  </PropertyGroup>
+</Project>
+```
 
 ### 3.1 ✅ 已解决：GitCode 曾拒收推送（Pull 镜像导致仓库只读）
 

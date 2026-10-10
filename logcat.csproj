@@ -25,25 +25,25 @@
 
   <!--
     发布为【自包含】：目标机不需要预装 .NET Desktop Runtime。
+
     起因：原发布是框架依赖（runtimeconfig 声明依赖 Microsoft.NETCore.App /
     Microsoft.WindowsDesktop.App 10.0.0，目录内无 coreclr.dll），但 README
-    写着"运行已发布版本不需要 SDK"，下载即用的前提不成立——没装运行时的机器
-    双击即报错。
+    写着"运行已发布版本不需要 SDK"—— 没装运行时的机器双击即报错，
+    "下载即用"的前提不成立。
 
-    代价是包体积 1.8 MB → 约 120 MB（压缩后约 45 MB）。这是"下载即用"的
-    必要成本：目标用户是 Android 开发者，装 .NET Desktop Runtime 是额外门槛。
+    ⚠️ **SelfContained 绝不能无条件写在这里。**
+    它会沿 ProjectReference 传染：测试工程（框架依赖）会报
+    NETSDK1151「自包含的可执行文件不能由非自包含的可执行文件引用」，
+    直接打断 CI。所以这里只声明"默认关闭"，
+    由发布命令用 -p:SelfContained=true 打开 —— 见 docs/PUBLISHING.md §3.3。
 
-    为什么不用 PublishSingleFile：实测单文件 exe 在本机无法启动
+    代价：包体积 1.8 MB → 约 120 MB（zip 48 MB）。这是"下载即用"的必要成本，
+    目标用户是 Android 开发者，装 .NET Desktop Runtime 是额外门槛。
+    为什么不用 PublishSingleFile：实测单文件 exe 无法启动
     （Failed to map file... error 5 / bundle memory map 失败，非沙箱复测同样失败）。
-    故保持多文件形态 —— 目录里 coreclr.dll / hostfxr.dll / hostpolicy.dll
-    齐全，是真自包含。
-
-    DebugType/DebugSymbols 去掉 pdb：发布体积的头号隐形杀手，且本项目
-    无需给用户分发符号。真正跑不通时再临时加回来。
   -->
   <PropertyGroup>
-    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
-    <SelfContained>true</SelfContained>
+    <SelfContained Condition="'$(SelfContained)' == ''">false</SelfContained>
     <DebugType>none</DebugType>
     <DebugSymbols>false</DebugSymbols>
   </PropertyGroup>
