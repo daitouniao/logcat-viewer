@@ -8,6 +8,8 @@ namespace logcat.Tests;
 /// CommandStore：内置命令库、分类 CRUD、收藏、最近使用历史、占位符记忆。
 /// 全部用例都直接构造内存实例，不触碰 %LOCALAPPDATA% 下的真实数据文件。
 /// </summary>
+// 本类会改动 Loc 的全局语言状态，必须与其它改语言的类串行（见 LangCollection）
+[Collection(LangCollection.Name)]
 public class CommandStoreTests
 {
     static CommandStore NewStore(out CommandStore.StoreData data)

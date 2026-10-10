@@ -1,7 +1,33 @@
 using System.IO;
 using System.Text;
+using Xunit;
 
 namespace logcat.Tests;
+
+/// <summary>
+/// 会修改 <c>Loc</c> 全局语言状态的测试集合。
+///
+/// <para>
+/// <b>为什么需要它</b>：<c>Loc._lang</c> 是**进程级静态可变状态**，而 xUnit 默认
+/// **按测试类并行**执行。改动语言的测试若分布在多个类里，这些类会同时跑，
+/// 互相把语言抢走 —— 表现为<b>偶发</b>失败：本地串行反射跑（tstrun）永远复现不出，
+/// CI 上并行跑就挂一条。2026-10-10 实测：<c>CommandStoreTests.重载后内置中文分类仍可本地化</c>
+/// 在 CI 上 Expected "Logs &amp; Crashes" / Actual "日志与异常"，
+/// 本地英文环境连跑多次都全绿。
+/// </para>
+///
+/// <para>
+/// <b>怎么用</b>：语言相关用例所在的类打<code>[Collection(LangCollection.Name)]</code>，
+/// 同集合内的类之间不再并行。<c>InZh</c>/<c>InEn</c> 本身仍只保证"设了会还原"，
+/// 不保证"期间不被别人改"。
+/// </para>
+/// </summary>
+[CollectionDefinition(LangCollection.Name, DisableParallelization = true)]
+public sealed class LangCollection
+{
+    /// <summary>集合名。引用它即可把类并入该集合。</summary>
+    public const string Name = "Loc-global-language";
+}
 
 /// <summary>
 /// 固定界面语言执行一段测试代码，结束后自动还原。
@@ -11,10 +37,13 @@ namespace logcat.Tests;
 /// 测试若直接硬编码中文期望值，结果就取决于机器的系统区域：本地中文全绿，
 /// CI runner 上是英文环境就整片红（2026-10-10 实测 412 条里 9 条失败）。
 ///
-/// 用法：断言要跟语言绑定时用这两条helper，<b>并且在两种语言下各断言一次</b>——
+/// 用法：断言要跟语言绑定时用这两条 helper，<b>并且在两种语言下各断言一次</b>——
 /// 只测一种语言的话，把被测代码退回硬编码中文仍然全绿，抓不住回归。
-/// 注意：被测输出是"生成那一刻"按当时语言算出来的，涉及生成动作（如Build）
+/// 注意：被测输出是"生成那一刻"按当时语言算出来的，涉及生成动作（如 Build）
 /// 的断言必须在 helper 内部<b>重新生成</b>，事后切语言比对拿到的是旧语言的串。
+///
+/// ⚠️ 用到本 helper 的测试类**必须**打 <c>[Collection(LangCollection.Name)]</c>，
+/// 否则并行时会与其他改语言的类互相抢状态（见 <see cref="LangCollection"/>）。
 /// </summary>
 static class LangScope
 {

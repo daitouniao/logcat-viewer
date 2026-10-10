@@ -8,6 +8,8 @@ namespace logcat.Tests;
 /// LogDocument：mmap 列式索引的构建、增量追加、多行合并、跨年时间戳推算。
 /// 行文本统一用 TestData.Threadtime 生成，字段偏移量在注释里标注，便于核对。
 /// </summary>
+// 本类会改动 Loc 的全局语言状态，必须与其它改语言的类串行（见 LangCollection）
+[Collection(LangCollection.Name)]
 public class LogDocumentTests
 {
     const string T1 = "09-23 18:00:00.000";

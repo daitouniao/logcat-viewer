@@ -10,6 +10,8 @@ namespace logcat.Tests;
 /// 漏加译文、占位符数量对不上、译文里混进中文，都会被这里拦下，
 /// 而不是等到英文界面跑起来才肉眼发现。
 /// </summary>
+// 本类会改动 Loc 的全局语言状态，必须与其它改语言的类串行（见 LangCollection）
+[Collection(LangCollection.Name)]
 public class LocTableTests
 {
     static IReadOnlyDictionary<string, string> En => Loc.En;

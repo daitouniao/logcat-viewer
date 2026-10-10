@@ -5,6 +5,8 @@ using Xunit;
 namespace logcat.Tests;
 
 /// <summary>模型层与纯静态工具（FilterSpec 描述、模型 ToString、AppInfo、AdbManager 的纯函数）。</summary>
+// 本类会改动 Loc 的全局语言状态，必须与其它改语言的类串行（见 LangCollection）
+[Collection(LangCollection.Name)]
 public class ModelTests
 {
     // ── FilterSpec.IsEmpty ──
