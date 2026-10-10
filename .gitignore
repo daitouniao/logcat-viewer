@@ -124,3 +124,4 @@ tests/logcat.Tests/tmp/
 
 ## 私有文档（不入库，仅本地保存）
 docs/private/
+AGENTS.md

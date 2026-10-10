@@ -2,6 +2,7 @@
 
 [![Version: V0.1.3](https://img.shields.io/badge/version-V0.1.3-green)](logcat.csproj)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
+[![Platform: Windows](https://img.shields.io/badge/platform-Windows-lightgrey)](#环境要求)
 [![CI](https://github.com/daitouniao/logcat-viewer/actions/workflows/ci.yml/badge.svg)](https://github.com/daitouniao/logcat-viewer/actions/workflows/ci.yml)
 
 Windows 桌面端 Android 日志（logcat）查看器。基于 WinForms，使用内存映射文件 + 列式索引，可直接打开并流畅浏览千万行级别的日志文件，同时支持通过 ADB 实时采集设备日志、截图、录屏、文件互传、APK 安装/卸载与分类收藏常用命令。
@@ -96,7 +97,7 @@ Windows 桌面端 Android 日志（logcat）查看器。基于 WinForms，使用
   - `本机 adb`：直接调用 `adb.exe`，用于 `install` / `reboot` / `push` 等子命令，自动补 `-s <序列号>`
 - **分类管理**：内置 5 类共 112 条常用命令，可新建 / 重命名 / 删除自己的分类
 - **收藏与历史**：收藏上限 300 条，执行记录自动进「最近使用」（上限 120 条，带使用次数）
-- **占位符参数**：命令里的 `{名称}` 是执行前提示填值的参数，并记住上次输入
+- **占位符参数**：命令里任意 `{名称}`（字母/数字/`_`/`-`）都是执行前提示填值的参数，并记住上次输入。内置命令库用到 `{pkg}`、`{pid}`、`{file}`、`{path}`、`{activity}`、`{url}`、`{tag}`、`{ip}`、`{apk}`、`{name}`；其中 `{pkg}` 还会拿 run-as 收藏当默认值
 - **流式输出**：逐行回显并显示行数与耗时，可中途停止或设超时（默认 30 秒）
 - **不误触**：双击或 `Enter` 列表项只把命令填入输入框，需再点「执行」
 
@@ -128,7 +129,7 @@ Windows 桌面端 Android 日志（logcat）查看器。基于 WinForms，使用
 - **切换入口**：`帮助 → 语言 → 简体中文 / English`，选择写入 exe 同级目录的 `settings.json`
 - **默认语言**：首次启动跟随系统区域（`CultureInfo.CurrentUICulture`）；设置缺失或损坏时也回退到它
 - **切换时不只换文字**：整个 UI 是代码构建的（`frmMain.Designer.cs` 只有 37 行），所以切换会遍历所有已打开窗体，换上目标语言的字体（中文用「微软雅黑 UI」——Segoe UI 无中文字形，高 DPI 下会被裁字；英文用原生 Segoe UI），再按实测文本宽度重算定宽按钮与绝对定位对话框的尺寸——英文普遍比同义中文长 30~50%
-- **规模**：9 张分表共约 566 条译文，另有一批按语言区分的列宽与对话框尺寸常量
+- **规模**：9 张分表共 556 条译文，另有一批按语言区分的列宽与对话框尺寸常量
 
 双语布局审计会在两种语言下按「最小 / 默认 / 半宽」三档遍历控件树，断言**裁字数为 0**。
 
@@ -208,6 +209,7 @@ python tests/coverage-report.py     # 输出 tests/coverage-report.html
 | `M`               | 标记当前行                                |
 | `Enter`           | 查看当前行完整记录                        |
 | `Esc`             | 停止当前任务并清空选择                    |
+| `Ctrl+Q`          | 退出应用                                  |
 
 也支持把日志文件直接拖拽到窗口中打开。
 
@@ -261,6 +263,7 @@ Services/
   FilterEngine.cs       过滤引擎（预筛 → message 匹配 → 导出）
   AdbManager.cs         ADB 封装（设备枚举、Shell、流式执行、本机 adb、截图、推拉文件）
   LogcatStream.cs       实时 logcat 采集流
+  ClipboardHelper.cs    带重试的剪贴板写入（剪贴板被其他进程短暂占用时不抛 ExternalException）
   FavoritesStore.cs     收藏持久化（目录、run-as 包名、APK 路径、应用包名、tag / message 过滤条件）
   CommandStore.cs       命令分类 / 收藏 / 历史持久化 + 内置命令库
   AppSettings.cs        用户级设置（窗口几何、显示选项、上次路径、界面语言、安装/卸载窗口选项，JSON 持久化到 exe 同级目录 settings.json）
@@ -270,14 +273,27 @@ tests/
   logcat.Tests/           xUnit 测试工程（412 个用例：日志解析 / 列式索引 / 过滤引擎 / 持久化 / 本地化）
     coverlet.runsettings  覆盖率统计口径（Include / Exclude 规则）
 docs/
-  BUILDING.md             怎么编译与发布
-  FEATURES.md             计划实现的功能
+  BUILDING.md             怎么编译与发布（两个包各自的命令与产物验证）
   TESTING.md              怎么跑测试、怎么出覆盖率（唯一操作入口）
   UT-AUDIT.md             变异测试审计——测试到底咬不咬得住
+  FEATURES.md             计划实现的功能（模板，内容待补）
+  FILTER-REFACTOR-PLAN.md 工具栏过滤与过滤面板解耦的改造计划（已执行完毕，留档）
+  TOOLBAR-FAVORITES-DESIGN.md 工具栏输入框星号收藏 + 收藏下拉的设计定稿（已落地，留档）
+  images/main.gif         README 顶部的演示动图
 LICENSE                 Apache-2.0 全文
 THIRD-PARTY-NOTICES.md  第三方库与工具链的许可声明
 DISCLAIMER.md           免责声明全文
 ```
+
+## 文档
+
+| 文档 | 什么时候看它 |
+|---|---|
+| [docs/BUILDING.md](docs/BUILDING.md) | 要编译或发版——两个包各自的 `dotnet publish` 命令、产物结构验证、踩坑速查 |
+| [docs/TESTING.md](docs/TESTING.md) | 要跑测试或出覆盖率——含「智能体沙箱里 `dotnet test` 起不来」的绕法 |
+| [docs/UT-AUDIT.md](docs/UT-AUDIT.md) | 想知道测试到底咬不咬得住——变异测试审计结论 |
+| [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) | 关心依赖与许可——逐个包的版本、许可、版权与分发检查项 |
+| [DISCLAIMER.md](DISCLAIMER.md) | 使用前必读的完整免责条款 |
 
 ## 数据存储
 

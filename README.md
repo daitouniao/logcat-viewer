@@ -9,6 +9,13 @@ A Windows desktop viewer for Android logs (`logcat`). Built with WinForms on .NE
 
 **English** | [简体中文](README.zh-CN.md)
 
+Repositories:
+
+- GitCode (primary): <https://gitcode.com/gcw_WDXl5paK/logcat-viewer>
+- GitHub (mirror): <https://github.com/daitouniao/logcat-viewer>
+
+> Current version **V0.1.3**. The single source of truth is `<Version>` in [logcat.csproj](logcat.csproj) — the window title, the about dialog and the exe's file properties all read from it.
+>
 > The UI speaks **both Chinese and English** and switches at runtime — `Help → Language`, no restart. First launch follows your system locale; the choice is remembered in `settings.json`.
 
 ![logcat viewer — filtering demo](docs/images/main.gif)
@@ -89,7 +96,7 @@ Collect the commands you keep retyping, organise them into categories, and re-ru
   - *Local adb* — calls `adb.exe` directly for subcommands like `install` / `reboot` / `push`, automatically appending `-s <serial>`, and reports the exit code
 - **Categories**: 112 built-in commands across 5 categories (`shell`, `dumpsys`, apps & packages, logs & exceptions, `adb`); create / rename / delete your own
 - **Favourites and history**: up to 300 favourites deduplicated by command text + channel; execution history keeps the last 120 with usage counts
-- **Placeholder parameters**: `{name}` in a command is a parameter prompted for before execution, with the last value remembered — `{pkg}`, `{pid}`, `{apk}`, `{ip}`, `{activity}`, `{url}`, `{tag}`, `{file}`
+- **Placeholder parameters**: any `{name}` in a command (letters/digits/`_`/`-`) is prompted for before execution, and the last value is remembered. The built-in library uses `{pkg}`, `{pid}`, `{file}`, `{path}`, `{activity}`, `{url}`, `{tag}`, `{ip}`, `{apk}`, `{name}`; `{pkg}` also falls back to your run-as favourites as the default
 - **Streaming output**: line-by-line echo with line count and elapsed time; long-running commands like `logcat` can be stopped or time out (default 30 s, 0 = unlimited)
 - **No accidental runs**: double-click or `Enter` only fills the input box; you still have to press Execute
 
@@ -120,7 +127,7 @@ The entire UI is available in both languages and switches **at runtime** — no 
 - **Switching**: `Help → Language → 简体中文 / English`; the choice is persisted to `settings.json`
 - **Default**: first launch follows the system locale (`CultureInfo.CurrentUICulture`); a corrupt or missing setting falls back to it
 - **What gets re-measured on switch**: not just text. The whole UI is built in code (`frmMain.Designer.cs` is 37 lines), so switching re-walks every open form and applies the target language's font — Microsoft YaHei UI for Chinese (Segoe UI has no CJK glyphs and clips them at high DPI), Segoe UI for English — then re-measures fixed-width buttons and absolutely-positioned dialogs, which are ~30–50% wider in English
-- **Scope**: ~566 translated strings across 9 tables, plus per-language fixed widths for columns and dialogs
+- **Scope**: 556 translated strings across 9 tables, plus per-language fixed widths for columns and dialogs
 
 A language layout audit walks the control tree in both languages at minimum / default / half width and asserts **zero clipped labels**.
 
@@ -201,6 +208,7 @@ The scope is defined in `tests/logcat.Tests/coverlet.runsettings` and excludes t
 | `M`               | Mark the current row                                   |
 | `Enter`           | View the full record for the current row               |
 | `Esc`             | Stop the current task and clear the selection          |
+| `Ctrl+Q`          | Quit                                                  |
 
 You can also drag a log file straight onto the window.
 
@@ -254,6 +262,7 @@ Services/
   FilterEngine.cs       Filter engine (pre-filter → message match → export)
   AdbManager.cs         ADB wrapper (device enumeration, shell, streaming, local adb, screenshot, push/pull)
   LogcatStream.cs       Live logcat capture stream
+  ClipboardHelper.cs    Clipboard write with retry (other processes briefly holding the clipboard shouldn't throw ExternalException)
   FavoritesStore.cs     Favourites persistence (directories, run-as packages, APK paths, app packages, tag/message filter conditions)
   CommandStore.cs       Command categories / favourites / history persistence + built-in command library
   AppSettings.cs        User-level settings (window geometry, display options, last paths, UI language, install/uninstall options; JSON in exe-relative `settings.json`)
@@ -263,14 +272,27 @@ tests/
   logcat.Tests/         xUnit test project (412 tests: log parsing / columnar index / filter engine / persistence / localization)
     coverlet.runsettings Coverage scope (Include / Exclude rules)
 docs/
-  BUILDING.md            How to build and publish
-  FEATURES.md            Planned features
-  TESTING.md            How to run the suite and produce coverage (single entry point)
-  UT-AUDIT.md           Mutation-testing audit — where the tests actually bite
+  BUILDING.md            How to build and publish — the two `dotnet publish` commands, artifact verification, pitfall table
+  TESTING.md             How to run the suite and produce coverage (single entry point)
+  UT-AUDIT.md            Mutation-testing audit — where the tests actually bite
+  FEATURES.md            Planned features (stub)
+  FILTER-REFACTOR-PLAN.md   Toolbar-filter / filter-panel decoupling plan (executed, kept for the record)
+  TOOLBAR-FAVORITES-DESIGN.md  Toolbar star-favourites + favourites dropdown, final design (shipped, kept for the record)
+  images/main.gif        The demo animation at the top of this file
 LICENSE                 Apache-2.0 full text
 THIRD-PARTY-NOTICES.md  Third-party licences
 DISCLAIMER.md           Disclaimer full text
 ```
+
+## Documentation
+
+| Document | When to read it |
+|---|---|
+| [docs/BUILDING.md](docs/BUILDING.md) | Building or publishing — the two `dotnet publish` commands, artifact verification, pitfall table |
+| [docs/TESTING.md](docs/TESTING.md) | Running the suite or producing coverage — includes the workaround for `dotnet test` failing inside a restricted sandbox |
+| [docs/UT-AUDIT.md](docs/UT-AUDIT.md) | Whether the tests actually bite — the mutation-testing audit |
+| [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) | Dependencies and licences — per-package versions, licences, copyright lines and distribution checklist |
+| [DISCLAIMER.md](DISCLAIMER.md) | The full terms to read before using the tool |
 
 ## Data storage
 
@@ -282,15 +304,34 @@ DISCLAIMER.md           Disclaimer full text
 
 ## License
 
-[Apache License 2.0](LICENSE) — free to use, modify and distribute, including commercially. Third-party components and their licences are listed in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md); the full disclaimer is in [DISCLAIMER.md](DISCLAIMER.md).
+[Apache License 2.0](LICENSE). It was chosen to match the licences of the dependencies and toolchain: the only non-Microsoft dependency is the Apache-2.0 ADB client library and everything else is MIT, so Apache-2.0 covers the whole dependency tree without conflict and adds the patent grant. Free to use, modify and distribute under the Apache-2.0 terms, including commercially.
 
-The source was produced with AI assistance and is not attributed to a named individual author; copyright is declared collectively as `logcat viewer contributors`.
+> The source was produced with AI assistance and is not attributed to a named individual author; copyright is declared collectively as `logcat viewer contributors`. To put your own attribution in place, change two places: the `Copyright` line in the `LICENSE` appendix and `<Copyright>` in `logcat.csproj`.
+
+### Licence compatibility
+
+| Used | Licence | Relationship to this project |
+|---|---|---|
+| AdvancedSharpAdbClient 3.6.16 | Apache-2.0 | The only non-Microsoft NuGet library; its DLL ships with the build → Apache-2.0 keeps things simplest |
+| Microsoft.Extensions.* 10.0.11 (Logging and its dependencies, 13 packages) | MIT | MIT code can be incorporated into an Apache-2.0 project without restriction, keeping its copyright notice |
+| .NET SDK 10.0.400 / C# compiler / WinForms | Source MIT; installed binaries under the Microsoft Software Licence — .NET Library | Build toolchain and runtime; the terms permit building and distributing applications for free |
+| adb.exe (Android platform-tools) | Apache-2.0 | An external program in the user's environment — not bundled or modified; if you redistribute platform-tools, keep its LICENSE/NOTICE |
+
+### Details and compliance
+
+- The full inventory (package names, versions, licence identifiers, copyright lines, transitive dependencies, distribution checklist) is in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
+- `dotnet build` / `dotnet publish` copy `README.md` (English), `README.zh-CN.md` (Chinese), `LICENSE`, `THIRD-PARTY-NOTICES.md` and `DISCLAIMER.md` into the output directory, so every binary release carries its own notices.
+- Assembly copyright information is written into the exe's *Properties → Details*.
+
+### Contributions are licensed as Apache-2.0
+
+Per Apache-2.0 §5, contributions submitted to this repository are licensed under Apache-2.0 by default and need no separate declaration. When you modify a source file, note the modification there as required by §4(b).
 
 ## Disclaimer
 
-See [DISCLAIMER.md](DISCLAIMER.md) for the full terms. In short:
+See [DISCLAIMER.md](DISCLAIMER.md) for the full terms. Using this software means you have read, understood and agreed to all of them; **if you disagree with any of them, stop using it and delete it immediately.** In short:
 
-- **Device operations are at your own risk** — screenshots, screen recording, file transfer, APK install/uninstall and `adb shell` / root commands act directly on your device
+- **Device operations are at your own risk** — screenshots, screen recording, file transfer, APK install/uninstall and `adb shell` / root commands act directly on your device; confirm what each command does. Loss of data, system instability or device damage caused by a mistake is borne by you, the operator.
 - **root and restricted directories** — accessing `/data/data` and similar requires root or run-as, and may damage app data or affect your warranty
 - **Lawful use only** — only on devices and data you are authorised to access
 - **Logs contain sensitive data** — logcat output often includes credentials, tokens and location data; sanitise before sharing

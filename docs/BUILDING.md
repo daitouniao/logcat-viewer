@@ -110,16 +110,6 @@ Select-String -Path publish\Release\V0.1.3-*\*\*.* -Pattern 'xunit|coverlet|Test
 `Properties/PublishProfiles/FolderProfile.pubxml` 不入库，改版本后需同步其中的
 `<PublishDir>`，否则会发到旧目录。
 
-## 五、发到 GitHub
-
-在仓库 Releases 页新建 release，tag 填版本号（如 `V0.1.3`），**上传两个资产**：
-
-- `logcat-V0.1.3-win-x64.zip`
-- `logcat-V0.1.3-win-x64-fd.zip`
-
-Release 正文里说明两个包的差别（见下表），并注明框架依赖包需要用户自己装
-.NET 10 Desktop Runtime。
-
 ## 两包的取舍
 
 | | 自包含 | 框架依赖 |
