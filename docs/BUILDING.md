@@ -17,10 +17,10 @@
 
 | 位置 | 改什么 |
 |---|---|
-| `logcat.csproj` | `<Version>0.1.2</Version>` |
+| `logcat.csproj` | `<Version>0.1.3</Version>` |
 | `README.md` | 顶部 badge 里的版本文字 |
 | `README.zh-CN.md` | 顶部 badge 里的版本文字 |
-| `README.zh-CN.md` | "当前版本 **V0.1.2**" |
+| `README.zh-CN.md` | "当前版本 **V0.1.3**" |
 
 标题栏、关于对话框、exe 文件属性都从 `<Version>` 自动取，不用改。
 
@@ -40,22 +40,22 @@ dotnet build tests\logcat.Tests\logcat.Tests.csproj -c Release
 
 ## 四、发布
 
-以 V0.1.2 为例，**先把版本号换掉**再执行。
+以 V0.1.3 为例，**先把版本号换掉**再执行。
 
 每个版本发**两个包**：自包含 + 框架依赖。
 
 | 包 | 目标机要求 | 体积 |
 |---|---|---|
-| **自包含** `logcat-V0.1.2-win-x64.zip` | 只需 Windows | 约 120 MB |
-| **框架依赖** `logcat-V0.1.2-win-x64-fd.zip` | 须预装 .NET 10 Desktop Runtime | 约 1.8 MB |
+| **自包含** `logcat-V0.1.3-win-x64.zip` | 只需 Windows | 约 120 MB |
+| **框架依赖** `logcat-V0.1.3-win-x64-fd.zip` | 须预装 .NET 10 Desktop Runtime | 约 1.8 MB |
 
 ### 1. 先删干净目标目录
 
 ⚠️ `dotnet publish` **不清空目标目录**，旧文件会被一起打进 zip。
 
 ```powershell
-Remove-Item -Recurse -Force publish\Release\V0.1.2-selfcontained
-Remove-Item -Recurse -Force publish\Release\V0.1.2-fdd
+Remove-Item -Recurse -Force publish\Release\V0.1.3-selfcontained
+Remove-Item -Recurse -Force publish\Release\V0.1.3-fdd
 ```
 
 ### 2. 发布自包含包
@@ -63,10 +63,10 @@ Remove-Item -Recurse -Force publish\Release\V0.1.2-fdd
 ```powershell
 dotnet publish logcat.csproj -c Release `
   -p:SelfContained=true -p:RuntimeIdentifier=win-x64 `
-  -p:PublishDir=publish\Release\V0.1.2-selfcontained\
+  -p:PublishDir=publish\Release\V0.1.3-selfcontained\
 
-Compress-Archive -Path publish\Release\V0.1.2-selfcontained\* `
-  -DestinationPath publish\Release\logcat-V0.1.2-win-x64.zip -Force
+Compress-Archive -Path publish\Release\V0.1.3-selfcontained\* `
+  -DestinationPath publish\Release\logcat-V0.1.3-win-x64.zip -Force
 ```
 
 ⚠️ **不要加 `-p:PublishSingleFile=true`**，单文件 exe 实测启动失败。
@@ -78,25 +78,25 @@ Compress-Archive -Path publish\Release\V0.1.2-selfcontained\* `
 ```powershell
 dotnet publish logcat.csproj -c Release `
   -p:RuntimeIdentifier=win-x64 `
-  -p:PublishDir=publish\Release\V0.1.2-fdd\
+  -p:PublishDir=publish\Release\V0.1.3-fdd\
 
-Compress-Archive -Path publish\Release\V0.1.2-fdd\* `
-  -DestinationPath publish\Release\logcat-V0.1.2-win-x64-fd.zip -Force
+Compress-Archive -Path publish\Release\V0.1.3-fdd\* `
+  -DestinationPath publish\Release\logcat-V0.1.3-win-x64-fd.zip -Force
 ```
 
 ### 4. 验证产物
 
 ```powershell
 # 自包含：runtimeconfig 无外部框架声明 + coreclr.dll 在包内
-Select-String -Path publish\Release\V0.1.2-selfcontained\logcat.runtimeconfig.json -Pattern '"frameworks"'
-Test-Path publish\Release\V0.1.2-selfcontained\coreclr.dll
+Select-String -Path publish\Release\V0.1.3-selfcontained\logcat.runtimeconfig.json -Pattern '"frameworks"'
+Test-Path publish\Release\V0.1.3-selfcontained\coreclr.dll
 
 # 框架依赖：runtimeconfig 应声明依赖，且包内【无】coreclr.dll
-Select-String -Path publish\Release\V0.1.2-fdd\logcat.runtimeconfig.json -Pattern 'Microsoft.WindowsDesktop.App'
-Test-Path publish\Release\V0.1.2-fdd\coreclr.dll   # 应为 False
+Select-String -Path publish\Release\V0.1.3-fdd\logcat.runtimeconfig.json -Pattern 'Microsoft.WindowsDesktop.App'
+Test-Path publish\Release\V0.1.3-fdd\coreclr.dll   # 应为 False
 
 # 两个包都要查有没有混进测试产物和 pdb
-Select-String -Path publish\Release\V0.1.2-*\*\*.* -Pattern 'xunit|coverlet|TestPlatform' -List
+Select-String -Path publish\Release\V0.1.3-*\*\*.* -Pattern 'xunit|coverlet|TestPlatform' -List
 ```
 
 预期：自包含约 120 MB、`frameworks` 匹配不到（字段为空）、`coreclr.dll` 存在；
@@ -112,10 +112,10 @@ Select-String -Path publish\Release\V0.1.2-*\*\*.* -Pattern 'xunit|coverlet|Test
 
 ## 五、发到 GitHub
 
-在仓库 Releases 页新建 release，tag 填版本号（如 `V0.1.2`），**上传两个资产**：
+在仓库 Releases 页新建 release，tag 填版本号（如 `V0.1.3`），**上传两个资产**：
 
-- `logcat-V0.1.2-win-x64.zip`
-- `logcat-V0.1.2-win-x64-fd.zip`
+- `logcat-V0.1.3-win-x64.zip`
+- `logcat-V0.1.3-win-x64-fd.zip`
 
 Release 正文里说明两个包的差别（见下表），并注明框架依赖包需要用户自己装
 .NET 10 Desktop Runtime。

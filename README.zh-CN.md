@@ -1,6 +1,6 @@
 # logcat viewer
 
-[![Version: V0.1.2](https://img.shields.io/badge/version-V0.1.2-green)](logcat.csproj)
+[![Version: V0.1.3](https://img.shields.io/badge/version-V0.1.3-green)](logcat.csproj)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
 [![CI](https://github.com/daitouniao/logcat-viewer/actions/workflows/ci.yml/badge.svg)](https://github.com/daitouniao/logcat-viewer/actions/workflows/ci.yml)
 
@@ -13,7 +13,7 @@ Windows 桌面端 Android 日志（logcat）查看器。基于 WinForms，使用
 - GitCode（主仓库）：<https://gitcode.com/gcw_WDXl5paK/logcat-viewer>
 - GitHub（镜像）：<https://github.com/daitouniao/logcat-viewer>
 
-> 当前版本 **V0.1.2**。版本号以 [logcat.csproj](logcat.csproj) 的 `<Version>` 为唯一来源，发布时只改该处，程序标题、关于对话框与 exe 文件属性会自动同步。
+> 当前版本 **V0.1.3**。版本号以 [logcat.csproj](logcat.csproj) 的 `<Version>` 为唯一来源，发布时只改该处，程序标题、关于对话框与 exe 文件属性会自动同步。
 >
 > 界面**中英双语**，`帮助 → 语言` 运行时即时切换，选择记在 `settings.json`；首次启动跟随系统区域。
 
