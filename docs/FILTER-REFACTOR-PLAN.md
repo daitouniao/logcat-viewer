@@ -275,7 +275,7 @@ v2 §3.2 只提了 frmMain.cs:358，实际还要一起改，否则代码里留�
 4. （若 §3.5 的可选优化落地）补 `CollectSpec`/镜像相关的轻量测试或手测清单。
 
 > **`dotnet test` 在本机跑不起来**（testhost 加载 hostfxr.dll 报 0x80070005，见 MEMORY.md）。
-> 验证走`%TEMP%/tstrun` 反射 runner；覆盖率仍需在你自己终端按 `docs/PUBLISHING.md` §4.2/4.3 出。
+> 验证走`%TEMP%/tstrun` 反射 runner；覆盖率仍需在你自己终端按 [`TESTING.md`](TESTING.md) 出。
 > 改完引擎后建议再跑一轮 `python scripts/mutation-test.py FilterEngine`（注意 `docs/UT-AUDIT.md:185` 的行号会漂移）。
 
 ### 3.7 文档

@@ -24,21 +24,21 @@
   </ItemGroup>
 
   <!--
-    发布为【自包含】：目标机不需要预装 .NET Desktop Runtime。
-
-    起因：原发布是框架依赖（runtimeconfig 声明依赖 Microsoft.NETCore.App /
-    Microsoft.WindowsDesktop.App 10.0.0，目录内无 coreclr.dll），但 README
-    写着"运行已发布版本不需要 SDK"—— 没装运行时的机器双击即报错，
-    "下载即用"的前提不成立。
+    发布形态：每个版本发两个包 —— 自包含 + 框架依赖，步骤见 docs/BUILDING.md 四。
 
     ⚠️ **SelfContained 绝不能无条件写在这里。**
     它会沿 ProjectReference 传染：测试工程（框架依赖）会报
     NETSDK1151「自包含的可执行文件不能由非自包含的可执行文件引用」，
-    直接打断 CI。所以这里只声明"默认关闭"，
-    由发布命令用 -p:SelfContained=true 打开 —— 见 docs/PUBLISHING.md §3.3。
+    直接打断 CI。所以这里只声明"默认关闭"（即框架依赖），
+    由发布命令用 -p:SelfContained=true 打开。
 
-    代价：包体积 1.8 MB → 约 120 MB（zip 48 MB）。这是"下载即用"的必要成本，
-    目标用户是 Android 开发者，装 .NET Desktop Runtime 是额外门槛。
+    两种形态的取舍：
+    - 自包含（约 120 MB）：目标机只需 Windows，双击即用，面向大多数用户
+    - 框架依赖（约 1.8 MB）：目标机须预装 .NET 10 Desktop Runtime，
+      面向已装运行时的机器 / 内网分发 / 带宽敏感场景
+    注意：装运行时必须是 Desktop Runtime，只装 .NET Runtime 或
+    ASP.NET Core Runtime 都起不来。
+
     为什么不用 PublishSingleFile：实测单文件 exe 无法启动
     （Failed to map file... error 5 / bundle memory map 失败，非沙箱复测同样失败）。
   -->

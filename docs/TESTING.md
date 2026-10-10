@@ -2,7 +2,7 @@
 
 > 最后更新：2026-10-07
 > 本文是「怎么把测试跑起来、覆盖率怎么出」的**唯一操作入口**。
-> 有效性审计（变异测试）见 [`UT-AUDIT.md`](UT-AUDIT.md)，发布流程见 [`PUBLISHING.md`](PUBLISHING.md)。
+> 有效性审计（变异测试）见 [`UT-AUDIT.md`](UT-AUDIT.md)。
 
 ## 0. 当前基线（2026-10-07）
 
@@ -56,7 +56,7 @@ python tests/coverage-report.py
 `coverage-report.py` 会自动取**最新**那个 xml，输出 `tests/coverage-report.html`。
 
 > **不需要**再设 `$env:TMP` / `$env:TEMP`。临时目录早已迁到 `tests/logcat.Tests/tmp/`（`TempRoot`），
-> 见 [`PUBLISHING.md`](PUBLISHING.md) §4.2 那个坑的解法。
+> 无需任何环境变量设置。
 
 ### 2.2 路径 B：coverlet console 驱动 tstrun（绕开 testhost）
 
@@ -301,7 +301,7 @@ Assert.True(scanned > 300, $"只找到 {scanned} 个调用点，解析逻辑大�
 ### 5.3 coverlet 必须 ≥ 10.1.0
 
 6.0.4 在 .NET 10 上覆盖率**全 0**。当前 `logcat.Tests.csproj` 引用 `coverlet.collector` 10.1.0。
-若换回旧版，会看到「测试全过但覆盖率 0%」的现象（见 [`PUBLISHING.md`](PUBLISHING.md) §4.3）。
+若换回旧版，会看到「测试全过但覆盖率 0%」的现象。
 
 ### 5.4 跑 `scripts/mutation-test.py` 前先 commit ⚠️
 

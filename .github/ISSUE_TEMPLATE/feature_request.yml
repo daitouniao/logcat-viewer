@@ -6,7 +6,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Thanks for the suggestion! A quick check of [`docs/ROADMAP.md`](../../docs/ROADMAP.md) will tell you whether it is already planned.
+        Thanks for the suggestion! Please describe the problem you are hitting — that matters more than the solution you imagine.
   - type: textarea
     id: problem
     label: What problem does it solve?

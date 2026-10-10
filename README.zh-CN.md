@@ -136,8 +136,14 @@ Windows 桌面端 Android 日志（logcat）查看器。基于 WinForms，使用
 
 ### 环境要求
 
-**运行已发布版本：只需 Windows，不用装任何东西。** 发行包是自包含的 ——
-.NET 运行时就在包内，下载后直接解压双击即可。
+**运行已发布版本：Windows 即可。** 每个版本发两个包，按目标机选一个：
+
+| 包 | 目标机要求 | 体积 |
+|---|---|---|
+| `logcat-V<版本>-win-x64.zip` | **只需 Windows**，解压双击即用 | 约 120 MB |
+| `logcat-V<版本>-win-x64-fd.zip` | 须先装 [.NET 10 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/10.0) | 约 1.8 MB |
+
+不确定选哪个就下自包含包（第一种）。
 
 - Windows x64（10 及以上）
 - 使用 ADB 功能需要 `adb` 在 `PATH` 中（实时采集、截图、文件互传、APK 安装等；
@@ -150,7 +156,7 @@ Windows 桌面端 Android 日志（logcat）查看器。基于 WinForms，使用
 ```powershell
 dotnet build                # 构建
 dotnet run                  # 运行
-dotnet publish -c Release   # 发布（自包含，约 120 MB）
+dotnet publish -c Release   # 发布（框架依赖，约 1.8 MB；自包含见 docs/BUILDING.md）
 ```
 
 也可直接用 Visual Studio 打开 `logcat.slnx` / `logcat.csproj`。
@@ -184,7 +190,7 @@ python tests/coverage-report.py     # 输出 tests/coverage-report.html
 > 判断标准是「这条代码能否在无窗体条件下被有意义地验证」，不是「这个文件新不新」。
 
 > 在受限沙箱（部分 IDE 托管终端）里测试宿主可能被拒绝写入 `%TEMP%`，导致大量用例失败。
-> 把临时目录指到工作区内：`TMP=<工作区内目录> TEMP=<同> dotnet test ...`，详见 [`docs/PUBLISHING.md`](docs/PUBLISHING.md)。
+> 把临时目录指到工作区内：`TMP=<工作区内目录> TEMP=<同> dotnet test ...`。
 
 ## 快捷键
 
@@ -264,10 +270,10 @@ tests/
   logcat.Tests/           xUnit 测试工程（412 个用例：日志解析 / 列式索引 / 过滤引擎 / 持久化 / 本地化）
     coverlet.runsettings  覆盖率统计口径（Include / Exclude 规则）
 docs/
-  ROADMAP.md              功能优先级路线图与验收口径
+  BUILDING.md             怎么编译与发布
+  FEATURES.md             计划实现的功能
   TESTING.md              怎么跑测试、怎么出覆盖率（唯一操作入口）
   UT-AUDIT.md             变异测试审计——测试到底咬不咬得住
-  PUBLISHING.md           发布流程
 LICENSE                 Apache-2.0 全文
 THIRD-PARTY-NOTICES.md  第三方库与工具链的许可声明
 DISCLAIMER.md           免责声明全文

@@ -126,8 +126,15 @@ A language layout audit walks the control tree in both languages at minimum / de
 
 ## Requirements
 
-**To run a published build — nothing but Windows.** The binaries are self-contained: the .NET
-runtime ships inside the folder, so there is nothing to install first.
+**To run a published build — Windows is all you need.** Every release ships two builds; pick
+the one that fits your machine:
+
+| Build | Target machine | Size |
+|---|---|---|
+| `logcat-V<version>-win-x64.zip` | **Windows only** — unzip and run, nothing to install | ~120 MB |
+| `logcat-V<version>-win-x64-fd.zip` | Needs [.NET 10 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/10.0) installed first | ~1.8 MB |
+
+Not sure? Take the self-contained one — it is the larger download but zero setup.
 
 - **Windows x64** (10 or later)
 - **`adb`** on your `PATH` — only for the device features (live capture, screenshots, file
@@ -141,7 +148,7 @@ runtime ships inside the folder, so there is nothing to install first.
 ```powershell
 dotnet build                # build
 dotnet run                  # run
-dotnet publish -c Release   # publish (self-contained, ~120 MB)
+dotnet publish -c Release   # publish (framework-dependent, ~1.8 MB; see docs/BUILDING.md)
 ```
 
 You can also open `logcat.slnx` / `logcat.csproj` directly in Visual Studio.
@@ -176,7 +183,7 @@ The scope is defined in `tests/logcat.Tests/coverlet.runsettings` and excludes t
 
 > In a restricted sandbox (some IDE-managed terminals) the test host may be denied writes to `%TEMP%`, which
 > fails many tests. Point the temp directory into the workspace instead:
-> `TMP=<dir inside the repo> TEMP=<same> dotnet test ...` — see [`docs/PUBLISHING.md`](docs/PUBLISHING.md).
+> `TMP=<dir inside the repo> TEMP=<same> dotnet test ...`.
 
 ## Keyboard shortcuts
 
@@ -256,10 +263,10 @@ tests/
   logcat.Tests/         xUnit test project (412 tests: log parsing / columnar index / filter engine / persistence / localization)
     coverlet.runsettings Coverage scope (Include / Exclude rules)
 docs/
-  ROADMAP.md            Prioritized feature roadmap and acceptance criteria
+  BUILDING.md            How to build and publish
+  FEATURES.md            Planned features
   TESTING.md            How to run the suite and produce coverage (single entry point)
   UT-AUDIT.md           Mutation-testing audit — where the tests actually bite
-  PUBLISHING.md         Release procedure
 LICENSE                 Apache-2.0 full text
 THIRD-PARTY-NOTICES.md  Third-party licences
 DISCLAIMER.md           Disclaimer full text
