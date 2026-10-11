@@ -881,7 +881,11 @@ public partial class frmMain : Form, ILocalizedUi
     }
 
     /// <summary>UNC 路径（含 \\?\ 前缀）或映射到网络位置的盘符。这类路径不做存在性探测。</summary>
-    static bool IsNetworkPath(string path)
+    /// <remarks>
+    /// internal 而非 private：纯函数、无需窗体，单元测试直接覆盖 UNC 前缀 / 无盘根路径 /
+    /// 非法根（<see cref="Path.GetPathRoot"/> 抛异常）三条分支。见 tests/frmMainHelperTests.cs。
+    /// </remarks>
+    internal static bool IsNetworkPath(string path)
     {
         if (string.IsNullOrWhiteSpace(path)) return false;
         if (path.StartsWith(@"\\")) return true;
@@ -892,7 +896,13 @@ public partial class frmMain : Form, ILocalizedUi
     }
 
     /// <summary>超长时中间以「…」省略，保留首尾两端（菜单显示完整路径用）。</summary>
-    static string EllipsizeMiddle(string s, int max)
+    /// <remarks>
+    /// internal 而非 private：纯函数、无需窗体。<c>max &gt;= 1</c> 时输出长度恒为
+    /// <c>max</c>（keep = max - 1 = 头 + 尾，省略号占 1）；<c>max == 0</c> 且串非空时
+    /// <see cref="ArgumentOutOfRangeException"/>（<c>AsSpan</c> 起点越界）——调用点固定传
+    /// 80，不可达，故未做防御。测试见 tests/frmMainHelperTests.cs。
+    /// </remarks>
+    internal static string EllipsizeMiddle(string s, int max)
     {
         if (s.Length <= max) return s;
         var keep = max - 1;                    // 减去「…」本身
@@ -2131,7 +2141,14 @@ public partial class frmMain : Form, ILocalizedUi
         MessageBox.Show(this, text, Loc.T("错误"), MessageBoxButtons.OK, MessageBoxIcon.Warning);
     }
 
-    static string HumanSize(long n)
+    /// <summary>字节数转「1024 进制 + 固定小数位」的可读体积（状态栏用）。</summary>
+    /// <remarks>
+    /// internal 而非 private：纯函数、无需窗体。单位上限 TB——超过 1 PB 仍显示 TB
+    /// （不会溢出到 PB，实测 long.MaxValue → "8388608.00 TB"）。
+    /// 小数位取 <b>当前区域</b>（en-US 用 <c>.</c>，de-DE 用 <c>,</c>），故测试须固定
+    /// <see cref="CultureInfo.CurrentCulture"/>。测试见 tests/frmMainHelperTests.cs。
+    /// </remarks>
+    internal static string HumanSize(long n)
     {
         double val = n;
         foreach (var unit in new[] { "B", "KB", "MB", "GB", "TB" })

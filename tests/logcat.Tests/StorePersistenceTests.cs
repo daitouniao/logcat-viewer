@@ -123,6 +123,33 @@ public class StorePersistenceTests
         Assert.Empty(store.Packages);
         Assert.Empty(store.TagFilters);
         Assert.Empty(store.MsgFilters);
+        Assert.NotNull(store.RecentFiles);       // 缺 RecentFiles 字段时补空集合，不能是 null
+        Assert.Empty(store.RecentFiles);
+        // 补成空集合之后才可安全写入：少了 ??= 兜底时下面这行是 NullReferenceException
+        Assert.True(store.AddRecentFile(@"C:\new.log"));
+        Assert.Equal(new[] { @"C:\new.log" }, store.RecentFiles);
+    }
+
+    /// <summary>
+    /// 字段<b>显式为 null</b>（<c>{"RecentFiles": null}</c>）时也要补成空集合。
+    /// <para>
+    /// 缺字段那种情况其实已被 <c>StoreData.RecentFiles { get; set; } = new()</c> 的属性
+    /// 初始化器兜住，反序列化不会把它置null——所以<b>只有显式 null</b> 这条路能让
+    /// <c>LoadFrom</c> 里的 <c>data.RecentFiles ??= new()</c> 真正生效。删掉这行兜底，
+    /// 「缺字段」用例仍全绿，只有这条会红。
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void FavoritesStore_字段显式为null时也补成空集合()
+    {
+        using var file = new TempStoreFile("""{"RecentFiles": null, "Packages": null}""");
+
+        var store = FavoritesStore.LoadFrom(file.Path);
+
+        Assert.Empty(store.RecentFiles);
+        Assert.Empty(store.Packages);
+        Assert.True(store.AddRecentFile(@"C:\a.log"));
+        Assert.Equal(new[] { @"C:\a.log" }, store.RecentFiles);
     }
 
     [Fact]
@@ -144,6 +171,8 @@ public class StorePersistenceTests
         store.Add(true, "/sdcard/Test", "别名");
         store.AddRunAsPackage("com.example");
         store.AddTagFilter("Network");
+        store.AddRecentFile(@"C:\logs\a.log");
+        store.AddRecentFile(@"C:\logs\b.log");
         store.Save();
 
         var again = FavoritesStore.LoadFrom(file.Path);
@@ -151,6 +180,8 @@ public class StorePersistenceTests
         Assert.Equal("别名", again.Get(true).First(f => f.Path == "/sdcard/Test").Alias);
         Assert.Contains("com.example", again.RunAsPackages);
         Assert.Contains("Network", again.TagFilters);
+        // Recent 同样要能往返：反序列化时若漏掉该字段，列表会变空（历史上是漏过一次的坑）
+        Assert.Equal(new[] { @"C:\logs\b.log", @"C:\logs\a.log" }, again.RecentFiles);
     }
 
     // ── AppSettings ──

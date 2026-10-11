@@ -1,22 +1,44 @@
 # 单元测试与覆盖率实操指南
 
-> 最后更新：2026-10-07
+> 最后更新：2026-10-11
 > 本文是「怎么把测试跑起来、覆盖率怎么出」的**唯一操作入口**。
 > 有效性审计（变异测试）见 [`UT-AUDIT.md`](UT-AUDIT.md)。
 
-## 0. 当前基线（2026-10-07）
+## 0. 当前基线（2026-10-11）
 
 | 项 | 值 |
 | --- | --- |
-| 用例数 | **412**，全过（含 `LocTableTests` 的 18 条本地化一致性测试） |
-| 行覆盖率 | **99.38%** (2,226 / 2,240) |
-| 分支覆盖率 | **87.56%** (1,028 / 1,174) |
-| 方法覆盖率 | **99.23%** |
+| 用例数 | **492**，全过（含 `LocTableTests` 的 18 条本地化一致性测试） |
+| 行覆盖率 | **98.85%** (2,937 / 2,971) |
+| 分支覆盖率 | **87.79%** (1,230 / 1,401) |
+| 方法覆盖率 | **99.32%** (291 / 293) |
 | 统计口径 | 仅 Services + Models（UI 与设备/系统集成层已排除，见 §4） |
+
+> ✅ 空计数回归已查明并解决（2026-10-11），两个独立根因：
+> 1. **PDB 没了**：10-10 的自包含发布改动（`1b17b79`）给主工程加了
+>    `<DebugType>none</DebugType><DebugSymbols>false</DebugSymbols>`，且无条件生效——
+>    Debug 构建也不再产 pdb，coverlet 直接拒绝插桩
+>    （诊断日志：`Skipping module 'logcat.dll': not eligible for instrumentation. Module has no PDB`）。
+>    **已修复（2026-10-11）**：csproj 里改为仅 Release 生效，Debug 保留默认 portable；
+>    采集不再需要命令行覆盖属性。
+> 2. **hits 文件写不进 AppData\Temp**：恢复 PDB 后插桩成功但命中仍为 0——
+>    testhost 退出时 `Tracker...TryAcquireExclusiveLockOnFile` 抛
+>    `UnauthorizedAccessException: ...\logcat_<guid>.lock`，testhost 崩溃、hits 未落盘。
+>    把 `TMP`/`TEMP` 指到仓库内目录（如 `D:\01.0.Code\C#\logcat\.tmp-test\covtemp`）即正常。
+>    成因疑为机器上安全软件盯防 AppData\Temp，未再深挖。
+>
+> 与 10-07 基线的差异：分母变大（崩溃功能 +331 行有效行），行覆盖率 99.38%→98.85% 是
+> 新增代码带来的 34 行未覆盖（旧基线为 14 行），未覆盖清单见 §4 备注。
+>
+> 用例数 492 可信（`dotnet test` 与本次带采集的运行一致）。
 
 > 本轮口径变化：新增的 `Services/Loc.cs`（本地化运行时）**被排除**，理由同 `DpiFix`——
 > 它一半的代码是控件树遍历、字体替换与文本像素测量，没有真实窗体与消息泵无从验证。
 > 与它同目录的 `LocTable.*`（纯数据译文表）**不排除**，是 i18n 的核心验证面。
+>
+> `frmMain` 同样在排除范围内，但其中的**纯函数**（`IsNetworkPath` / `EllipsizeMiddle` /
+> `HumanSize`）已改为 `internal static` 并由 `frmMainHelperTests` 直接覆盖——
+> 判据是「能否在无窗体条件下被有意义地验证」，能验证就不该只靠排除项蒙混。
 >
 > 覆盖率是「代码被执行过」的证明，**不等于**「断言咬得住」。
 > 本项目做过一轮变异测试审计，发现 6 处「覆盖率统计覆盖、却一个用例都抓不到」的代码，详见 [`UT-AUDIT.md`](UT-AUDIT.md)。
@@ -45,7 +67,11 @@
 
 ### 2.1 路径 A：终端 collector 模式
 
+> 2026-10-11 起 `TMP`/`TEMP` 必须指到仓库内目录（见 §0 根因 2），否则 hits 文件写不进
+> AppData\Temp，产出空报告。PDB 问题已在 csproj 修复，无需再传 `-p:DebugType`。
+
 ```powershell
+$env:TMP = $env:TEMP = "D:\01.0.Code\C#\logcat\.tmp-test\covtemp"   # 目录需存在，先 mkdir
 dotnet test tests/logcat.Tests/logcat.Tests.csproj `
   --collect:"XPlat Code Coverage" `
   --settings tests/logcat.Tests/coverlet.runsettings
@@ -55,8 +81,8 @@ python tests/coverage-report.py
 产物在 `tests/logcat.Tests/TestResults/<guid>/coverage.cobertura.xml`，
 `coverage-report.py` 会自动取**最新**那个 xml，输出 `tests/coverage-report.html`。
 
-> **不需要**再设 `$env:TMP` / `$env:TEMP`。临时目录早已迁到 `tests/logcat.Tests/tmp/`（`TempRoot`），
-> 无需任何环境变量设置。
+> 注意区分：这里的 `TMP`/`TEMP` 只影响 **coverlet 写 hits 文件**（testhost 进程级）；
+> 测试自身的临时文件早已迁到 `tests/logcat.Tests/tmp/`（`TempRoot`），与环境变量无关。
 
 ### 2.2 路径 B：coverlet console 驱动 tstrun（绕开 testhost）
 
@@ -226,7 +252,7 @@ dotnet run FilterEngine    # 只跑类名含 FilterEngine 的
 2. **插值表达式里内嵌 `"null"` 会提前闭合字符串**：`$"...{string.Join(", ", data)}..."` 在某些参数下
    会被解析成 `string.Join(", ", data) + "..."` 之类，`string.Join` 的结果要**先提到变量**再插值。
 3. **只匹配 `FactAttribute` 会漏掉全部 Theory**（20 个）—— 所以要么同时匹配 `TheoryAttribute` 并按
-   `[InlineData]` 展开（上面的代码已做），要么**必须**拿「用例总数」与已知基线（当前 **412**）交叉验证
+   `[InlineData]` 展开（上面的代码已做），要么**必须**拿「用例总数」与已知基线（当前 **492**）交叉验证
    runner 本身没漏。这个交叉验证是每次改 runner 后的必做动作。
 
 ### 3.3 本地化相关的两个特殊坑（2026-10-07）
@@ -266,6 +292,13 @@ Assert.True(scanned > 300, $"只找到 {scanned} 个调用点，解析逻辑大�
 
 所以报告里的 ~100% 指的是「**该测的都测到了**」，不是「整个程序集都测到了」。
 看覆盖率变化要**按类对比**，别只看总数字 —— 总数字持平完全可能掩盖了某个类的塌方。
+
+> 2026-10-11 重采后的 34 行未覆盖清单（行号按当前 HEAD）：
+> `AppSettings.cs:91`；`CommandStore.cs:80,306-315`；`CrashExtractor.cs:127-130,214,223`
+> （Java 异常类型「第一个非空行不是已知命名空间」与包名校验的两个死支路）；
+> `FavoritesStore.cs:91`；`FilterEngine.cs:208`；`LogDocument.cs:140-145,585,602,693-695,837-839,999`；
+> `LogParser.cs:155,163-165`。
+> 其中大部分在 10-07 旧基线（14 行）里就有，新增的主要是崩溃功能的边角分支。
 
 ---
 

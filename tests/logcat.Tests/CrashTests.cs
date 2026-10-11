@@ -202,6 +202,34 @@ public class CrashAggregatorTests
         Assert.Equal(1, groups[2].Count);
         Assert.Equal("com.example.pay", groups[2].Pkg);
     }
+
+    /// <summary>
+    /// 组内时间<b>乱序</b>时 <c>LastTs = Math.Max(...)</c> 仍取最大时间。
+    /// 前面唯一分组用例的组内 ts 是升序（100→200），把实现变异成
+    /// <c>LastTs = ce.Ts</c>（取后到事件）或 <c>LastTs = g.LastTs</c>（首见后不再更新）
+    /// 断言都不会红——这条用 100→300→200→-1 的序列把两种变异都钉死：
+    /// 正确 300，前者给 -1，后者给 100。-1（时间未知）排最后还顺带验证
+    /// 未知时间不会把 LastTs 拖没。FirstTs 保持「首个事件的 ts」语义，不是 min。
+    /// </summary>
+    [Fact]
+    public void 组内时间乱序时LastTs取最大时间而非末事件()
+    {
+        var exc = new List<string> { "E" };
+        var pkgs = new List<string> { "p" };
+        var crashes = new List<CrashEvent>
+        {
+            E(10, 0, 0, 100, CrashKind.Java),
+            E(20, 0, 0, 300, CrashKind.Java),
+            E(30, 0, 0, 200, CrashKind.Java),
+            E(40, 0, 0, -1,  CrashKind.Java),   // 时间未知
+        };
+
+        var g = Assert.Single(CrashAggregator.Aggregate(crashes, exc, pkgs));
+
+        Assert.Equal(4, g.Count);
+        Assert.Equal(100, g.FirstTs);   // 首见 = 第一个事件的时间
+        Assert.Equal(300, g.LastTs);    // 末次 = 组内最大时间
+    }
 }
 
 /// <summary>
@@ -214,6 +242,10 @@ public class CrashDocumentTests
     const string T2 = "09-23 18:00:01.000";
     const string T3 = "09-23 18:00:02.000";
     const string T4 = "09-23 18:00:03.000";
+    const string T5 = "09-23 18:00:04.000";
+    const string T6 = "09-23 18:00:05.000";
+    const string T7 = "09-23 18:00:06.000";
+    const string T8 = "09-23 18:00:07.000";
 
     static string Line(string time, char level, string tag, string msg) =>
         TestData.Threadtime(time, 869, 869, level, tag, msg);
@@ -292,6 +324,59 @@ public class CrashDocumentTests
         Assert.Empty(doc.Crashes);
         Assert.Empty(doc.ExcTypes);
         Assert.Empty(doc.Pkgs);
+    }
+
+    /// <summary>
+    /// 三类崩溃（Java×2 / Native / ANR）同文档全量 Build：现有集成用例全是 Java 形态，
+    /// Native/ANR 只在提取器单元层验过，文档层的字典去重、<c>Intern("")→-1</c>、
+    /// 行号升序在这里第一次被整体锁住，并把 doc 输出直接喂给 <see cref="CrashAggregator"/> 验全链路。
+    /// <para>
+    /// <b>行的排布是有意的</b>：a 轨提取带 3 行前瞻，若把 ANR/Native 行放在某组
+    /// 「FATAL EXCEPTION + Process」紧前面，前瞻窗口会把后组的头拼进本行文本，
+    /// <c>TryJava</c> 先于 <c>TryAnr</c> 命中、ANR 会被记成 Java。所以两个 Java 块相邻在前，
+    /// Native、ANR 殿后，各自的前瞻窗口里不再出现别的崩溃头。
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void Build_混合类别事件字典去重且空维度取负一()
+    {
+        using var tmp = new TempLogFile(
+            Line(T1, 'E', "AndroidRuntime", "FATAL EXCEPTION: main") +
+            Line(T2, 'E', "AndroidRuntime", "Process: com.example.app, PID: 869") +
+            Line(T3, 'E', "AndroidRuntime", "java.lang.IllegalStateException: boom") +
+            Line(T4, 'E', "AndroidRuntime", "FATAL EXCEPTION: main") +
+            Line(T5, 'E', "AndroidRuntime", "Process: com.example.app, PID: 869") +
+            Line(T6, 'E', "AndroidRuntime", "java.lang.IllegalStateException: boom2") +
+            Line(T7, 'E', "libc", "Fatal signal 11 (SIGSEGV), code 1 (SEGV_MAPERR), fault addr 0x0 in tid 869 (com.example.app)") +
+            Line(T8, 'I', "ActivityManager", "ANR in com.example.pay (com.example.pay/.MainActivity)"));
+        using var doc = LogDocument.Build(tmp.Path);
+
+        Assert.Equal(4, doc.Crashes.Count);
+        Assert.Equal(new[] { 0, 3, 6, 7 }, doc.Crashes.Select(c => c.Row));   // 行号升序
+        Assert.Equal(new[] { CrashKind.Java, CrashKind.Java, CrashKind.Native, CrashKind.Anr },
+                     doc.Crashes.Select(c => c.Kind));
+
+        // 字典只收非空值：两条 Java 同类型同包名 intern 到同一 id；
+        // ANR 无异常类型、Native 无包名 → id = -1（不进字典，解引用在聚合器里落空串）
+        Assert.Equal(new[] { "java.lang.IllegalStateException", "SIGSEGV" }, doc.ExcTypes);
+        Assert.Equal(new[] { "com.example.app", "com.example.pay" }, doc.Pkgs);
+        Assert.Equal(doc.Crashes[0].ExcId, doc.Crashes[1].ExcId);
+        Assert.Equal(doc.Crashes[0].PkgId, doc.Crashes[1].PkgId);
+        Assert.Equal(-1, doc.Crashes[2].PkgId);    // Native
+        Assert.Equal(-1, doc.Crashes[3].ExcId);    // ANR
+
+        var groups = CrashAggregator.Aggregate(doc.Crashes, doc.ExcTypes, doc.Pkgs);
+        Assert.Equal(3, groups.Count);
+        Assert.Equal(2, groups[0].Count);                                  // Java 两条归一组
+        Assert.Equal("java.lang.IllegalStateException", groups[0].ExcType);
+        Assert.Equal("com.example.app", groups[0].Pkg);
+        Assert.Equal("SIGSEGV", groups[1].ExcType);
+        Assert.Equal("", groups[1].Pkg);                                   // -1 解引用为空串（显示层回退 "-"）
+        Assert.Equal("", groups[2].ExcType);
+        Assert.Equal("com.example.pay", groups[2].Pkg);
+        // 同为 1 次的两组按首见时间升序：Native(T7) 早于 ANR(T8)
+        Assert.Equal(6, groups[1].FirstRow);
+        Assert.Equal(7, groups[2].FirstRow);
     }
 
     // ── 增量追加 ──
@@ -377,5 +462,68 @@ public class CrashDocumentTests
         Assert.Equal(2, doc.RowCount);
         Assert.Equal(2, doc.Crashes[0].LineCount);        // 1 + carry 1；崩溃行本身仍是 Row 0
         Assert.Equal(0, doc.Crashes[0].Row);
+    }
+}
+
+/// <summary>
+/// <see cref="CrashKind.Name"/> 的类别 → 显示名映射（F-05 汇总窗口的「类别」列、摘要行的类别字段）。
+/// </summary>
+// 本类会改动 Loc 的全局语言状态，必须与其它改语言的类串行（见 LangCollection）
+[Collection(LangCollection.Name)]
+public class CrashKindNameTests
+{
+    /// <summary>
+    /// 每个已知类别都要有译文。<b>两种语言各断言一次</b>：只测一种的话，
+    /// 把<code>Loc.T(...)</code> 退回硬编码中文仍然全绿，抓不住回归。
+    /// <para>
+    /// 顺带把「映射本身」锁住——<see cref="LocTableTests"/> 只保证这些中文键<b>存在译文</b>，
+    /// 不保证「Java 类别指向的是 Java 那一行」。把<code>Java</code> 和 <code>Native</code>
+///    的分支写反，LocTable 全绿但用户看到的是错类别名。
+    /// </para>
+    /// </summary>
+    [Theory]
+    [InlineData(CrashKind.Java, "Java 崩溃", "Java Crash")]
+    [InlineData(CrashKind.Native, "Native 崩溃", "Native Crash")]
+    [InlineData(CrashKind.Anr, "ANR 应用无响应", "ANR (App Not Responding)")]
+    [InlineData(CrashKind.Tombstone, "Native 崩溃（tombstone）", "Native Crash (tombstone)")]
+    public void 已知类别映射到对应显示名(byte kind, string zh, string en)
+    {
+        LangScope.InZh(() => Assert.Equal(zh, CrashKind.Name(kind)));
+        LangScope.InEn(() => Assert.Equal(en, CrashKind.Name(kind)));
+    }
+
+    /// <summary>
+    /// 未知类别（字典里没有的 byte）回退「未知 / Unknown」，不能抛也不能返回空串——
+    /// 汇总窗口拿到空串会显示成一个空单元格，看着像bug。
+    /// </summary>
+    [Theory]
+    [InlineData((byte)4)]
+    [InlineData((byte)99)]
+    [InlineData(byte.MaxValue)]
+    public void 未知类别回退未知(byte kind)
+    {
+        LangScope.InZh(() => Assert.Equal("未知", CrashKind.Name(kind)));
+        LangScope.InEn(() => Assert.Equal("Unknown", CrashKind.Name(kind)));
+    }
+
+    /// <summary>
+    /// 四个已知类别的显示名互不相同：Tombstone 与 Native 描述的是同一件事，
+    /// 显示上要能区分（tombstone 是带符号栈的 native 崩溃），但中文名不能撞车到看不出区别。
+    /// </summary>
+    [Fact]
+    public void 各已知类别显示名互不相同()
+    {
+        LangScope.InZh(() =>
+        {
+            var names = new[] { CrashKind.Java, CrashKind.Native, CrashKind.Anr, CrashKind.Tombstone }
+                .Select(CrashKind.Name).ToArray();
+            Assert.Equal(names.Length, names.Distinct().Count());
+        });
+        LangScope.InEn(() =>
+        {
+            var names = new[] { CrashKind.Java, CrashKind.Native, CrashKind.Anr, CrashKind.Tombstone }
+                .Select(CrashKind.Name).ToArray();
+            Assert.Equal(names.Length, names.Distinct().Count());
+        });
     }
 }

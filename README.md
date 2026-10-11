@@ -26,7 +26,7 @@ Most logcat viewers choke on large captures. This one keeps the text on disk (mm
 
 | Capability | How it works |
 | --- | --- |
-| **Instant open on huge files** | Memory-mapped + parallel block indexing, with a cancellable progress bar |
+| **Instant open on huge files** | Memory-mapped + columnar index, with a cancellable progress bar |
 | **Virtual list** | Only visible rows are rendered, so scrolling stays smooth at 10M+ rows |
 | **Six formats auto-detected** | `threadtime` / `time` / `long` / `brief` / `tag` / `ymd`, via a byte-level fast path with regex fallback |
 | **Multi-line joining** | Stack traces and wrapped messages fold back into their parent record (toggleable) |
@@ -257,7 +257,7 @@ Services/
   DpiDiag.cs            High-DPI layout diagnostics (writes to startup.log [DPI] section)
   DpiFix.cs             High-DPI layout fallback (expands overflowing TLP rows and fixed-height button bars)
   StartupLog.cs         Startup diagnostic log (exe-relative `Log\startup.log`)
-  LogDocument.cs        Columnar index document (mmap, parallel indexing, incremental reload)
+  LogDocument.cs        Columnar index document (mmap + columnar index, incremental reload)
   LogParser.cs          Line parser (six formats + continuation detection)
   FilterEngine.cs       Filter engine (pre-filter → message match → export)
   AdbManager.cs         ADB wrapper (device enumeration, shell, streaming, local adb, screenshot, push/pull)

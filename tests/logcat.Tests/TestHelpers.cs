@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.IO;
 using System.Text;
 using Xunit;
@@ -61,6 +62,37 @@ static class LangScope
         var restore = Services.Loc.SetLangGuard(Services.UiLang.En);
         try { body(); }
         finally { restore(); }
+    }
+}
+
+/// <summary>
+/// 固定 <see cref="CultureInfo.CurrentCulture"/> 执行一段测试代码，结束后自动还原。
+///
+/// <para>
+/// <b>为什么需要</b>：走 <c>"{val:F2}"</c> 这类格式化的被测输出（<c>frmMain.HumanSize</c>）
+/// 会跟随当前区域 —— 同一份代码在 en-US 下是 <c>1.50 KB</c>，de-DE 下是 <c>1,50 KB</c>。
+/// 断言里写死 <c>.</c> 的话，在非英文机器上会整片红；而 CI runner 的区域又不归我们控制。
+/// </para>
+///
+/// <para>
+/// <b>注意与 <see cref="LangScope"/> 的区别</b>：那个固定的是<b>界面语言</b>（<c>Loc</c> 表），
+/// 这个固定的是<b>数字/日期格式</b>。两者互不影响，需要同时固定时嵌套使用。
+/// <see cref="CultureInfo.CurrentCulture"/> 只对当前线程生效（xUnit 每条用例一个线程上下文），
+/// 但仍按惯例还原，避免影响同一线程后续的用例。
+/// </para>
+/// </summary>
+static class CultureScope
+{
+    /// <summary>固定为与区域无关的格式（<c>.</c> 小数点、<c>,</c> 千分位）跑 <paramref name="body"/>。</summary>
+    public static void Invariant(System.Action body) => In(CultureInfo.InvariantCulture, body);
+
+    /// <summary>固定为 <paramref name="ci"/> 指定的区域跑 <paramref name="body"/>，结束后自动还原。</summary>
+    public static void In(CultureInfo ci, System.Action body)
+    {
+        var origin = CultureInfo.CurrentCulture;
+        CultureInfo.CurrentCulture = ci;
+        try { body(); }
+        finally { CultureInfo.CurrentCulture = origin; }
     }
 }
 

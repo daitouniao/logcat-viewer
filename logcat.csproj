@@ -44,8 +44,14 @@
   -->
   <PropertyGroup>
     <SelfContained Condition="'$(SelfContained)' == ''">false</SelfContained>
-    <DebugType>none</DebugType>
-    <DebugSymbols>false</DebugSymbols>
+    <!--
+      发布产物不打包 pdb（瘦身），但必须按 Configuration 条件化：
+      无条件 none 会连 Debug 构建也不产 pdb，coverlet 拒绝对 logcat.dll 插桩，
+      整条覆盖率链路静默产出空报告（2026-10-10 引入、10-11 排查，见 docs/TESTING.md §0）。
+      dotnet test / 覆盖率采集都在 Debug 下进行，Debug 保留默认 portable。
+    -->
+    <DebugType Condition="'$(Configuration)' == 'Release'">none</DebugType>
+    <DebugSymbols Condition="'$(Configuration)' == 'Release'">false</DebugSymbols>
   </PropertyGroup>
 
   <ItemGroup>
