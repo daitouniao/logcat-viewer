@@ -276,8 +276,10 @@ docs/
   TESTING.md             How to run the suite and produce coverage (single entry point)
   UT-AUDIT.md            Mutation-testing audit — where the tests actually bite
   FEATURES.md            Planned features (stub)
-  FILTER-REFACTOR-PLAN.md   Toolbar-filter / filter-panel decoupling plan (executed, kept for the record)
-  TOOLBAR-FAVORITES-DESIGN.md  Toolbar star-favourites + favourites dropdown, final design (shipped, kept for the record)
+  design/
+    CRASH-SUMMARY-DESIGN.md      Crash one-glance summary + crash-report window, product design (final)
+    FILTER-REFACTOR-PLAN.md      Toolbar-filter / filter-panel decoupling plan (executed, kept for the record)
+    TOOLBAR-FAVORITES-DESIGN.md  Toolbar star-favourites + favourites dropdown, final design (shipped, kept for the record)
   images/main.gif        The demo animation at the top of this file
 LICENSE                 Apache-2.0 full text
 THIRD-PARTY-NOTICES.md  Third-party licences

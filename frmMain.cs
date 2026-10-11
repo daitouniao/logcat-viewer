@@ -1,4 +1,4 @@
-﻿using logcat.Controls;
+using logcat.Controls;
 using logcat.Forms;
 using logcat.Models;
 using logcat.Services;
@@ -525,7 +525,7 @@ public partial class frmMain : Form, ILocalizedUi
         // 空框不着色：避免大面积色块造成视觉噪声，也让「未填写」与「已填写」一眼可分。
         // 「忽略大小写」用 SystemColors.WindowText 而非硬编码深色，这样文本框在
         // 未着色与着色两种状态下底色/字色是同一套，主题变化时不会半途变色。
-        // （背景色目前是硬编码浅色，深色主题需另做适配，见 FILTER-REFACTOR-PLAN §3.3）
+        // （背景色目前是硬编码浅色，深色主题需另做适配，见 docs/design/FILTER-REFACTOR-PLAN.md §3.3）
         bool hasText = !string.IsNullOrWhiteSpace(box.Text);
         box.BackColor = !hasText ? SystemColors.Window
                     : (op == "and" ? BoxBgAnd : BoxBgOr);

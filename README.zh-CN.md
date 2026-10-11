@@ -277,8 +277,10 @@ docs/
   TESTING.md              怎么跑测试、怎么出覆盖率（唯一操作入口）
   UT-AUDIT.md             变异测试审计——测试到底咬不咬得住
   FEATURES.md             计划实现的功能（模板，内容待补）
-  FILTER-REFACTOR-PLAN.md 工具栏过滤与过滤面板解耦的改造计划（已执行完毕，留档）
-  TOOLBAR-FAVORITES-DESIGN.md 工具栏输入框星号收藏 + 收藏下拉的设计定稿（已落地，留档）
+  design/
+    CRASH-SUMMARY-DESIGN.md     崩溃一键定位与摘要展示的产品设计说明（定稿）
+    FILTER-REFACTOR-PLAN.md     工具栏过滤与过滤面板解耦的改造计划（已执行完毕，留档）
+    TOOLBAR-FAVORITES-DESIGN.md 工具栏输入框星号收藏 + 收藏下拉的设计定稿（已落地，留档）
   images/main.gif         README 顶部的演示动图
 LICENSE                 Apache-2.0 全文
 THIRD-PARTY-NOTICES.md  第三方库与工具链的许可声明
