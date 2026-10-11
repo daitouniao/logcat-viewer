@@ -97,6 +97,9 @@ public partial class frmMain : Form, ILocalizedUi
     // 过滤设置窗口（非模态，悬浮在主窗口之上）
     FilterDialog? _filterDialog;
 
+    // 崩溃汇总窗口（非模态，悬浮在主窗口之上）
+    CrashSummaryForm? _crashSummary;
+
     readonly ILogger _logger;
 
     // ── 窗口几何（多屏安全）──
@@ -152,6 +155,10 @@ public partial class frmMain : Form, ILocalizedUi
         mSet.DropDownItems.Add(new ToolStripSeparator());
         mSet.DropDownItems.Add(Loc.Bind(new ToolStripMenuItem("过滤设置…", null, (_, _) => ShowFilterDialog()), "过滤设置…"));
 
+        // ── 情报菜单：崩溃等情报分析入口 ──
+        var mIntel = Loc.Bind(new ToolStripMenuItem("情报"), "情报");
+        mIntel.DropDownItems.Add(Loc.Bind(new ToolStripMenuItem("崩溃汇总…", null, (_, _) => ShowCrashSummary()), "崩溃汇总…"));
+
         // ── 帮助菜单 ──
         var mHelp = Loc.Bind(new ToolStripMenuItem("帮助"), "帮助");
         var actAbout = Loc.Bind(new ToolStripMenuItem("关于…"), "关于…");
@@ -198,7 +205,7 @@ public partial class frmMain : Form, ILocalizedUi
         btnRefresh.Tag = "adb-free";
         btnDeviceOps.Tag = "adb-free";
         _toolStrip.Items.AddRange(new ToolStripItem[] {
-            mFile, mSet, mHelp,
+            mFile, mSet, mIntel, mHelp,
             new ToolStripSeparator()
         });
         _toolStrip.Items.AddRange(adbItems);
@@ -370,6 +377,9 @@ public partial class frmMain : Form, ILocalizedUi
         ApplyTermBoxStyle();
         // 设备操作总窗口：把语言变化转发给各嵌入页签（它们 TopLevel=false，不在 OpenForms 里）
         _deviceOps?.ForwardLanguageChanged();
+        // 行缓存里嵌着 Loc.F 算出的文案（截断后缀、摘要行），必须清缓存重绘
+        _listView.OnLanguageChanged();
+        _crashSummary?.OnLanguageChanged();
     }
 
     // 设备下拉框占满工具栏剩余宽度
@@ -1010,6 +1020,8 @@ public partial class frmMain : Form, ILocalizedUi
                 _listView.PinAnchor(anchorDocRow, anchorOffset);
                 _lastVsb = TopRow();
             }
+            // 汇总窗口打开时跟随数据刷新（全量重建 / 增量追加都会走到这里）
+            _crashSummary?.RefreshFrom(_doc);
         }
         catch (OperationCanceledException) { }
         catch (Exception ex) { ShowError(Loc.F("过滤失败：{0}", ex.Message)); }
@@ -1044,6 +1056,7 @@ public partial class frmMain : Form, ILocalizedUi
             if (_chkToolbarFollow.Checked) ScrollBottom();
         }
         UpdateStat();
+        _crashSummary?.RefreshFrom(doc);   // 新增行里可能带崩溃事件
     }
 
     FilterSpec CollectSpec()
@@ -1304,6 +1317,15 @@ public partial class frmMain : Form, ILocalizedUi
             var cells = new List<string> { item.Text };
             for (int c = 0; c < item.SubItems.Count; c++)
                 cells.Add(item.SubItems[c].Text);
+            // 摘要只用于显示：崩溃行带格式复制时 Message 列还原完整堆栈（ANALYSIS-2.1 §9.6）；
+            // 换行照显示口径转 _newlineVis，与同行其他多行记录保持一致的表格形态
+            if (_listView.CrashOf(dr) != null)
+            {
+                var raw = _listView.FullText(dr);
+                if (_newlineVis != null && (raw.Contains('\n') || raw.Contains('\r')))
+                    raw = raw.Replace("\r\n", _newlineVis).Replace("\n", _newlineVis).Replace("\r", _newlineVis);
+                cells[^1] = raw;
+            }
             lines.Add(string.Join("\t", cells));
         }
         ClipboardHelper.SetText(string.Join("\n", lines));
@@ -1970,6 +1992,41 @@ public partial class frmMain : Form, ILocalizedUi
             _filterDialog.WindowState = FormWindowState.Normal;
         _filterDialog.BringToFront();
         _filterDialog.Activate();
+    }
+
+    /// <summary>打开崩溃汇总窗口（F-05，非模态）：每次打开都按当前文档重建聚合。</summary>
+    void ShowCrashSummary()
+    {
+        if (_crashSummary == null || _crashSummary.IsDisposed)
+        {
+            _crashSummary = new CrashSummaryForm();
+            _crashSummary.RowActivate += JumpToDocRow;
+        }
+        _crashSummary.RefreshFrom(_doc);
+        if (!_crashSummary.Visible)
+        {
+            _crashSummary.Show(this);
+            _crashSummary.PositionOverOwner();
+        }
+        if (_crashSummary.WindowState == FormWindowState.Minimized)
+            _crashSummary.WindowState = FormWindowState.Normal;
+        _crashSummary.BringToFront();
+        _crashSummary.Activate();
+    }
+
+    /// <summary>从汇总窗口跳转到崩溃行：选中并滚到视口顶部下方 2 行处。
+    /// 该行被当前过滤条件排除时定位到最近的存活行并提示（结果集为空则只提示）。</summary>
+    void JumpToDocRow(int docRow)
+    {
+        int mr = _listView.ModelRowOf(docRow);
+        if (mr < 0)
+        {
+            ShowStatus("该行不在当前过滤结果中");
+            mr = _listView.NearestModelRow(docRow);
+            if (mr < 0) return;
+        }
+        SelectRow(mr);
+        _listView.SetTopModelRow(Math.Max(0, mr - 2));
     }
 
     // ── 辅助 ──

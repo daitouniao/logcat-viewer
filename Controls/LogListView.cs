@@ -1,3 +1,4 @@
+using logcat.Models;
 using logcat.Services;
 
 namespace logcat.Controls;
@@ -277,6 +278,26 @@ public class LogListView : ListView
         return _doc.Decode(_doc.LineBytes(docRow));
     }
 
+    /// <summary>
+    /// 该行若是崩溃头，返回对应崩溃事件（F-01/F-05 共用）；否则返回 null。
+    /// <see cref="LogDocument.Crashes"/> 按 Row 升序，二分查找。
+    /// </summary>
+    public CrashEvent? CrashOf(int docRow)
+    {
+        var crashes = _doc?.Crashes;
+        if (crashes == null || crashes.Count == 0 || docRow < 0) return null;
+        int lo = 0, hi = crashes.Count - 1;
+        while (lo <= hi)
+        {
+            int mid = (lo + hi) / 2;
+            int r = crashes[mid].Row;
+            if (r == docRow) return crashes[mid];
+            if (r < docRow) lo = mid + 1;
+            else hi = mid - 1;
+        }
+        return null;
+    }
+
     // ── 虚拟列表事件 ──
     void OnRetrieveVirtualItem(object? sender, RetrieveVirtualItemEventArgs e)
     {
@@ -364,12 +385,18 @@ public class LogListView : ListView
         int pid = _doc.Pid[docRow], tid = _doc.Tid[docRow];
         int lvl = _doc.Lvl[docRow];
 
-        // Message
+        // Message：崩溃行显示摘要（F-01），普通行走原文渲染
         string msg = _doc.Decode(_doc.MessageBytes(docRow));
-        if (_newlineVis != null && (msg.Contains('\n') || msg.Contains('\r')))
-            msg = msg.Replace("\r\n", _newlineVis).Replace("\n", _newlineVis).Replace("\r", _newlineVis);
-        if (msg.Length > MSG_LIMIT)
-            msg = msg[..MSG_LIMIT] + Loc.F(" …(+{0} 字符)", msg.Length - MSG_LIMIT);
+        var crash = CrashOf(docRow);
+        if (crash != null)
+            msg = CrashSummary(crash.Value, msg);
+        else
+        {
+            if (_newlineVis != null && (msg.Contains('\n') || msg.Contains('\r')))
+                msg = msg.Replace("\r\n", _newlineVis).Replace("\n", _newlineVis).Replace("\r", _newlineVis);
+            if (msg.Length > MSG_LIMIT)
+                msg = msg[..MSG_LIMIT] + Loc.F(" …(+{0} 字符)", msg.Length - MSG_LIMIT);
+        }
 
         string lvlName = lvl > 0 && lvl < LogParser.LEVEL_NAME.Length ? LogParser.LEVEL_NAME[lvl] : "";
 
@@ -382,6 +409,50 @@ public class LogListView : ListView
             _doc.TagOf(docRow),
             msg
         };
+    }
+
+    /// <summary>
+    /// 语言切换后清空行缓存并重绘。
+    /// 缓存的行文本里嵌着 <see cref="Loc.F"/> 算出的文案（如「…(+N 字符)」截断后缀），
+    /// 不清缓存的话切语言后已渲染过的行会一直显示旧语言的文字（现存 bug，见 ANALYSIS-2.1 §5⑬）。
+    /// </summary>
+    public void OnLanguageChanged()
+    {
+        ClearCache();
+        Invalidate();
+    }
+
+    /// <summary>
+    /// 崩溃行的 Message 列摘要文案（ANALYSIS-2.1 §4.3 / CRASH-SUMMARY-DESIGN §3.1）：
+    /// <c>☠ 类型 · 包名 · 时间 · +N 行</c>。只是显示得更聪明，原文一个字不动 ——
+    /// 查看完整记录、复制原始文本仍读原始字节；带格式复制由 frmMain 还原原文。
+    /// </summary>
+    string CrashSummary(CrashEvent ce, string rawMsg)
+    {
+        string exc = ce.ExcId >= 0 && ce.ExcId < _doc!.ExcTypes.Count ? _doc.ExcTypes[ce.ExcId] : "";
+        string pkg = ce.PkgId >= 0 && ce.PkgId < _doc!.Pkgs.Count ? _doc.Pkgs[ce.PkgId] : "";
+
+        // id 缺失（批次边界把崩溃头与 Process 行切开、ANR 无异常类型、自定义命名空间异常等）：
+        // 行内重新提取兜底，仍提不到异常类型再退到类别名（CrashKind.Name）
+        if (exc.Length == 0 || pkg.Length == 0)
+        {
+            var m = CrashExtractor.TryExtract(rawMsg);
+            if (m != null)
+            {
+                if (exc.Length == 0) exc = m.Value.ExcType;
+                if (pkg.Length == 0) pkg = m.Value.Pkg;
+            }
+            if (exc.Length == 0) exc = CrashKind.Name(ce.Kind);
+        }
+
+        // MM-dd HH:mm:ss → HH:mm:ss（列表已有 Time 列，摘要里只留时分秒）
+        string time = LogDocument.TsToText(ce.Ts, _doc!.BaseYear, withMs: false);
+        int sp = time.LastIndexOf(' ');
+        if (sp >= 0) time = time[(sp + 1)..];
+
+        return ce.LineCount > 1
+            ? Loc.F("☠ {0} · {1} · {2} · +{3} 行", exc, pkg.Length > 0 ? pkg : "-", time, ce.LineCount - 1)
+            : Loc.F("☠ {0} · {1} · {2}", exc, pkg.Length > 0 ? pkg : "-", time);
     }
 
     void ClearCache() => _cache.Clear();

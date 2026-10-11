@@ -1,4 +1,4 @@
-﻿using System.Drawing;
+using System.Drawing;
 using System.Globalization;
 using System.Runtime.CompilerServices;
 
@@ -189,7 +189,7 @@ public static class Loc
         {
             LocTable.Common(), LocTable.MainUi(), LocTable.FilterUi(), LocTable.DeviceUi(),
             LocTable.ApkUi(), LocTable.CommandUi(), LocTable.CommandUiMain(), LocTable.FileUi(),
-            LocTable.RuntimeMsg(), LocTable.CommandSeed(),
+            LocTable.RuntimeMsg(), LocTable.CommandSeed(), LocTable.CrashUi(),
         })
         {
             foreach (var kv in part) d[kv.Key] = kv.Value;

@@ -1,4 +1,4 @@
-﻿namespace logcat.Services;
+namespace logcat.Services;
 
 /// <summary>英文译文表：主窗体（菜单、工具栏、状态栏、列头、右键菜单）。</summary>
 static partial class LocTable
@@ -7,6 +7,7 @@ static partial class LocTable
     {
         // ── 顶层菜单 ──
         ["设置"] = "Settings",
+        ["情报"] = "Insights",
         ["帮助"] = "Help",
 
         // ── 文件菜单 ──

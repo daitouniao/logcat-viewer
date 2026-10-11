@@ -1,5 +1,6 @@
 using System.IO.MemoryMappedFiles;
 using System.Text;
+using logcat.Models;
 using Microsoft.Extensions.Logging;
 
 namespace logcat.Services;
@@ -41,6 +42,18 @@ public sealed class LogDocument : IDisposable
     // ── Tag 字典 ──
     public List<string> Tags { get; private set; } = new();
     public Dictionary<string, int> TagIndex { get; private set; } = new();
+
+    // ── 崩溃事件（稀疏，F-02）──
+    // 后台扫描写 / UI 读：引用整体替换（不原位改），读侧持有旧快照也自洽
+    List<CrashEvent> _crashes = new();
+    /// <summary>崩溃事件清单，按 Row 升序；无崩溃时为空。摘要行与汇总窗口的统一数据源。</summary>
+    public IReadOnlyList<CrashEvent> Crashes => _crashes;
+
+    // 异常类型 / 包名字典（照 Tag 字典模式；种类数远小于 Tag）
+    public List<string> ExcTypes { get; private set; } = new();
+    public Dictionary<string, int> ExcTypeIndex { get; private set; } = new();
+    public List<string> Pkgs { get; private set; } = new();
+    public Dictionary<string, int> PkgIndex { get; private set; } = new();
 
     // ── mmap ──
     MemoryMappedFile? _mmf;
@@ -243,6 +256,11 @@ public sealed class LogDocument : IDisposable
         public int[] Pids; public int[] Tids;
         public byte[] Lvls; public int[] TagIds; public byte[] Flags;
         public List<byte[]> LocalTags;
+        /// <summary>本批提取到的崩溃事件（F-02 稀疏方案）。Row 为批次内相对行号，Append 时 +n 偏移。</summary>
+        public List<CrashEvent> Crashes;
+        /// <summary>本批出现的异常类型 / 包名局部字典（id 即 CrashEvent.ExcId/PkgId）。</summary>
+        public List<string> LocalExcTypes;
+        public List<string> LocalPkgs;
         /// <summary>本批开头若干行属于「上一批末尾那条记录」的续行（跨批次合并）。</summary>
         public int CarryLines;
         /// <summary>这些续行结束处的绝对文件偏移。</summary>
@@ -270,6 +288,15 @@ public sealed class LogDocument : IDisposable
 
         var tagMap = new Dictionary<string, int>();
         var tagList = new List<byte[]>();
+
+        // ── 崩溃提取（F-02）──
+        var crashes = new List<CrashEvent>();
+        var crashRows = new HashSet<int>();       // a 轨已建事件的行号（c 轨批末补扫去重）
+        var excMap = new Dictionary<string, int>();
+        var excList = new List<string>();
+        var pkgMap = new Dictionary<string, int>();
+        var pkgList = new List<string>();
+        var joinCounts = new List<int>();         // 与 offs 平行：每条记录已合并的续行数（LineCount 来源）
 
         int prev = -1;
         // 续行状态跨批次传递：本批第一行如果属于上一批末尾那条记录，要并回去，
@@ -388,10 +415,12 @@ public sealed class LogDocument : IDisposable
                 {
                     lens[prev] = (int)((currentOff + lineLen) - offs[prev]);
                     flags[prev] = (byte)(flags[prev] | FLAG_MULTILINE);
+                    joinCounts[prev]++;
                 }
                 else
                 {
-                    // prev < 0：并回「上一批末尾那条记录」（由 Append 写回列存储）
+                    // prev < 0：并回「上一批末尾那条记录」（由 Append 写回列存储）。
+                    // 该记录若是崩溃，其 LineCount 由 Append 按 CarryLines 补增。
                     carryLines++;
                     carryEndOff = currentOff + lineLen;
                 }
@@ -412,6 +441,7 @@ public sealed class LogDocument : IDisposable
             pids.Add(pr.Pid);
             tids.Add(pr.Tid);
             lvls.Add((byte)pr.Level);
+            joinCounts.Add(0);
 
             int gid = -1;
             if (!string.IsNullOrEmpty(pr.Tag))
@@ -430,6 +460,29 @@ public sealed class LogDocument : IDisposable
             }
             tagIds.Add(gid);
             flags.Add(0);
+
+            // ── 崩溃头识别（a 轨，与 Join 无关）──
+            // 字节级快筛零成本放行绝大多数行；命中才解码 msg + 前瞻后续行拼文本做完整提取
+            //（Join=false 时 Process/异常类型行是独立记录，前瞻是拿到它们的唯一途径，见 ANALYSIS-2.1 §1.3 v3）
+            if (CrashExtractor.ContainsCrashKeyword(line))
+            {
+                var match = ExtractCrashAt(data, lineOff, lineLen, moff[^1], pos);
+                if (match != null)
+                {
+                    crashes.Add(new CrashEvent
+                    {
+                        Row = offs.Count - 1,
+                        ExcId = Intern(match.Value.ExcType, excMap, excList),
+                        PkgId = Intern(match.Value.Pkg, pkgMap, pkgList),
+                        Pid = pr.Pid,
+                        Tid = pr.Tid,
+                        Ts = 0,               // Assemble / Append 终算后回填（扫描期时间戳未定）
+                        Kind = match.Value.Kind,
+                        LineCount = 1,        // 批末按 joinCounts 终算
+                    });
+                    crashRows.Add(offs.Count - 1);
+                }
+            }
 
             prev = offs.Count - 1;
             prevHead = pr.WithinMs >= 0 || pr.Level > 0;
@@ -450,6 +503,42 @@ public sealed class LogDocument : IDisposable
             }
         }
 
+        // ── 崩溃事件收尾 ──
+        // 1) LineCount 终算：合并行数 = 批内 joinCounts + 1（跨批 carry 由 Append 补增）
+        for (int i = 0; i < crashes.Count; i++)
+        {
+            var ce = crashes[i];
+            ce.LineCount = joinCounts[ce.Row] + 1;
+            crashes[i] = ce;
+        }
+
+        // 2) c 轨批末补扫：崩溃头缩进并入父记录的合并形态（Join=true），头行不经过 a 轨
+        //    的「新记录行」分支 —— 对 multiline 记录的合并文本统一再提一次（Row 已建的跳过）
+        for (int i = 0; i < offs.Count; i++)
+        {
+            if ((flags[i] & FLAG_MULTILINE) == 0 || crashRows.Contains(i)) continue;
+            int mo = moff[i];
+            int len = lens[i] - mo;
+            if (len <= 0) continue;
+            var span = data.AsSpan((int)(offs[i] - start) + mo, len);
+            if (!CrashExtractor.ContainsCrashKeyword(span)) continue;
+            var match = CrashExtractor.TryExtract(Encoding.UTF8.GetString(span));
+            if (match == null) continue;
+            crashes.Add(new CrashEvent
+            {
+                Row = i,
+                ExcId = Intern(match.Value.ExcType, excMap, excList),
+                PkgId = Intern(match.Value.Pkg, pkgMap, pkgList),
+                Pid = pids[i],
+                Tid = tids[i],
+                Ts = 0,
+                Kind = match.Value.Kind,
+                LineCount = joinCounts[i] + 1,
+            });
+            crashRows.Add(i);
+        }
+        crashes.Sort((a, b) => a.Row.CompareTo(b.Row));
+
         return new ScanPart
         {
             Offs = offs.ToArray(), Lens = lens.ToArray(), Moff = moff.ToArray(),
@@ -457,8 +546,72 @@ public sealed class LogDocument : IDisposable
             Pids = pids.ToArray(), Tids = tids.ToArray(),
             Lvls = lvls.ToArray(), TagIds = tagIds.ToArray(), Flags = flags.ToArray(),
             LocalTags = tagList,
+            Crashes = crashes, LocalExcTypes = excList, LocalPkgs = pkgList,
             CarryLines = carryLines, CarryEndOff = carryEndOff
         };
+    }
+
+    // ── 崩溃提取辅助（ScanRange 用）──
+
+    /// <summary>
+    /// 在 data 的 [lineOff, lineOff+lineLen) 行识别崩溃头并提取：本行 msg + 最多 3 行前瞻
+    /// （各剥日志头部前缀）拼成多行文本交给 <see cref="CrashExtractor.TryExtract"/>。
+    /// 不是崩溃头返回 null。
+    /// </summary>
+    static CrashMatch? ExtractCrashAt(byte[] data, int lineOff, int lineLen, int msgOff, int lookFrom)
+    {
+        var sb = new StringBuilder(256);
+        sb.Append(MsgTextOfLine(data, lineOff, lineOff + lineLen, msgOff));
+        int q = lookFrom;
+        for (int look = 0; look < 3 && q < data.Length; look++)
+        {
+            int nl2 = Array.IndexOf(data, (byte)'\n', q);
+            int le2 = nl2 >= 0 ? nl2 : data.Length;
+            if (le2 > q)
+            {
+                // 前瞻行同样剥日志头部前缀（时间戳/PID/TID/Tag），否则 threadtime 形态的
+                // 「Process: …」「java.lang.…」行匹配不上判据 → 独立行形态的 Java 崩溃会漏提；
+                // 解析失败回退整行（缩进续行 ParseLine 得 MsgOffset=0，本来就是整行）
+                int plen = le2 - q;
+                if (plen > 0 && data[le2 - 1] == 13) plen--;
+                int mo = 0;
+                if (plen > 0)
+                {
+                    try
+                    {
+                        var pr = LogParser.ParseLine(data.AsSpan(q, plen));
+                        if (pr.MsgOffset > 0 && pr.MsgOffset < plen) mo = pr.MsgOffset;
+                    }
+                    catch { }
+                }
+                sb.Append('\n').Append(MsgTextOfLine(data, q, le2, mo));
+            }
+            q = nl2 >= 0 ? nl2 + 1 : data.Length;
+        }
+        return CrashExtractor.TryExtract(sb.ToString());
+    }
+
+    /// <summary>取 [start,end) 行的 msg 文本：MsgOffset 之后的字节（解析失败取整行），去尾部 \r。</summary>
+    static string MsgTextOfLine(byte[] data, int start, int end, int msgOff)
+    {
+        int len = end - start;
+        if (len > 0 && data[end - 1] == 13) len--;
+        if (len <= 0) return "";
+        var span = data.AsSpan(start, len);
+        if (msgOff > 0 && msgOff < len) span = span[msgOff..];
+        else if (msgOff >= len) return "";
+        return Encoding.UTF8.GetString(span);
+    }
+
+    /// <summary>字符串入局部字典：已存在返回旧 id，否则追加。空串返回 -1（不进字典）。</summary>
+    static int Intern(string s, Dictionary<string, int> map, List<string> list)
+    {
+        if (string.IsNullOrEmpty(s)) return -1;
+        if (map.TryGetValue(s, out int id)) return id;
+        id = list.Count;
+        map[s] = id;
+        list.Add(s);
+        return id;
     }
 
     static ScanPart EmptyPart() => new()
@@ -467,7 +620,8 @@ public sealed class LogDocument : IDisposable
         Within = Array.Empty<long>(), Years = Array.Empty<int>(),
         Pids = Array.Empty<int>(), Tids = Array.Empty<int>(),
         Lvls = Array.Empty<byte>(), TagIds = Array.Empty<int>(), Flags = Array.Empty<byte>(),
-        LocalTags = new List<byte[]>()
+        LocalTags = new List<byte[]>(),
+        Crashes = new List<CrashEvent>(), LocalExcTypes = new List<string>(), LocalPkgs = new List<string>()
     };
 
     // ── 组装 ──
@@ -481,6 +635,8 @@ public sealed class LogDocument : IDisposable
                        Array.Empty<long>(), Array.Empty<int>(), Array.Empty<int>(),
                        Array.Empty<byte>(), Array.Empty<int>(), Array.Empty<byte>());
             Tags = new(); TagIndex = new();
+            _crashes = new(); ExcTypes = new(); ExcTypeIndex = new();
+            Pkgs = new(); PkgIndex = new();
             return;
         }
 
@@ -506,6 +662,26 @@ public sealed class LogDocument : IDisposable
         _withinLast = validWithin.Length > 0 ? validWithin[^1] : null;
 
         SetColumns(part.Offs, part.Lens, part.Moff, ts, part.Pids, part.Tids, part.Lvls, part.TagIds, part.Flags);
+
+        // ── 崩溃事件落表（单分片：局部 id 即全局 id，无需重映射）──
+        // 时间戳在列终算后回填（扫描期 ts 未定）；Row 为绝对行号（全量扫描从 0 起）
+        _crashes = new List<CrashEvent>(part.Crashes.Count);
+        foreach (var ce in part.Crashes)
+        {
+            var e = ce;
+            e.Ts = e.Row < ts.Length ? ts[e.Row] : -1;
+            _crashes.Add(e);
+        }
+        var excIndex = new Dictionary<string, int>();
+        var excTypes = new List<string>(part.LocalExcTypes.Count);
+        for (int i = 0; i < part.LocalExcTypes.Count; i++)
+            if (excIndex.TryAdd(part.LocalExcTypes[i], excTypes.Count)) excTypes.Add(part.LocalExcTypes[i]);
+        ExcTypes = excTypes; ExcTypeIndex = excIndex;
+        var pkgIndex = new Dictionary<string, int>();
+        var pkgs = new List<string>(part.LocalPkgs.Count);
+        for (int i = 0; i < part.LocalPkgs.Count; i++)
+            if (pkgIndex.TryAdd(part.LocalPkgs[i], pkgs.Count)) pkgs.Add(part.LocalPkgs[i]);
+        Pkgs = pkgs; PkgIndex = pkgIndex;
     }
 
     // ── 时间戳终算 ──
@@ -689,6 +865,16 @@ public sealed class LogDocument : IDisposable
         {
             _lens[_n - 1] = (int)(part.CarryEndOff - _offs[_n - 1]);
             _flags[_n - 1] |= FLAG_MULTILINE;
+
+            // 末记录若是崩溃事件且被本批续行拉长：copy-on-write 补增 LineCount。
+            // 此处先行更新，覆盖「整批都是续行、part.Offs 为空」的早退分支（那里不做崩溃并入）
+            var oldCrashes = _crashes;
+            if (oldCrashes.Count > 0 && oldCrashes[^1].Row == _n - 1)
+            {
+                var last = oldCrashes[^1];
+                last.LineCount += part.CarryLines;
+                _crashes = new List<CrashEvent>(oldCrashes) { [oldCrashes.Count - 1] = last };
+            }
         }
 
         if (part.Offs.Length == 0)
@@ -744,6 +930,50 @@ public sealed class LogDocument : IDisposable
         Array.Copy(part.Lvls, 0, _lvl, n, k);
         Array.Copy(newTagId, 0, _tagId, n, k);
         Array.Copy(part.Flags, 0, _flags, n, k);
+
+        // ── 崩溃事件并入（ANALYSIS-2.1 §2.2 第 3 条）──
+        // 局部 ExcType/Pkg id 重映射到全局、Row +n 偏移、Ts 从本批 ts 列回填；
+        // 整体引用替换（copy-on-write），后台写与 UI 读互不干扰
+        if (part.Crashes.Count > 0)
+        {
+            var excRemap = new int[part.LocalExcTypes.Count + 1];
+            excRemap[0] = -1;
+            for (int i = 0; i < part.LocalExcTypes.Count; i++)
+            {
+                if (!ExcTypeIndex.TryGetValue(part.LocalExcTypes[i], out int g))
+                {
+                    g = ExcTypes.Count;
+                    ExcTypeIndex[part.LocalExcTypes[i]] = g;
+                    ExcTypes.Add(part.LocalExcTypes[i]);
+                }
+                excRemap[i + 1] = g;
+            }
+            var pkgRemap = new int[part.LocalPkgs.Count + 1];
+            pkgRemap[0] = -1;
+            for (int i = 0; i < part.LocalPkgs.Count; i++)
+            {
+                if (!PkgIndex.TryGetValue(part.LocalPkgs[i], out int g))
+                {
+                    g = Pkgs.Count;
+                    PkgIndex[part.LocalPkgs[i]] = g;
+                    Pkgs.Add(part.LocalPkgs[i]);
+                }
+                pkgRemap[i + 1] = g;
+            }
+
+            var merged = new List<CrashEvent>(_crashes.Count + part.Crashes.Count);
+            merged.AddRange(_crashes);
+            foreach (var ce in part.Crashes)
+            {
+                var e = ce;
+                e.Row += n;
+                e.ExcId = e.ExcId >= 0 ? excRemap[e.ExcId + 1] : -1;
+                e.PkgId = e.PkgId >= 0 ? pkgRemap[e.PkgId + 1] : -1;
+                e.Ts = ts[e.Row - n];   // Row 已偏移，减回 n 得本批列下标
+                merged.Add(e);
+            }
+            _crashes = merged;
+        }
 
         IndexedSize = newSize; Size = newSize;
         OpenMap();

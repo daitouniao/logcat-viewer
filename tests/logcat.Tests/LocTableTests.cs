@@ -1,4 +1,4 @@
-﻿using System.Text;
+using System.Text;
 using System.Text.RegularExpressions;
 using logcat.Services;
 using Xunit;
@@ -114,6 +114,7 @@ public class LocTableTests
             ("FileUi",       LocTable.FileUi()),
             ("RuntimeMsg",   LocTable.RuntimeMsg()),
             ("CommandSeed",  LocTable.CommandSeed()),
+            ("CrashUi",      LocTable.CrashUi()),
         };
 
     /// <summary>
