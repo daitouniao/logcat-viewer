@@ -88,6 +88,9 @@ public partial class frmMain : Form, ILocalizedUi
     // 菜单项
     ToolStripMenuItem _actJoin = null!, _actSingleExport = null!, _actSaveLog = null!;
 
+    // 「文件 → 最近打开」子菜单：打开下拉时动态重建
+    ToolStripMenuItem _mruMenu = null!;
+
     // 「帮助 → 语言」子菜单句柄：切换语言后要同步两项的勾选态
     ToolStripMenuItem? _mLangMenu;
 
@@ -143,7 +146,10 @@ public partial class frmMain : Form, ILocalizedUi
         var actExportMarked = Loc.Bind(new ToolStripMenuItem("导出标记行…", null, (_, _) => ExportRows(true)), "导出标记行…");
         var actQuit = Loc.Bind(new ToolStripMenuItem("退出", null, (_, _) => Close(), Keys.Control | Keys.Q), "退出");
         _actSaveLog = Loc.Bind(new ToolStripMenuItem("保存日志…", null, (_, _) => AdbSaveLog()) { Enabled = false }, "保存日志…");
-        mFile!.DropDownItems.AddRange(new ToolStripItem[] { actOpen, actReload, actExport, actExportMarked, _actSaveLog, new ToolStripSeparator(), actQuit });
+        _mruMenu = Loc.Bind(new ToolStripMenuItem("最近打开"), "最近打开");
+        _mruMenu.DropDownOpening += (_, _) => RebuildRecentMenu();
+        mFile!.DropDownItems.AddRange(new ToolStripItem[] { actOpen, _mruMenu, actReload, actExport, actExportMarked, _actSaveLog, new ToolStripSeparator(), actQuit });
+        RebuildRecentMenu();   // 初始化 Enabled：列表为空时子菜单置灰，避免「禁用后无法触发 DropDownOpening」死锁
 
         _actJoin = Loc.Bind(new ToolStripMenuItem("续行合并（堆栈并入上一条记录）") { Checked = true, CheckOnClick = true }, "续行合并（堆栈并入上一条记录）");
         _actJoin.Click += (_, _) => { _join = _actJoin.Checked; if (_doc != null) StartIndex(_doc.Path); };
@@ -844,6 +850,56 @@ public partial class frmMain : Form, ILocalizedUi
         RefreshFavStars();
     }
 
+    // ── 最近打开 ──
+
+    /// <summary>
+    /// 重建「最近打开」子菜单（打开下拉时 + 打开文件成功后调用）。
+    /// 本地路径不存在的条目跳过显示但保留记录；网络路径不做存在性探测——
+    /// 对不可达的 UNC/映射盘调 File.Exists 会因 SMB 超时阻塞 UI 数秒，
+    /// 不可达时点击走 StartIndex 失败路径弹错即可，网络恢复后仍可直接打开。
+    /// </summary>
+    void RebuildRecentMenu()
+    {
+        _mruMenu.DropDownItems.Clear();
+        var items = new List<ToolStripItem>();
+        foreach (var path in FavoritesStore.Default.RecentFiles)
+        {
+            if (!IsNetworkPath(path) && !File.Exists(path)) continue;
+            var p = path;   // 闭包捕获
+            var mi = new ToolStripMenuItem(EllipsizeMiddle(p, 80)) { ToolTipText = p };
+            mi.Click += (_, _) => OpenFile(p);
+            items.Add(mi);
+        }
+
+        if (items.Count == 0)
+        {
+            _mruMenu.Enabled = false;
+            return;
+        }
+        _mruMenu.Enabled = true;
+        _mruMenu.DropDownItems.AddRange(items.ToArray());
+    }
+
+    /// <summary>UNC 路径（含 \\?\ 前缀）或映射到网络位置的盘符。这类路径不做存在性探测。</summary>
+    static bool IsNetworkPath(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return false;
+        if (path.StartsWith(@"\\")) return true;
+        var root = System.IO.Path.GetPathRoot(path);
+        if (string.IsNullOrEmpty(root)) return false;
+        try { return new System.IO.DriveInfo(root).DriveType == System.IO.DriveType.Network; }
+        catch { return false; }   // 无效盘符等按本地路径处理
+    }
+
+    /// <summary>超长时中间以「…」省略，保留首尾两端（菜单显示完整路径用）。</summary>
+    static string EllipsizeMiddle(string s, int max)
+    {
+        if (s.Length <= max) return s;
+        var keep = max - 1;                    // 减去「…」本身
+        var head = keep / 2;
+        return string.Concat(s.AsSpan(0, head), "…", s.AsSpan(s.Length - (keep - head)));
+    }
+
     // ── 打开文件 ──
     public void OpenFile(string? path = null)
     {
@@ -904,6 +960,11 @@ public partial class frmMain : Form, ILocalizedUi
             _doc = doc;
             _listView.SetDocument(doc);
             _lblFile.Text = $"{doc.Path}   ({HumanSize(doc.Size)})";
+            if (FavoritesStore.Default.AddRecentFile(doc.Path))
+            {
+                FavoritesStore.Default.Save();
+                RebuildRecentMenu();   // 即时刷新排序并恢复子菜单 Enabled
+            }
             await ApplyFilter();
         }
         catch (OperationCanceledException) { }

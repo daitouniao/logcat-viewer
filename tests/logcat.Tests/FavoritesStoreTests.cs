@@ -369,6 +369,59 @@ public class FavoritesStoreTests
         Assert.Equal(60, store.TagFilters.Count);
     }
 
+    // ── 最近打开文档（AddRecentFile，上限 10 与其他列表不同）──
+
+    [Fact]
+    public void AddRecentFile新增到头部且持久化()
+    {
+        using var file = new TempStoreFile(null);
+        var store = FavoritesStore.LoadFrom(file.Path);
+
+        store.AddRecentFile(@"C:\logs\a.log");
+        store.Save();
+
+        var reloaded = FavoritesStore.LoadFrom(file.Path);
+        Assert.Equal(new[] { @"C:\logs\a.log" }, reloaded.RecentFiles);
+    }
+
+    [Fact]
+    public void AddRecentFile重复添加去重并移到最前()
+    {
+        var store = NewStore();
+        store.AddRecentFile(@"C:\a.log");
+        store.AddRecentFile(@"C:\b.log");
+
+        Assert.True(store.AddRecentFile(@"c:\A.LOG"));   // 大小写变体：去重后提到最前，不产生重复项
+
+        Assert.Equal(new[] { @"c:\A.LOG", @"C:\b.log" }, store.RecentFiles);
+        Assert.Equal(2, store.RecentFiles.Count);
+    }
+
+    [Fact]
+    public void AddRecentFile超过10条淘汰最旧()
+    {
+        var store = NewStore();
+        for (int i = 0; i < 11; i++)
+            store.AddRecentFile($@"C:\log{i}.txt");
+
+        Assert.Equal(10, store.RecentFiles.Count);
+        Assert.Equal(@"C:\log10.txt", store.RecentFiles[0]);
+        Assert.DoesNotContain(@"C:\log0.txt", store.RecentFiles);
+    }
+
+    [Fact]
+    public void AddRecentFile空白路径返回false且列表不变()
+    {
+        var store = NewStore();
+        store.AddRecentFile(@"C:\a.log");
+
+        Assert.False(store.AddRecentFile(""));
+        Assert.False(store.AddRecentFile("   "));
+        Assert.False(store.AddRecentFile(null!));
+
+        Assert.Equal(new[] { @"C:\a.log" }, store.RecentFiles);
+    }
+
     // ── 路径工具 ──
 
     [Theory]

@@ -12,6 +12,7 @@ static partial class LocTable
 
         // ── 文件菜单 ──
         ["打开…"] = "Open…",
+        ["最近打开"] = "Recent Files",
         ["重载"] = "Reload",
         ["导出结果…"] = "Export Results…",
         ["导出标记行…"] = "Export Marked Rows…",

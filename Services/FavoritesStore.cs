@@ -10,6 +10,7 @@ namespace logcat.Services;
 public sealed class FavoritesStore
 {
     const int MaxPerList = 60;
+    const int MaxRecentFiles = 10;
 
     /// <summary>internal：供单元测试构造不落盘的实例（见 InternalsVisibleTo）。</summary>
     internal sealed class StoreData
@@ -31,6 +32,9 @@ public sealed class FavoritesStore
 
         /// <summary>收藏的 message 过滤内容（最近在前）。</summary>
         public List<string> MsgFilters { get; set; } = new();
+
+        /// <summary>最近打开的日志文档路径（最近在前）。</summary>
+        public List<string> RecentFiles { get; set; } = new();
     }
 
     static readonly JsonSerializerOptions JsonOpts = new()
@@ -81,6 +85,7 @@ public sealed class FavoritesStore
                     data.Packages ??= new List<string>();
                     data.TagFilters ??= new List<string>();
                     data.MsgFilters ??= new List<string>();
+                    data.RecentFiles ??= new List<string>();
                     return new FavoritesStore(data, path);
                 }
             }
@@ -253,6 +258,27 @@ public sealed class FavoritesStore
         if (idx >= 0) { _data.MsgFilters.RemoveAt(idx); return false; }
         _data.MsgFilters.Insert(0, text);
         while (_data.MsgFilters.Count > MaxPerList) _data.MsgFilters.RemoveAt(_data.MsgFilters.Count - 1);
+        return true;
+    }
+
+    // ── 最近打开文档（主窗体「文件 → 最近打开」）──
+
+    /// <summary>最近打开的日志文档路径（最近在前）。</summary>
+    public List<string> RecentFiles => _data.RecentFiles;
+
+    /// <summary>
+    /// 记录最近打开的文档：按本机路径语义（大小写不敏感）去重后插到最前，
+    /// 超过 <see cref="MaxRecentFiles"/> 条从尾部淘汰。不落盘，由调用方决定何时 <see cref="Save"/>。
+    /// 与 <see cref="AddRecent"/> 语义一致但上限不同，故不复用。
+    /// </summary>
+    public bool AddRecentFile(string path)
+    {
+        path = (path ?? "").Trim();
+        if (path.Length == 0) return false;
+        var list = _data.RecentFiles;
+        list.RemoveAll(p => PathEquals(p, path, remote: false));
+        list.Insert(0, path);
+        while (list.Count > MaxRecentFiles) list.RemoveAt(list.Count - 1);
         return true;
     }
 
