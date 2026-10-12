@@ -104,7 +104,7 @@ public bool ToggleTagFilter(string text)
 - **anchor 拆成面板侧/工具栏侧两条路径**：`Control` 与 `ToolStripItem` 无公共基类，不能泛化为单一参数。面板侧 `Show(Control, Point)` 照旧；工具栏侧传 `_tbTag` / `_tbMsg`（`ToolStripTextBox` 继承自 `ToolStripItem`，走 `Show(ToolStripItem, Point)`）。推荐拆成两个方法。
 - `ed` 参数传 `_tbTag.TextBox`——`ToolStripTextBox` 不是 `TextBox`，要用其**内层 TextBox**。
 - **唤出时机：仅点 ▾**。Enter 保持「应用过滤」（`_tbTag.KeyDown` / `_tbMsg.KeyDown` 既有行为不变）；不做「获得焦点即唤出」（与 IME / Tab 导航冲突）。**不能挂在 `TextChanged` 上**——`ContextMenuStrip.Show()` 会激活菜单并接管键盘，TextBox 随即失焦。
-- 唤出时按当前输入做一次**子串过滤**（`OrdinalIgnoreCase`）；无匹配显示禁用项；项文本前缀 `★ `；末尾保留「清空收藏」。
+- 唤出时**显示完整收藏列表，不按输入框当前内容过滤**（2026-10-12 修订：下拉的用途是「换个关键词」，按输入过滤会截断候选）；项文本前缀 `★ `；末尾保留「清空收藏」。
 - 键盘导航（↑↓ / Enter / Esc / 长列表滚动 / 屏幕边界翻转）由 `ToolStripMenuItem` 集合**免费提供**。菜单展开时 Enter=选中当前项；菜单收起时工具栏输入框 Enter=应用过滤。
 
 ### 4.2 `ShowFilterFavMenu` 参考实现
@@ -114,7 +114,6 @@ void ShowFilterFavMenu(Control anchor, TextBox ed, bool forTag)   // 面板侧�
 {
     var menu = new ContextMenuStrip();
     var list = FilterFavList(forTag);
-    var key = ed.Text.Trim();
 
     if (list.Count == 0)
     {
@@ -122,19 +121,13 @@ void ShowFilterFavMenu(Control anchor, TextBox ed, bool forTag)   // 面板侧�
     }
     else
     {
-        var filtered = string.IsNullOrEmpty(key)
-            ? list
-            : list.Where(x => x.IndexOf(key, StringComparison.OrdinalIgnoreCase) >= 0).ToList();
-
-        foreach (var item in filtered)
+        foreach (var item in list)   // 完整收藏列表，不按输入过滤（2026-10-12 修订）
         {
             var text = item;
             var mi = new ToolStripMenuItem($"★ {text}");
             mi.Click += (_, _) => ApplyFavText(ed, text, forTag);
             menu.Items.Add(mi);
         }
-        if (menu.Items.Count == 0)
-            menu.Items.Add(new ToolStripMenuItem("（无匹配收藏）") { Enabled = false });
 
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("清空收藏", null, (_, _) =>
@@ -152,8 +145,8 @@ void ShowFilterFavMenu(Control anchor, TextBox ed, bool forTag)   // 面板侧�
 
 要点：
 
-- 用 `IndexOf` + `OrdinalIgnoreCase` 做**子串**匹配，不是前缀匹配；
-- 无匹配时显示禁用项，避免空菜单。
+- 列表项始终来自完整收藏列表，不做任何按输入的匹配/过滤；
+- 列表为空时显示禁用项，避免空菜单。
 
 ### 4.3 `ApplyFavText` 参考实现
 

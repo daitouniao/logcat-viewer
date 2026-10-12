@@ -1,4 +1,4 @@
-﻿namespace logcat.Services;
+namespace logcat.Services;
 
 /// <summary>英文译文表：过滤面板与过滤设置窗口。</summary>
 static partial class LocTable
@@ -31,7 +31,6 @@ static partial class LocTable
 
         // ── 收藏菜单 ──
         ["（暂无收藏，点 ★ 收藏当前内容）"] = "(No favorites yet — click ★ to favorite current content)",
-        ["（无匹配收藏）"] = "(No matching favorite)",
         ["清空收藏"] = "Clear Favorites",
         ["清空收藏|确定要清空{0}收藏？"] = "Clear Favorites|Clear all {0} favorites?",
         ["内容为空，无法收藏"] = "Content is empty, cannot favorite",

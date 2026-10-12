@@ -671,11 +671,11 @@ public partial class frmMain : Form, ILocalizedUi
         forTag ? FavoritesStore.Default.TagFilters : FavoritesStore.Default.MsgFilters;
 
     // 面板侧：从收藏选择（Control anchor 版本）
+    // 下拉始终显示完整收藏列表，不按输入框当前内容过滤——它的用途是「换个关键词」
     void ShowFilterFavMenu(Control anchor, TextBox ed, bool forTag)
     {
         var list = FilterFavList(forTag);
         var menu = new ContextMenuStrip();
-        var key = ed.Text.Trim();
 
         if (list.Count == 0)
         {
@@ -683,19 +683,13 @@ public partial class frmMain : Form, ILocalizedUi
         }
         else
         {
-            var filtered = string.IsNullOrEmpty(key)
-                ? list
-                : list.Where(x => x.IndexOf(key, StringComparison.OrdinalIgnoreCase) >= 0).ToList();
-
-            foreach (var item in filtered)
+            foreach (var item in list)
             {
                 var text = item;
                 var mi = new ToolStripMenuItem($"★ {text}");
                 mi.Click += (_, _) => ApplyFavText(ed, text, forTag);
                 menu.Items.Add(mi);
             }
-            if (menu.Items.Count == 0)
-                menu.Items.Add(new ToolStripMenuItem(Loc.T("（无匹配收藏）")) { Enabled = false });
 
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add(Loc.T("清空收藏"), null, (_, _) =>
@@ -715,7 +709,6 @@ public partial class frmMain : Form, ILocalizedUi
     {
         var list = FilterFavList(forTag);
         var menu = new ContextMenuStrip();
-        var key = tb.Text.Trim();
 
         if (list.Count == 0)
         {
@@ -723,19 +716,13 @@ public partial class frmMain : Form, ILocalizedUi
         }
         else
         {
-            var filtered = string.IsNullOrEmpty(key)
-                ? list
-                : list.Where(x => x.IndexOf(key, StringComparison.OrdinalIgnoreCase) >= 0).ToList();
-
-            foreach (var item in filtered)
+            foreach (var item in list)
             {
                 var text = item;
                 var mi = new ToolStripMenuItem($"★ {text}");
                 mi.Click += (_, _) => ApplyFavText(tb.TextBox, text, forTag);
                 menu.Items.Add(mi);
             }
-            if (menu.Items.Count == 0)
-                menu.Items.Add(new ToolStripMenuItem(Loc.T("（无匹配收藏）")) { Enabled = false });
 
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add(Loc.T("清空收藏"), null, (_, _) =>
