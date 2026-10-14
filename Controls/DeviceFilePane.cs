@@ -39,11 +39,12 @@ public sealed class DeviceFilePane : FilePane
 
     protected override void CreateColumns(ListView list)
     {
-        Loc.BindCol(new ColumnHeader { Text = Loc.T("名称"), Width = 220 }, "名称");
-        Loc.BindCol(new ColumnHeader { Text = Loc.T("大小"), Width = 80, TextAlign = HorizontalAlignment.Right }, "大小");
-        Loc.BindCol(new ColumnHeader { Text = Loc.T("权限"), Width = 95 }, "权限");
-        Loc.BindCol(new ColumnHeader { Text = Loc.T("所有者"), Width = 80 }, "所有者");
-        Loc.BindCol(new ColumnHeader { Text = Loc.T("修改日期"), Width = 130 }, "修改日期");
+        // BindCol 不负责入列，必须包在 Columns.Add 里（见 docs/bugfixes/FILEBROWSER-BLANK-LIST.md）
+        list.Columns.Add(Loc.BindCol(new ColumnHeader { Text = Loc.T("名称"), Width = 220 }, "名称"));
+        list.Columns.Add(Loc.BindCol(new ColumnHeader { Text = Loc.T("大小"), Width = 80, TextAlign = HorizontalAlignment.Right }, "大小"));
+        list.Columns.Add(Loc.BindCol(new ColumnHeader { Text = Loc.T("权限"), Width = 95 }, "权限"));
+        list.Columns.Add(Loc.BindCol(new ColumnHeader { Text = Loc.T("所有者"), Width = 80 }, "所有者"));
+        list.Columns.Add(Loc.BindCol(new ColumnHeader { Text = Loc.T("修改日期"), Width = 130 }, "修改日期"));
     }
 
     protected override string[] GetRow(FileEntry e) => new[]

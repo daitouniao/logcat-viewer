@@ -327,6 +327,89 @@ public class LocTableTests
     }
 
     /// <summary>
+    /// <c>BindCol(new ColumnHeader …)</c> 必须包在 <c>Columns.Add(…)</c> 里。
+    ///
+    /// <para>
+    /// <see cref="Loc"/> 的 <c>BindCol</c> 只登记资源键并赋 Text，不负责把列挂进
+    /// ListView 的 Columns 集合；Details 视图下列集合为空时条目一律不渲染，
+    /// 且无任何异常。文件浏览三个面板在 i18n 改造（c574592）中写成裸
+    /// <c>BindCol(new ColumnHeader …)</c>，设备/本机两栏列表全部空白——
+    /// 复盘见 docs/bugfixes/FILEBROWSER-BLANK-LIST.md。
+    /// </para>
+    ///
+    /// <para>
+    /// 只盯<b>内联 new</b> 的形态（首参以 <c>new ColumnHeader</c> 开头）：
+    /// 先建列再 Add 的写法（CrashSummaryForm 的 <c>var col = new ColumnHeader …;</c>）
+    /// 不在内联扫描范围内，不会被误伤。
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void 列头BindCol必须挂进Columns集合()
+    {
+        var repoRoot = FindRepoRoot();
+        var bad = new SortedSet<string>();
+        int scanned = 0;
+
+        foreach (var file in EnumerateSourceFiles(repoRoot))
+        {
+            var rel = Path.GetRelativePath(repoRoot, file).Replace('\\', '/');
+            var src = BlankOutComments(File.ReadAllText(file));
+
+            int from = 0;
+            while (true)
+            {
+                int at = src.IndexOf("BindCol", from, StringComparison.Ordinal);
+                if (at < 0) break;
+                from = at + "BindCol".Length;
+
+                // 独立词：前一个字符不能是标识符字符（排除 XXXBindCol 之类）
+                if (at > 0 && (char.IsLetterOrDigit(src[at - 1]) || src[at - 1] == '_'))
+                    continue;
+
+                // 跳过可选泛型实参（Loc.BindCol<TObj>(…)）与空白，找到参数表
+                int i = from;
+                while (i < src.Length && char.IsWhiteSpace(src[i])) i++;
+                if (i < src.Length && src[i] == '<')
+                {
+                    int close = FindMatching(src, i, '<', '>');
+                    if (close < 0) continue;
+                    i = close + 1;
+                }
+                while (i < src.Length && char.IsWhiteSpace(src[i])) i++;
+                if (i >= src.Length || src[i] != '(') continue;
+
+                int end = FindMatching(src, i, '(', ')');
+                if (end < 0) continue;
+                var args = SplitTopLevel(src[(i + 1)..end]);
+                if (args.Count == 0) continue;
+                if (!args[0].TrimStart().StartsWith("new ColumnHeader", StringComparison.Ordinal)) continue;
+                scanned++;
+
+                // 回溯整个调用表达式的起点（Loc.BindCol / Services.Loc.BindCol），
+                // 其前文必须以 Columns.Add( 收尾——否则列头建完就被丢弃
+                int exprStart = at;
+                int j = at - 1;
+                while (j >= 0 && char.IsWhiteSpace(src[j])) j--;
+                if (j >= 0 && src[j] == '.')
+                {
+                    j--;
+                    while (j >= 0 && (char.IsLetterOrDigit(src[j]) || src[j] == '_' || src[j] == '.')) j--;
+                    exprStart = j + 1;
+                }
+
+                var before = src[..exprStart].TrimEnd();
+                if (!before.EndsWith("Columns.Add(", StringComparison.Ordinal))
+                    bad.Add($"{rel}: BindCol(new ColumnHeader …) 未包在 Columns.Add( 里");
+            }
+        }
+
+        Assert.True(scanned > 0, "源码扫描器一个 BindCol(new ColumnHeader …) 调用点都没找到，解析逻辑坏了（这个测试会变成假绿）");
+        Assert.True(bad.Count == 0,
+            "以下 BindCol(new ColumnHeader …) 没有挂进 Columns 集合（Details 视图下条目全部不可见）：\n"
+            + string.Join("\n", bad));
+    }
+
+    /// <summary>
     /// <b>长驻</b>的菜单 / 工具栏 / 状态栏项不得用 <c>Loc.T(...)</c> 一次性赋值。
     ///
     /// <para>
