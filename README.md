@@ -1,6 +1,6 @@
 # logcat viewer
 
-[![Version: V0.1.3](https://img.shields.io/badge/version-V0.1.3-green)](logcat.csproj)
+[![Version: V0.1.4](https://img.shields.io/badge/version-V0.1.4-green)](logcat.csproj)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
 [![Platform: Windows](https://img.shields.io/badge/platform-Windows-lightgrey)](#requirements)
 [![CI](https://github.com/daitouniao/logcat-viewer/actions/workflows/ci.yml/badge.svg)](https://github.com/daitouniao/logcat-viewer/actions/workflows/ci.yml)
@@ -14,7 +14,7 @@ Repositories:
 - GitCode (primary): <https://gitcode.com/gcw_WDXl5paK/logcat-viewer>
 - GitHub (mirror): <https://github.com/daitouniao/logcat-viewer>
 
-> Current version **V0.1.3**. The single source of truth is `<Version>` in [logcat.csproj](logcat.csproj) — the window title, the about dialog and the exe's file properties all read from it.
+> Current version **V0.1.4**. The single source of truth is `<Version>` in [logcat.csproj](logcat.csproj) — the window title, the about dialog and the exe's file properties all read from it.
 >
 > The UI speaks **both Chinese and English** and switches at runtime — `Help → Language`, no restart. First launch follows your system locale; the choice is remembered in `settings.json`.
 
