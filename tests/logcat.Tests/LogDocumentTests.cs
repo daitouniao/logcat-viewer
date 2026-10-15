@@ -943,6 +943,29 @@ public class LogDocumentTests
     }
 
     /// <summary>
+    /// 整批空行走 "unchanged" 早退，但批末合并状态已变——缓存赋值必须发生在该早退之前（设计 §12 警示）。
+    /// 若缓存未刷新，下批续行会按陈旧的 true 误并回上一条记录（carry 吸收）。
+    /// </summary>
+    [Fact]
+    public void Reload_整批空行后批末合并状态仍刷新()
+    {
+        using var tmp = new TempLogFile(Line(T1, 'E', "Tag", "crash"));
+        using var doc = LogDocument.Build(tmp.Path);
+        Assert.Equal(1, doc.RowCount);
+
+        // 整批空行：无新记录，走 "unchanged" 早退，但批末状态已重置
+        tmp.Append("\n\n");
+        Assert.Equal("unchanged", doc.Reload());
+
+        // 空行后的续行不得并回 crash 记录
+        tmp.Append("    at Foo.bar(Foo.java:1)\n");
+        Assert.Equal("appended", doc.Reload());
+        Assert.Equal(2, doc.RowCount);
+        Assert.Equal("    at Foo.bar(Foo.java:1)", Text(doc.LineBytes(1)));
+        Assert.False(doc.LastAppendCarried);
+    }
+
+    /// <summary>
     /// 纯空白行（空格/制表符，lineLen&gt;0）不是空行：走合并分支继续合并，不合入「空行中断」语义。
     /// 全量与增量（批内 + 批界两种切分）都必须是 1 条多行记录。防后人把空行/空白行「统一」时误伤。
     /// </summary>
