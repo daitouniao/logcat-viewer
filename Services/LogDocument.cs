@@ -241,8 +241,11 @@ public sealed class LogDocument : IDisposable
         Size = new FileInfo(Path).Length;
         OpenMap();
         progress?.Report((0.0, Loc.T("扫描行…")));
-        var part = ScanRange(Path, 0, Size, join, false, progress, ct);
+        var part = ScanRange(Path, 0, Size, join, false, 0, progress, ct);
         ct.ThrowIfCancellationRequested();
+        // 整体重建：批末合并状态缓存一并刷新（Reload 检测到头变化走重建时，旧缓存态作废）
+        _prevHeadAtEnd = part.EndPrevHead;
+        _joinedAtEnd = part.EndJoined;
         Assemble(part, baseYear, progress);
         IndexedSize = Size;
     }
@@ -265,6 +268,10 @@ public sealed class LogDocument : IDisposable
         public int CarryLines;
         /// <summary>这些续行结束处的绝对文件偏移。</summary>
         public long CarryEndOff;
+        /// <summary>批末真实合并状态（空行已重置、横幅不重置，语义与批内一致）。跨批缓存用，替代按已索引行反推。</summary>
+        public bool EndPrevHead;
+        /// <summary>批末真实 joined：自末条记录头起的续行总数（跨批 carry 行也计入）。</summary>
+        public int EndJoined;
     }
 
     /// <summary>
@@ -273,7 +280,7 @@ public sealed class LogDocument : IDisposable
     /// internal：单元测试直接验证对齐语义（见 InternalsVisibleTo）。
     /// </summary>
     internal static ScanPart ScanRange(string path, long start, long end, bool join, bool prevHeadDoc = false,
-        IProgress<(double, string)>? progress = null, CancellationToken ct = default)
+        int joinedDoc = 0, IProgress<(double, string)>? progress = null, CancellationToken ct = default)
     {
         var offs = new List<long>();
         var lens = new List<int>();
@@ -302,7 +309,8 @@ public sealed class LogDocument : IDisposable
         // 续行状态跨批次传递：本批第一行如果属于上一批末尾那条记录，要并回去，
         // 否则多行日志（崩溃堆栈）会在批次边界被切成年两条记录。
         bool prevHead = prevHeadDoc;
-        int joined = 0;
+        // joined 同样跨批传递：MAX_JOIN 是「单记录」全局上限，不是每批预算（X-A8 fix-6，2026-10-15 定案）
+        int joined = joinedDoc;
         int carryLines = 0;
         long carryEndOff = 0;
 
@@ -392,8 +400,14 @@ public sealed class LogDocument : IDisposable
 
             if (lineLen == 0)
             {
-                // 空行：不索引，中断合并
+                // 空行：不索引，中断合并。
+                // prevHead/joined 必须一起重置——否则空行后的缩进行仍满足合并判据，
+                // 全量路径（Assemble 不读 CarryLines）会把它蒸发，增量路径（Append 消费 carry）
+                // 却把它吸收进上一条记录，同一字节两条路径结论相反（X-A8，2026-10-14 实测）。
+                // 对照：横幅行分支刻意不重置（崩溃堆栈中间的横幅不切断堆栈），两者语义相反，勿「统一」。
                 prev = -1;
+                prevHead = false;
+                joined = 0;
                 pos = nl >= 0 ? nl + 1 : data.Length;
                 continue;
             }
@@ -547,7 +561,8 @@ public sealed class LogDocument : IDisposable
             Lvls = lvls.ToArray(), TagIds = tagIds.ToArray(), Flags = flags.ToArray(),
             LocalTags = tagList,
             Crashes = crashes, LocalExcTypes = excList, LocalPkgs = pkgList,
-            CarryLines = carryLines, CarryEndOff = carryEndOff
+            CarryLines = carryLines, CarryEndOff = carryEndOff,
+            EndPrevHead = prevHead, EndJoined = joined
         };
     }
 
@@ -842,8 +857,12 @@ public sealed class LogDocument : IDisposable
         return Append(newSize, progress, ct);
     }
 
-    /// <summary>文档末行是否是一条「还能继续吸收续行」的记录（有时间戳或级别）。</summary>
-    bool PrevRowJoinable() => _n > 0 && (_ts[_n - 1] >= 0 || _lvl[_n - 1] > 0);
+    // ── 批末合并状态跨批缓存（X-A8 批界配套 fix-5 + fix-6）──
+    // ScanRange 透传「批末真实状态」（空行已重置、横幅不重置），替代按已索引行反推——
+    // 后者看不见批尾空行，会让全量/增量两路径在批界处结论相反。
+    bool _prevHeadAtEnd;
+    // 批末 joined：自末条记录头起的续行总数，保证 MAX_JOIN 是单记录全局上限而非每批预算
+    int _joinedAtEnd;
 
     string Append(long newSize, IProgress<(double, string)>? progress, CancellationToken ct)
     {
@@ -855,8 +874,11 @@ public sealed class LogDocument : IDisposable
         if (newSize <= IndexedSize)
             return "unchanged";
 
-        var part = ScanRange(Path, IndexedSize, newSize, Join, PrevRowJoinable(), progress, ct);
+        var part = ScanRange(Path, IndexedSize, newSize, Join, _prevHeadAtEnd, _joinedAtEnd, progress, ct);
         if (ct.IsCancellationRequested) return "unchanged";
+        // 批末状态必须在任何早退分支之前入缓存：整批空行走 "unchanged" 但合并状态已变
+        _prevHeadAtEnd = part.EndPrevHead;
+        _joinedAtEnd = part.EndJoined;
         LastAppendCarried = part.CarryLines > 0;
 
         // 跨批次续行：本批开头的续行并回上一批末尾那条记录，

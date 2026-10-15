@@ -850,6 +850,175 @@ public class LogDocumentTests
         }
     }
 
+    // ── X-A8：空行中断合并（两路径一致，docs/bugfixes/EMPTY-LINE-STACK-LOSS.md）──
+
+    /// <summary>
+    /// 空行后的缩进行不再并入上一条记录：全量路径下成为独立记录（无时间戳的未知行形态），内容不丢。
+    /// 修复前该行计入跨批 carry 后无人消费，直接蒸发。
+    /// </summary>
+    [Fact]
+    public void Build_空行后的缩进行成为独立记录()
+    {
+        using var tmp = new TempLogFile(
+            Line(T1, 'E', "Tag", "crash") + "\n" +
+            "    at Foo.bar(Foo.java:42)\n");
+        using var doc = LogDocument.Build(tmp.Path);
+
+        Assert.Equal(2, doc.RowCount);
+        Assert.Equal("09-23 18:00:00.000  1  2 E Tag: crash", Text(doc.LineBytes(0)));
+        Assert.Equal("    at Foo.bar(Foo.java:42)", Text(doc.LineBytes(1)));
+        Assert.False(doc.IsMultiline(0));
+        Assert.False(doc.IsMultiline(1));
+        // 独立行是未知行形态：无 tag
+        Assert.Equal(-1, doc.TagId[1]);
+    }
+
+    /// <summary>
+    /// 同一数据「全量读入」与「增量读入」逐行一致——数据含「记录头 + 空行 + 缩进行」（X-A8 主场景）
+    /// 与「横幅行夹在续行中间」（横幅不中断合并的既有行为不得漂移）。
+    /// 追加块内部包含完整「头行 + 空行 + 缩进行」⇒ 空行在批内；批界切分由下方批界用例覆盖。
+    /// </summary>
+    [Fact]
+    public void 增量与全量_空行后缩进行_结果一致()
+    {
+        string full =
+            Line(T1, 'E', "Tag", "crash") + "\n" +      // 记录头 + 空行（X-A8 主场景）
+            "    at Foo.bar(Foo.java:1)\n" +            // 空行后缩进行 → 独立记录
+            Line(T2, 'E', "Other", "boom") +
+            "    at A.first(A.java:2)\n" +              // 并入 boom
+            "--------- beginning of main\n" +           // 横幅：刻意不中断合并
+            "    at A.second(A.java:3)\n" +             // 仍并入 boom
+            Line(T3, 'W', "Tag", "warn");
+
+        using var tmpFull = new TempLogFile(full);
+        using var docFull = LogDocument.Build(tmpFull.Path);
+
+        using var tmpInc = new TempLogFile(Line(T1, 'E', "Tag", "crash"));
+        using var docInc = LogDocument.Build(tmpInc.Path);
+        tmpInc.Append("\n    at Foo.bar(Foo.java:1)\n" +
+                      Line(T2, 'E', "Other", "boom") +
+                      "    at A.first(A.java:2)\n" +
+                      "--------- beginning of main\n" +
+                      "    at A.second(A.java:3)\n");
+        docInc.Reload();
+        tmpInc.Append(Line(T3, 'W', "Tag", "warn"));
+        docInc.Reload();
+
+        Assert.Equal(4, docFull.RowCount);
+        Assert.Equal(docFull.RowCount, docInc.RowCount);
+        for (int i = 0; i < docFull.RowCount; i++)
+        {
+            Assert.Equal(Text(docFull.LineBytes(i)), Text(docInc.LineBytes(i)));
+            Assert.Equal(docFull.IsMultiline(i), docInc.IsMultiline(i));
+            Assert.Equal(docFull.Ts[i], docInc.Ts[i]);
+            Assert.Equal(docFull.Lvl[i], docInc.Lvl[i]);
+            Assert.Equal(docFull.TagOf(i), docInc.TagOf(i));
+        }
+
+        // 锚定关键行为：空行后的缩进行独立；横幅后的缩进行仍并入 boom
+        Assert.False(docFull.IsMultiline(0));
+        Assert.False(docFull.IsMultiline(1));
+        Assert.True(docFull.IsMultiline(2));
+    }
+
+    /// <summary>
+    /// 批界配套（fix-5）：批次边界落在空行之后时，空行已把合并状态重置，
+    /// 追加的缩进行必须成为独立记录——不得按「末条已索引记录仍可吸收」反推并回上一条。
+    /// 修复前 <c>PrevRowJoinable()</c> 看不见批尾空行 ⇒ carry 吸收，两路径分歧（本用例红）。
+    /// </summary>
+    [Fact]
+    public void Reload_空行在批界时缩进行成为独立记录()
+    {
+        using var tmp = new TempLogFile(Line(T1, 'E', "Tag", "crash") + "\n\n");
+        using var doc = LogDocument.Build(tmp.Path);
+        Assert.Equal(1, doc.RowCount);
+
+        tmp.Append("    at Foo.bar(Foo.java:1)\n");
+        Assert.Equal("appended", doc.Reload());
+
+        Assert.Equal(2, doc.RowCount);
+        Assert.Equal("    at Foo.bar(Foo.java:1)", Text(doc.LineBytes(1)));
+        Assert.False(doc.IsMultiline(0));
+        Assert.False(doc.LastAppendCarried);
+    }
+
+    /// <summary>
+    /// 纯空白行（空格/制表符，lineLen&gt;0）不是空行：走合并分支继续合并，不合入「空行中断」语义。
+    /// 全量与增量（批内 + 批界两种切分）都必须是 1 条多行记录。防后人把空行/空白行「统一」时误伤。
+    /// </summary>
+    [Fact]
+    public void 等价性_纯空白行不合入空行语义()
+    {
+        string head = Line(T1, 'E', "Tag", "crash");
+        string cont = "    at Foo.bar(Foo.java:1)\n";
+
+        // 全量
+        using var tmpFull = new TempLogFile(head + "   \n" + cont);
+        using var docFull = LogDocument.Build(tmpFull.Path);
+
+        // 增量·批内：空格行与缩进行同批
+        using var tmpInc1 = new TempLogFile(head);
+        using var docInc1 = LogDocument.Build(tmpInc1.Path);
+        tmpInc1.Append("   \n" + cont);
+        docInc1.Reload();
+
+        // 增量·批界：批界落在空格行之后（空格行是上批末行，合并状态未重置）
+        using var tmpInc2 = new TempLogFile(head + "   \n");
+        using var docInc2 = LogDocument.Build(tmpInc2.Path);
+        tmpInc2.Append(cont);
+        docInc2.Reload();
+
+        foreach (var d in new[] { docFull, docInc1, docInc2 })
+        {
+            Assert.Equal(1, d.RowCount);
+            Assert.True(d.IsMultiline(0));
+            Assert.Contains("at Foo.bar", Text(d.LineBytes(0)));
+        }
+    }
+
+    /// <summary>
+    /// X-A8-fix-6：MAX_JOIN(200) 是「单记录」全局上限，不是每批预算。
+    /// 250 行堆栈分批追加（批界故意落堆栈中段，且任何单批内部续行数都不破 200），
+    /// 全量与增量都必须断在第 201 行：1 条 201 行记录 + 50 条独立行，两路径逐行一致。
+    /// 修复前增量路径每批 joined 清零 ⇒ 全部并成 1 条，本用例红。
+    /// </summary>
+    [Fact]
+    public void 等价性_超长堆栈跨批时切分点一致()
+    {
+        string Cont(int i) => $"    at Foo.bar(Foo.java:{i})\n";
+
+        var sb = new StringBuilder(Line(T1, 'E', "Tag", "crash"));
+        for (int i = 1; i <= 250; i++) sb.Append(Cont(i));
+
+        using var tmpFull = new TempLogFile(sb.ToString());
+        using var docFull = LogDocument.Build(tmpFull.Path);
+
+        // 分批追加：每批 50 行，批界全部落在堆栈中段
+        using var tmpInc = new TempLogFile(Line(T1, 'E', "Tag", "crash"));
+        using var docInc = LogDocument.Build(tmpInc.Path);
+        for (int batch = 0; batch < 5; batch++)
+        {
+            var chunk = new StringBuilder();
+            for (int i = batch * 50 + 1; i <= (batch + 1) * 50; i++) chunk.Append(Cont(i));
+            tmpInc.Append(chunk.ToString());
+            docInc.Reload();
+        }
+
+        Assert.Equal(51, docFull.RowCount);   // 1 条 201 行记录 + 50 条独立行
+        Assert.Equal(docFull.RowCount, docInc.RowCount);
+        for (int i = 0; i < docFull.RowCount; i++)
+        {
+            Assert.Equal(Text(docFull.LineBytes(i)), Text(docInc.LineBytes(i)));
+            Assert.Equal(docFull.IsMultiline(i), docInc.IsMultiline(i));
+        }
+        // 断开点：记录头 + 200 行续行；第 201 行起独立
+        Assert.True(docFull.IsMultiline(0));
+        Assert.Contains("Foo.java:200", Text(docFull.LineBytes(0)));
+        Assert.DoesNotContain("Foo.java:201", Text(docFull.LineBytes(0)));
+        for (int i = 1; i <= 50; i++)
+            Assert.False(docFull.IsMultiline(i));
+    }
+
     // ── 扫描区间的行边界对齐（ScanRange 的 start / end 对齐分支）──
 
     /// <summary>
