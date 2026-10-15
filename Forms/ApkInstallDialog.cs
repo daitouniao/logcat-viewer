@@ -1,3 +1,4 @@
+using logcat.Models;
 using logcat.Services;
 
 namespace logcat.Forms;
@@ -12,8 +13,8 @@ public sealed class ApkInstallDialog : Form, ILocalizedUi
 {
     readonly AdbManager _manager;
     readonly string _serial;
-    // root 开关要参与标题/设备标签的本地化重算（Loc.F 带参数），故留字段
-    readonly bool _isRoot;
+    // root 形态要参与标题/设备标签的本地化重算（Loc.F 带参数），故留字段
+    readonly RootMode _rootMode;
     readonly FavoritesStore _fav = FavoritesStore.Default;
 
     readonly IProgress<string> _progress;
@@ -32,7 +33,7 @@ public sealed class ApkInstallDialog : Form, ILocalizedUi
     Label _lblStat = null!, _lblDevice = null!;
     Button _btnStop = null!, _btnCopy = null!, _btnClear = null!;
 
-    public ApkInstallDialog(AdbManager manager, string serial, bool isRoot)
+    public ApkInstallDialog(AdbManager manager, string serial, RootMode rootMode)
     {
         AutoScaleDimensions = new SizeF(96F, 96F);
         AutoScaleMode = AutoScaleMode.Dpi;
@@ -40,7 +41,7 @@ public sealed class ApkInstallDialog : Form, ILocalizedUi
         _serial = serial;
         _progress = new Progress<string>(AppendOutput);
 
-        _isRoot = isRoot;
+        _rootMode = rootMode;
         Text = Loc.F("安装 APK — {0}", serial);
         Size = new Size(780, 700);
         MinimumSize = new Size(700, 600);
@@ -51,7 +52,7 @@ public sealed class ApkInstallDialog : Form, ILocalizedUi
         LoadOptions();
         UpdateInstallRootEnabled();
         RefreshApkCombo();
-        _lblDevice.Text = Loc.F("设备：{0}{1}", serial, isRoot ? "  [root]" : "");
+        _lblDevice.Text = Loc.F("设备：{0}{1}", serial, rootMode != RootMode.None ? "  [root]" : "");
         FormClosed += (_, _) => { SaveOptions(); try { _cts?.Cancel(); } catch { } _cts?.Dispose(); };
     }
 
@@ -403,6 +404,6 @@ public sealed class ApkInstallDialog : Form, ILocalizedUi
     void ILocalizedUi.OnLanguageChanged()
     {
         Text = Loc.F("安装 APK — {0}", _serial);
-        _lblDevice.Text = Loc.F("设备：{0}{1}", _serial, _isRoot ? "  [root]" : "");
+        _lblDevice.Text = Loc.F("设备：{0}{1}", _serial, _rootMode != RootMode.None ? "  [root]" : "");
     }
 }

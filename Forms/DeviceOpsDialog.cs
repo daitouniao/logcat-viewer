@@ -1,3 +1,4 @@
+using logcat.Models;
 using logcat.Services;
 
 namespace logcat.Forms;
@@ -16,14 +17,14 @@ public class DeviceOpsDialog : Form, ILocalizedUi
 
     readonly AdbManager _manager;
     readonly Func<string?> _serialProvider;
-    readonly Func<bool> _rootProvider;
+    readonly Func<RootMode> _rootProvider;
 
     readonly TabControl _tabs = new() { Dock = DockStyle.Fill };
 
     // 所有页签统一管理（截图/录屏/文件浏览/APK/命令 同级显示）
     readonly Dictionary<PageKind, (TabPage Page, Form Form)> _pages = new();
 
-    public DeviceOpsDialog(AdbManager manager, Func<string?> serialProvider, Func<bool> rootProvider)
+    public DeviceOpsDialog(AdbManager manager, Func<string?> serialProvider, Func<RootMode> rootProvider)
     {
         AutoScaleDimensions = new SizeF(96F, 96F);
         AutoScaleMode = AutoScaleMode.Dpi;
@@ -84,7 +85,25 @@ public class DeviceOpsDialog : Form, ILocalizedUi
             EnsurePage(PageKind.ApkInstall);
             EnsurePage(PageKind.ApkUninstall);
         }
+        MaybeOfferRootRetry();   // Q6：上次 su 阶段未确认时给一次重试 root 检测的机会
         DpiFix.Apply(this);
+    }
+
+    /// <summary>
+    /// Q6 重试 root 检测入口：当前设备上次 su 阶段未得到明确结果（授权被拒/等待超时）时，
+    /// 弹窗让用户选择重试。仅此条件触发——明确无 su 的设备重测大概率还是失败，不必打扰；
+    /// 确认后失效该设备的缓存重测，结果经 DevicesChanged 刷新主窗口的设备标记。
+    /// </summary>
+    void MaybeOfferRootRetry()
+    {
+        var serial = _serialProvider();
+        if (string.IsNullOrEmpty(serial)) return;
+        if (_manager.GetRootDetectEntry(serial) is not { Mode: RootMode.None, SuFailed: true }) return;
+        if (MessageBox.Show(this,
+                Loc.T("上次 root 检测未得到明确结果（su 授权可能被拒绝或等待超时）。\n是否重试 root 检测？设备端可能弹出授权提示。"),
+                Loc.T("设备操作"), MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
+            return;
+        _ = _manager.RedetectRootAsync(serial);
     }
 
     static string Title(PageKind kind) => kind switch

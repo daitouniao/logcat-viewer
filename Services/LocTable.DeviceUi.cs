@@ -1,4 +1,4 @@
-﻿namespace logcat.Services;
+namespace logcat.Services;
 
 /// <summary>英文译文表：设备操作（截图 / 录屏 / run-as / 设备操作总窗口）。</summary>
 static partial class LocTable
@@ -11,6 +11,8 @@ static partial class LocTable
         ["安装 APK"] = "Install APK",
         ["卸载 APK"] = "Uninstall APK",
         ["请先在主窗口选择设备"] = "Select a device in the main window first",
+        ["上次 root 检测未得到明确结果（su 授权可能被拒绝或等待超时）。\n是否重试 root 检测？设备端可能弹出授权提示。"] =
+            "The last root detection got no definite result (su authorization may have been denied or timed out).\nRetry root detection? The device may pop up an authorization prompt.",
 
         // ── 截图 ──
         ["截图 — {0}"] = "Screenshot — {0}",

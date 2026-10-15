@@ -1,5 +1,6 @@
 using logcat.Models;
 using logcat.Services;
+using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
 namespace logcat.Tests;
@@ -183,7 +184,17 @@ public class ModelTests
     [Fact]
     public void DeviceInfo带root标记()
     {
-        Assert.Equal("Pixel_7 (S1) [root]", new DeviceInfo { Serial = "S1", Model = "Pixel_7", IsRoot = true }.ToString());
+        Assert.Equal("Pixel_7 (S1) [root]", new DeviceInfo { Serial = "S1", Model = "Pixel_7", RootMode = RootMode.Su }.ToString());
+    }
+
+    [Fact]
+    public void DeviceInfoIsRoot对两种root形态都为真()
+    {
+        // Su（Magisk）与 Adbd（adb root 生效）都算有 root，仅提权包裹策略不同
+        Assert.True(new DeviceInfo { RootMode = RootMode.Su }.IsRoot);
+        Assert.True(new DeviceInfo { RootMode = RootMode.Adbd }.IsRoot);
+        Assert.False(new DeviceInfo { RootMode = RootMode.None }.IsRoot);
+        Assert.False(new DeviceInfo().IsRoot);   // 默认 None
     }
 
     // ── FavoriteDir ──
@@ -447,5 +458,94 @@ public class AdbManagerStaticTests
     public void AdbArgs会去掉命令首尾空白()
     {
         Assert.Equal("-s S1 shell ls", AdbManager.AdbArgs("  shell ls  ", "S1"));
+    }
+
+    // ── root 检测分类（docs/private/design/ADB-ROOT-DETECTION.md 方向 A）──
+
+    [Theory]
+    [InlineData("uid=0(root) gid=0(root) context=u:r:magisk:s0", "unused", RootMode.Adbd, false)]
+    [InlineData("uid=2000(shell) gid=2000(shell)", "uid=0(root) gid=0(root)", RootMode.Su, false)]
+    [InlineData("uid=2000(shell) gid=2000(shell)", "/system/bin/sh: su: not found", RootMode.None, false)]
+    [InlineData("uid=2000(shell) gid=2000(shell)", "Permission denied", RootMode.None, false)]
+    [InlineData(null, "uid=0(root) gid=0(root)", RootMode.Su, false)]
+    [InlineData("uid=2000(shell) gid=2000(shell)", null, RootMode.None, true)]
+    [InlineData(null, null, RootMode.None, true)]
+    public void ClassifyRootOutput按探测输出分类(string? plainIdOut, string? suIdOut, RootMode mode, bool suFailed)
+    {
+        var entry = AdbManager.ClassifyRootOutput(plainIdOut, suIdOut);
+        Assert.Equal(mode, entry.Mode);
+        Assert.Equal(suFailed, entry.SuFailed);
+    }
+
+    [Fact]
+    public void ClassifyRootOutput裸id探到uid0时短路忽略su输出()
+    {
+        // adbd root 设备：裸 id 已判 Adbd，su 阶段不应再执行；即便误给输出也不参与判定
+        var entry = AdbManager.ClassifyRootOutput("uid=0(root) gid=0(root)", "anything");
+        Assert.Equal(RootMode.Adbd, entry.Mode);
+        Assert.False(entry.SuFailed);
+    }
+
+    // ── Q5 修订版重测范围 ──
+
+    [Theory]
+    [InlineData(null, true)]
+    [InlineData(RootMode.Adbd, true)]
+    [InlineData(RootMode.Su, false)]
+    [InlineData(RootMode.None, false)]
+    public void ShouldRedetect仅对无缓存与Adbd型重测(RootMode? mode, bool expected)
+    {
+        var cached = mode == null ? null : new RootDetectEntry(mode.Value, SuFailed: false);
+        Assert.Equal(expected, AdbManager.ShouldRedetect(cached));
+    }
+
+    [Fact]
+    public void ShouldRedetect对None型无论su阶段结果都不自动重测()
+    {
+        // 自动重测会让 Magisk 拒绝授权/等待超时的设备每次重连都重弹授权框，必须只走手动逃生门
+        Assert.False(AdbManager.ShouldRedetect(new RootDetectEntry(RootMode.None, SuFailed: true)));
+        Assert.False(AdbManager.ShouldRedetect(new RootDetectEntry(RootMode.None, SuFailed: false)));
+    }
+
+    // ── Adbd 模式跳过 su 包裹（Q3 定案）──
+
+    [Theory]
+    [InlineData(RootMode.Su, "id", "su -c 'id'")]
+    [InlineData(RootMode.Adbd, "id", "id")]
+    [InlineData(RootMode.None, "id", "id")]
+    public void BuildRootShellCmd仅Su模式包su(RootMode mode, string cmd, string expected)
+    {
+        // Adbd：shell 已是 uid=0，包 su -c 反而可能失败（无 su 二进制）；None：没有 root 能力只能原样执行
+        Assert.Equal(expected, AdbManager.BuildRootShellCmd(mode, cmd));
+    }
+
+    [Fact]
+    public void BuildRootShellCmd对Su模式转义内层单引号()
+    {
+        Assert.Equal(@"su -c 'a'\''b'", AdbManager.BuildRootShellCmd(RootMode.Su, "a'b"));
+    }
+}
+
+/// <summary>root 检测缓存容器的行为。探测链路依赖真实 adb 设备（手工验收，见设计文档），
+/// 这里只验证不触网的纯内存行为。</summary>
+public class AdbManagerRootCacheTests
+{
+    [Fact]
+    public void 未检测的设备查询返回null与None()
+    {
+        using var mgr = new AdbManager(NullLogger<AdbManager>.Instance);
+        Assert.Null(mgr.GetRootDetectEntry("S1"));
+        Assert.Equal(RootMode.None, mgr.GetRootMode("S1"));
+    }
+
+    [Fact]
+    public void 失效与清空对未知序列号安全()
+    {
+        using var mgr = new AdbManager(NullLogger<AdbManager>.Instance);
+        mgr.InvalidateRootCache("S1");
+        mgr.InvalidateRootCache("");
+        mgr.InvalidateRootCache(null!);
+        mgr.ClearRootCache();
+        Assert.Null(mgr.GetRootDetectEntry("S1"));
     }
 }

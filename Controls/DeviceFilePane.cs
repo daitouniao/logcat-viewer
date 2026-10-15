@@ -12,7 +12,7 @@ public sealed class DeviceFilePane : FilePane
 {
     readonly AdbManager _manager;
     readonly string _serial;
-    readonly bool _isRoot;
+    readonly RootMode _rootMode;
 
     Button _btnRunAs = null!;
 
@@ -26,12 +26,12 @@ public sealed class DeviceFilePane : FilePane
     /// <summary>run-as 模式的中转目录，默认放 Download，可在 run-as 对话框中修改。</summary>
     public string RunAsRelayDir { get; private set; } = logcat.Services.AppSettings.Default.LastRunAsRelayDir;
 
-    public DeviceFilePane(AdbManager manager, string serial, bool isRoot)
-        : base(Loc.F("Android 设备 — {0}{1}", serial, isRoot ? "  [root]" : ""))
+    public DeviceFilePane(AdbManager manager, string serial, RootMode rootMode)
+        : base(Loc.F("Android 设备 — {0}{1}", serial, rootMode != RootMode.None ? "  [root]" : ""))
     {
         _manager = manager;
         _serial = serial;
-        _isRoot = isRoot;
+        _rootMode = rootMode;
         UpdateRunAsUi();
     }
 
@@ -144,7 +144,7 @@ public sealed class DeviceFilePane : FilePane
     {
         // 只在 /data/data/*（run-as 唯一能救场的范围）引导进入 run-as，
         // 其他路径失败多半是输错或需要 root，弹 run-as 只会打扰
-        if (ex is PermissionException && !_isRoot && RunAsPackage == null &&
+        if (ex is PermissionException && _rootMode == RootMode.None && RunAsPackage == null &&
             path.StartsWith("/data/data/", StringComparison.Ordinal))
         {
             _ = ApplyRunAsAsync(path);
@@ -161,14 +161,16 @@ public sealed class DeviceFilePane : FilePane
     /// 不加提权包裹，避免浏览普通目录时反复触发 root 授权。
     /// </summary>
     bool NeedsElevation(string devicePath) =>
-        !IsSyncDirect(devicePath) && (_isRoot || RunAsPackage != null);
+        !IsSyncDirect(devicePath) && (_rootMode != RootMode.None || RunAsPackage != null);
 
     string ShellCmd(string inner, bool elevated)
     {
         if (!elevated) return inner;
         // run-as 直接 exec 命令而非交给 shell，因此不能整体加引号，也不支持 && 串联
-        if (_isRoot) return $"su -c {AdbManager.ShellQuote(inner)}";
+        if (_rootMode == RootMode.Su) return $"su -c {AdbManager.ShellQuote(inner)}";
         if (RunAsPackage != null) return $"run-as {RunAsPackage} {inner}";
+        // Adbd：shell 本身已是 uid=0（adb root 生效），不加包裹——
+        // 无 su 二进制的设备上包 su -c 必然失败
         return inner;
     }
 
@@ -295,7 +297,7 @@ public sealed class DeviceFilePane : FilePane
         }
 
         var menu = new ContextMenuStrip();
-        menu.Items.Add(_isRoot ? Loc.T("回到 root 模式") : Loc.T("退出 run-as 模式"), null,
+        menu.Items.Add(_rootMode != RootMode.None ? Loc.T("回到 root 模式") : Loc.T("退出 run-as 模式"), null,
             (_, _) => ExitRunAs());
         menu.Items.Add(Loc.T("切换包名…"), null, (_, _) => _ = ApplyRunAsAsync(null));
 
@@ -338,7 +340,7 @@ public sealed class DeviceFilePane : FilePane
     void UpdateRunAsUi()
     {
         _btnRunAs.Text = RunAsPackage == null ? "run-as…" : $"run-as: {RunAsPackage}";
-        Box.Text = Loc.F("Android 设备 — {0}{1}", _serial, _isRoot ? "  [root]" : "") +
+        Box.Text = Loc.F("Android 设备 — {0}{1}", _serial, _rootMode != RootMode.None ? "  [root]" : "") +
                    (RunAsPackage == null ? "" : $"  [run-as: {RunAsPackage}]");
     }
 
@@ -496,7 +498,7 @@ public sealed class DeviceFilePane : FilePane
     /// su 只能提升 shell 命令的权限，提升不了 push/pull。
     /// </summary>
     bool NeedsRelay(string remotePath) =>
-        !IsSyncDirect(remotePath) && (_isRoot || RunAsPackage != null);
+        !IsSyncDirect(remotePath) && (_rootMode != RootMode.None || RunAsPackage != null);
 
     string NextRelayPath(string remotePath)
     {
@@ -603,7 +605,7 @@ public sealed class DeviceFilePane : FilePane
             await ShellOkAsync($"cp '{tmp}' '{remotePath}'", Loc.F("无法写入 {0}", remotePath), elevated: true);
             // sync 推送的文件属主是 shell，直接落到应用数据目录会让应用自身无法读写，
             // 所以再按目标目录链上最近的已有属主改回去（顺带处理本次新建的目录）。
-            if (_isRoot && owner != null)
+            if (_rootMode != RootMode.None && owner != null)
             {
                 await ShellBestEffortAsync($"chown '{owner}' '{dir}'", elevated: true);
                 await ShellBestEffortAsync($"chown '{owner}' '{remotePath}'", elevated: true);

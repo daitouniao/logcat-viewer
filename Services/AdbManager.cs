@@ -21,8 +21,15 @@ public sealed class AdbManager : IDisposable
     DeviceMonitor? _monitor;
     CancellationTokenSource? _monitorCts;
 
-    /// <summary>root 支持检测结果缓存（序列号 → 是否支持）。</summary>
-    readonly Dictionary<string, bool> _rootCache = new();
+    /// <summary>root 检测结果缓存（序列号 → 检测条目）。</summary>
+    readonly Dictionary<string, RootDetectEntry> _rootCache = new();
+
+    /// <summary>
+    /// root 探测单条命令的超时秒数。AdvancedSharpAdbClient 的通道没有任何超时机制，
+    /// 设备端 su 弹授权框等待用户操作时调用会无限阻塞，靠它兜底取消；
+    /// 取 8 秒，覆盖 Magisk 默认授权等待，又不至于让设备枚举久等。
+    /// </summary>
+    const int RootProbeTimeoutSec = 8;
 
     public event EventHandler<List<DeviceInfo>>? DevicesChanged;
 
@@ -42,7 +49,11 @@ public sealed class AdbManager : IDisposable
 
     // ── 设备枚举 ──
 
-    public List<DeviceInfo> ListDevices()
+    /// <summary>
+    /// 枚举设备并逐台检测 root。root 探测走带超时的异步通道（见 <see cref="TryProbeAsync"/>），
+    /// 因此本方法天然异步——同步版本曾因 su 授权框挂起而卡死设备监控事件循环。
+    /// </summary>
+    public async Task<List<DeviceInfo>> ListDevicesAsync()
     {
         var result = new List<DeviceInfo>();
         try
@@ -56,7 +67,7 @@ public sealed class AdbManager : IDisposable
                     Serial = d.Serial ?? "",
                     Model = GetModel(d),
                     State = d.State.ToString(),
-                    IsRoot = DetectRootCached(d),
+                    RootMode = (await DetectRootCachedAsync(d)).Mode,
                 };
                 result.Add(info);
             }
@@ -67,9 +78,6 @@ public sealed class AdbManager : IDisposable
         }
         return result;
     }
-
-    public Task<List<DeviceInfo>> ListDevicesAsync() =>
-        Task.Run(ListDevices);
 
     // ── Shell ──
 
@@ -91,8 +99,50 @@ public sealed class AdbManager : IDisposable
     /// </summary>
     public static string ShellQuote(string value) => "'" + (value ?? "").Replace("'", @"'\''") + "'";
 
+    /// <summary>以 root 身份执行设备端命令：Su 模式包 su -c；Adbd 模式 shell 已是 uid=0，不包裹。</summary>
     public string ShellRoot(string serial, string cmd, int timeoutSec = 30) =>
-        Shell(serial, $"su -c {ShellQuote(cmd)}", timeoutSec);
+        Shell(serial, BuildRootShellCmd(GetRootMode(serial), cmd), timeoutSec);
+
+    /// <summary>
+    /// 按设备 root 形态生成提权命令（纯函数，单测覆盖）：
+    /// 仅 Su 模式需要 su -c 包裹；Adbd 模式 shell 天生 root，无 su 二进制的设备包了反而失败；
+    /// None 模式没有 root 能力，只能原样执行。
+    /// </summary>
+    internal static string BuildRootShellCmd(RootMode mode, string cmd) =>
+        mode == RootMode.Su ? $"su -c {ShellQuote(cmd)}" : cmd;
+
+    /// <summary>查询设备的 root 形态；未检测过返回 <see cref="RootMode.None"/>。</summary>
+    public RootMode GetRootMode(string serial) =>
+        GetRootDetectEntry(serial)?.Mode ?? RootMode.None;
+
+    /// <summary>查询设备的 root 检测缓存条目；未检测过返回 null。</summary>
+    public RootDetectEntry? GetRootDetectEntry(string serial)
+    {
+        lock (_rootCache) return _rootCache.TryGetValue(serial ?? "", out var e) ? e : null;
+    }
+
+    /// <summary>清除指定设备的 root 检测缓存，下次枚举设备时重测。</summary>
+    public void InvalidateRootCache(string serial)
+    {
+        lock (_rootCache) _rootCache.Remove(serial ?? "");
+    }
+
+    /// <summary>清除全部 root 检测缓存（手动刷新强制重测时使用）。</summary>
+    public void ClearRootCache()
+    {
+        lock (_rootCache) _rootCache.Clear();
+    }
+
+    /// <summary>
+    /// 失效指定设备的 root 缓存并重新枚举设备，结果经 <see cref="DevicesChanged"/> 通知订阅方
+    /// （设备操作窗口的「重试 root 检测」入口走这里，主窗口的设备下拉与 [root] 标记随之刷新）。
+    /// </summary>
+    public async Task RedetectRootAsync(string serial)
+    {
+        InvalidateRootCache(serial);
+        var devices = await ListDevicesAsync();
+        DevicesChanged?.Invoke(this, devices);
+    }
 
     /// <summary>
     /// 执行设备端命令并逐行回传输出。logcat、top 这类一直不退出的命令可以边出边看，也能中途取消；
@@ -306,11 +356,14 @@ public sealed class AdbManager : IDisposable
         }
     }
 
-    void OnDeviceEvent(object? sender, DeviceDataEventArgs e)
+    async void OnDeviceEvent(object? sender, DeviceDataEventArgs e)
     {
         try
         {
-            var devices = ListDevices();
+            // root 探测是带超时的异步命令，必须 await 而非同步等待：
+            // 在监控事件线程上同步执行时，设备端 su 授权框一挂起整个事件循环就停摆，
+            // 后续所有设备增删事件全部无人处理
+            var devices = await ListDevicesAsync();
             DevicesChanged?.Invoke(this, devices);
         }
         catch (Exception ex)
@@ -338,33 +391,80 @@ public sealed class AdbManager : IDisposable
     }
 
     /// <summary>
-    /// root 支持检测结果按序列号缓存。
-    /// su -c 每执行一次手机上就会弹一次 root 授权，设备列表每次刷新都重测
-    /// 会让授权请求反复出现，因此每台设备只在首次遇到时检测一次。
+    /// root 检测结果按序列号缓存。su -c 每执行一次手机上就会弹一次 root 授权，
+    /// 是否重测按 Q5 修订范围决定（见 <see cref="ShouldRedetect"/>）：
+    /// Su（已授权）与 None（su 阶段未确认，重测会重弹授权框）复用缓存，
+    /// Adbd 型重测仅一条裸 id、无授权框，自动重测以跟随 adb root/unroot 的状态变化。
     /// </summary>
-    bool DetectRootCached(DeviceData device)
+    async Task<RootDetectEntry> DetectRootCachedAsync(DeviceData device)
     {
         var serial = device.Serial ?? "";
-        lock (_rootCache)
-        {
-            if (_rootCache.TryGetValue(serial, out var cached)) return cached;
-        }
-        var supported = DetectRoot(device);
-        lock (_rootCache) _rootCache[serial] = supported;
-        return supported;
+        RootDetectEntry? cached;
+        lock (_rootCache) _rootCache.TryGetValue(serial, out cached);
+        if (!ShouldRedetect(cached)) return cached!;
+        var entry = await DetectRootAsync(device, CancellationToken.None);
+        lock (_rootCache) _rootCache[serial] = entry;
+        return entry;
     }
 
-    bool DetectRoot(DeviceData device)
+    /// <summary>Q5 修订版重测范围：无缓存需首测；Adbd 型重测成本低（一条裸 id，无授权框）自动重测；
+    /// Su 与 None 复用缓存，强制重测只走手动刷新确认 / 重试入口的逃生门。</summary>
+    internal static bool ShouldRedetect(RootDetectEntry? cached) =>
+        cached is null || cached.Mode == RootMode.Adbd;
+
+    /// <summary>
+    /// root 探测：先跑不带 su 的裸 id，shell 自身已是 uid=0 即 adbd root 模式（短路返回，
+    /// 不对这类设备发出注定失败或多余的 su）；未探到再跑 su -c id 判断 su 提权。
+    /// </summary>
+    async Task<RootDetectEntry> DetectRootAsync(DeviceData device, CancellationToken ct)
+    {
+        var plain = await TryProbeAsync(device, "id", ct);
+        if (plain?.Contains("uid=0") == true)
+            return ClassifyRootOutput(plain, null);
+        var su = await TryProbeAsync(device, "su -c id", ct);
+        return ClassifyRootOutput(plain, su);
+    }
+
+    /// <summary>把裸 id 与 su -c id 的输出分类为检测条目（纯函数，单测覆盖）。</summary>
+    internal static RootDetectEntry ClassifyRootOutput(string? plainIdOut, string? suIdOut)
+    {
+        // 裸 id 探得 uid=0：adbd 以 root 运行，无需 su
+        if (plainIdOut?.Contains("uid=0") == true)
+            return new RootDetectEntry(RootMode.Adbd, SuFailed: false);
+        // su 输出 uid=0：su 提权可用
+        if (suIdOut?.Contains("uid=0") == true)
+            return new RootDetectEntry(RootMode.Su, SuFailed: false);
+        // su 阶段没拿到任何输出：异常/超时（如授权框挂起后被取消），结果未确认
+        if (suIdOut == null)
+            return new RootDetectEntry(RootMode.None, SuFailed: true);
+        // su 有输出但非 uid=0（su 不存在或被拒绝）：明确无 su 提权
+        return new RootDetectEntry(RootMode.None, SuFailed: false);
+    }
+
+    /// <summary>
+    /// 执行探测命令并返回完整输出；超时/取消/异常一律返回 null（对应「结果未确认」）。
+    /// 必须用带 CancellationToken 的异步重载：通道无超时机制，同步调用在 su 授权框
+    /// 挂起期间会无限阻塞，这里用 CTS 兜底取消。
+    /// </summary>
+    async Task<string?> TryProbeAsync(DeviceData device, string cmd, CancellationToken ct)
     {
         try
         {
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            cts.CancelAfter(TimeSpan.FromSeconds(RootProbeTimeoutSec));
             var receiver = new ConsoleOutputReceiver();
-            _client.ExecuteRemoteCommand("su -c id", device, receiver, Encoding.UTF8);
-            return receiver.ToString().Contains("uid=0");
+            await _client.ExecuteRemoteCommandAsync(cmd, device, receiver, Encoding.UTF8, cts.Token);
+            return receiver.ToString();
         }
-        catch
+        catch (OperationCanceledException)
         {
-            return false;
+            _logger.LogInformation("root 探测命令超时或被取消: {0} @ {1}", cmd, device.Serial);
+            return null;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogInformation("root 探测命令执行失败: {0} @ {1}: {2}", cmd, device.Serial, ex.Message);
+            return null;
         }
     }
 

@@ -1,5 +1,6 @@
 using System.Text;
 using logcat.Controls;
+using logcat.Models;
 using logcat.Services;
 
 namespace logcat.Forms;
@@ -27,12 +28,12 @@ public class FileBrowserDialog : Form, ILocalizedUi
     [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
     internal bool BlockCloseWhileTransferring { get; set; } = true;
 
-    public FileBrowserDialog(AdbManager manager, string serial, bool isRoot = false,
+    public FileBrowserDialog(AdbManager manager, string serial, RootMode rootMode = RootMode.None,
                              string startPath = "/sdcard", string localStartPath = "")
     {
         AutoScaleDimensions = new SizeF(96F, 96F);
         AutoScaleMode = AutoScaleMode.Dpi;
-        Text = Loc.F("文件浏览 — {0}{1}", serial, isRoot ? " [root]" : "");
+        Text = Loc.F("文件浏览 — {0}{1}", serial, rootMode != RootMode.None ? " [root]" : "");
         Size = new Size(1440, 820);
         MinimumSize = new Size(920, 540);
         StartPosition = FormStartPosition.CenterParent;
@@ -47,7 +48,7 @@ public class FileBrowserDialog : Form, ILocalizedUi
             Orientation = Orientation.Vertical,
             SplitterWidth = 6,
         };
-        _remote = new DeviceFilePane(manager, serial, isRoot);
+        _remote = new DeviceFilePane(manager, serial, rootMode);
         _local = new LocalFilePane();
         split.Panel1.Controls.Add(_remote);
         split.Panel2.Controls.Add(_local);

@@ -192,7 +192,7 @@ public partial class frmMain : Form, ILocalizedUi
         _comboDevice.SelectedIndexChanged += (_, _) => _deviceOps?.OnDeviceChanged();
         // 设备操作总入口（截图/录屏/文件浏览/APK/命令）
         var btnDeviceOps = Loc.Bind(new ToolStripButton("设备操作", null, (_, _) => ShowDeviceOps(DeviceOpsDialog.PageKind.Command)), "设备操作");
-        var btnRefresh = Loc.Bind(new ToolStripButton("刷新设备", null, (_, _) => _ = AdbRefresh()), "刷新设备");
+        var btnRefresh = Loc.Bind(new ToolStripButton("刷新设备", null, (_, _) => _ = AdbRefreshManualAsync()), "刷新设备");
         _btnAdbStart = Loc.Bind(new ToolStripButton("▶ 开始采集", null, (_, _) => AdbStartCapture()) { Enabled = false }, "▶ 开始采集");
         _btnAdbStop = Loc.Bind(new ToolStripButton("■ 停止采集", null, (_, _) => _ = AdbStopCaptureAsync()) { Enabled = false }, "■ 停止采集");
         // 刷新设备紧贴设备列表左侧；开始/停止采集在左侧分组
@@ -1757,6 +1757,26 @@ public partial class frmMain : Form, ILocalizedUi
 
     // ── ADB 设备管理 ──
 
+    /// <summary>
+    /// 手动刷新设备列表（Q6 定案的强制重测逃生门）：当存在 Su/None 检测结果的设备时，
+    /// 先弹确认框让用户选择是否同时强制重测 root（可能重弹设备端授权提示）；
+    /// 选「否」则仅刷新列表、保留检测结果。自动刷新（设备事件）不走这里，按 Q5 范围自动重测。
+    /// </summary>
+    async Task AdbRefreshManualAsync()
+    {
+        if (_adbManager == null) return;
+        // Adbd 型重测与首次检测都不弹授权框，无需确认；仅 Su/None 缓存需要确认
+        bool hasSuOrNone = _adbDevices.Any(d =>
+            _adbManager.GetRootDetectEntry(d.Serial) is { Mode: not RootMode.Adbd });
+        if (hasSuOrNone && MessageBox.Show(this,
+                Loc.T("是否同时重新检测各设备的 root 状态？\n重新检测可能在设备端弹出 root 授权提示；选「否」仅刷新设备列表、保留检测结果。"),
+                Loc.T("刷新设备"), MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes)
+        {
+            _adbManager.ClearRootCache();
+        }
+        await AdbRefresh();
+    }
+
     async Task AdbRefresh()
     {
         if (_adbManager == null) return;
@@ -2000,10 +2020,12 @@ public partial class frmMain : Form, ILocalizedUi
 
     // ── 设备操作总窗口（截图 / 录屏 / 文件浏览 / 安装·卸载 APK / 命令 合并为一个页签式窗口）──
 
-    bool SelectedIsRoot()
+    RootMode SelectedRootMode()
     {
         var serial = SelectedSerial();
-        return serial != null && (_adbDevices.FirstOrDefault(d => d.Serial == serial)?.IsRoot ?? false);
+        return serial != null
+            ? (_adbDevices.FirstOrDefault(d => d.Serial == serial)?.RootMode ?? RootMode.None)
+            : RootMode.None;
     }
 
     void AdbCommandWindow() => ShowDeviceOps(DeviceOpsDialog.PageKind.Command);
@@ -2021,7 +2043,7 @@ public partial class frmMain : Form, ILocalizedUi
         }
         if (_deviceOps == null || _deviceOps.IsDisposed)
         {
-            _deviceOps = new DeviceOpsDialog(_adbManager, SelectedSerial, SelectedIsRoot);
+            _deviceOps = new DeviceOpsDialog(_adbManager, SelectedSerial, SelectedRootMode);
             _deviceOps.FormClosed += (_, _) => _deviceOps = null;
             _deviceOps.Show(this);
         }

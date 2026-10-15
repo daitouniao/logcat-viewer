@@ -1,3 +1,4 @@
+using logcat.Models;
 using logcat.Services;
 
 namespace logcat.Forms;
@@ -10,7 +11,7 @@ public sealed class ApkUninstallDialog : Form, ILocalizedUi
 {
     readonly AdbManager _manager;
     readonly string _serial;
-    readonly bool _isRoot;
+    readonly RootMode _rootMode;
     readonly FavoritesStore _fav = FavoritesStore.Default;
 
     readonly IProgress<string> _progress;
@@ -32,13 +33,13 @@ public sealed class ApkUninstallDialog : Form, ILocalizedUi
     Label _lblStat = null!, _lblDevice = null!;
     Button _btnStop = null!, _btnCopy = null!, _btnClear = null!;
 
-    public ApkUninstallDialog(AdbManager manager, string serial, bool isRoot)
+    public ApkUninstallDialog(AdbManager manager, string serial, RootMode rootMode)
     {
         AutoScaleDimensions = new SizeF(96F, 96F);
         AutoScaleMode = AutoScaleMode.Dpi;
         _manager = manager;
         _serial = serial;
-        _isRoot = isRoot;
+        _rootMode = rootMode;
         _progress = new Progress<string>(AppendOutput);
 
         Text = Loc.F("卸载 APK — {0}", serial);
@@ -51,7 +52,7 @@ public sealed class ApkUninstallDialog : Form, ILocalizedUi
         LoadOptions();
         UpdateUninstallRootEnabled();
         RefreshPkgCombo();
-        _lblDevice.Text = Loc.F("设备：{0}{1}", serial, isRoot ? "  [root]" : "");
+        _lblDevice.Text = Loc.F("设备：{0}{1}", serial, rootMode != RootMode.None ? "  [root]" : "");
         Shown += async (_, _) => await RefreshAppsAsync();
         FormClosed += (_, _) => { SaveOptions(); try { _cts?.Cancel(); } catch { } _cts?.Dispose(); };
     }
@@ -489,6 +490,6 @@ public sealed class ApkUninstallDialog : Form, ILocalizedUi
     void ILocalizedUi.OnLanguageChanged()
     {
         Text = Loc.F("卸载 APK — {0}", _serial);
-        _lblDevice.Text = Loc.F("设备：{0}{1}", _serial, _isRoot ? "  [root]" : "");
+        _lblDevice.Text = Loc.F("设备：{0}{1}", _serial, _rootMode != RootMode.None ? "  [root]" : "");
     }
 }

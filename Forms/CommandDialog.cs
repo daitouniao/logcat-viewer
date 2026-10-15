@@ -29,7 +29,7 @@ public class CommandDialog : Form, ILocalizedUi
 
     readonly AdbManager _manager;
     readonly Func<string?> _serialProvider;
-    readonly Func<bool> _rootProvider;
+    readonly Func<RootMode> _rootProvider;
     readonly CommandStore _store = CommandStore.Default;
 
     // 左侧：分类与收藏（在 BuildLeftPane 里创建，故不能是 readonly）
@@ -69,8 +69,8 @@ public class CommandDialog : Form, ILocalizedUi
         : CommandStore.CategoryFromDisplay(_cboCat.Text.Trim());
 
     /// <param name="serialProvider">取主界面当前选中的设备序列号；对话框是非模态的，执行时才取值。</param>
-    /// <param name="rootProvider">取该设备是否已检测到 root，仅用于提示。</param>
-    public CommandDialog(AdbManager manager, Func<string?> serialProvider, Func<bool> rootProvider)
+    /// <param name="rootProvider">取该设备的 root 形态，仅用于提示。</param>
+    public CommandDialog(AdbManager manager, Func<string?> serialProvider, Func<RootMode> rootProvider)
     {
         AutoScaleDimensions = new SizeF(96F, 96F);
         AutoScaleMode = AutoScaleMode.Dpi;
@@ -750,7 +750,7 @@ public class CommandDialog : Form, ILocalizedUi
 
     void OnRootToggled()
     {
-        if (_ckRoot.Checked && Kind == CommandKind.Shell && !_rootProvider())
+        if (_ckRoot.Checked && Kind == CommandKind.Shell && _rootProvider() == RootMode.None)
             _lblStat.Text = Loc.T("提示：当前设备未检测到 root，su -c 可能失败并在手机上弹授权");
     }
 
@@ -762,7 +762,7 @@ public class CommandDialog : Form, ILocalizedUi
             _lblDevice.Text = Loc.T("设备：未选择（本机 adb 通道仍可用）");
             return;
         }
-        _lblDevice.Text = Loc.F("设备：{0}{1}", serial, _rootProvider() ? "  [root]" : "");
+        _lblDevice.Text = Loc.F("设备：{0}{1}", serial, _rootProvider() != RootMode.None ? "  [root]" : "");
     }
 
     async void Run()
