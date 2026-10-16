@@ -850,7 +850,7 @@ public class LogDocumentTests
         }
     }
 
-    // ── X-A8：空行中断合并（两路径一致，docs/bugfixes/EMPTY-LINE-STACK-LOSS.md）──
+    // ── X-A8：空行中断合并（两路径一致，复盘见已归档报告 EMPTY-LINE-STACK-LOSS）──
 
     /// <summary>
     /// 空行后的缩进行不再并入上一条记录：全量路径下成为独立记录（无时间戳的未知行形态），内容不丢。

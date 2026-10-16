@@ -279,7 +279,6 @@ docs/
   UT-AUDIT.md            Mutation-testing audit — where the tests actually bite
   FEATURES.md            Feature plan — what is being built next and what is deliberately not built
   IMPLEMENTATION-TRACKER.md  Design ↔ code ↔ bugfix status, tracked item by item
-  bugfixes/             Bug fix reports (verified, kept for the record)
   archive/              Archived snapshots (verified bug reports / completed designs)
   design/
     CRASH-SUMMARY-DESIGN.md      Crash one-glance summary + crash-report window, product design (final)

@@ -280,7 +280,6 @@ docs/
   UT-AUDIT.md             变异测试审计——测试到底咬不咬得住
   FEATURES.md             功能规划——接下来做什么、明确不做什么
   IMPLEMENTATION-TRACKER.md  设计 ↔ 代码 ↔ bugfix 的状态跟踪（逐项对照）
-  bugfixes/               bug 修复报告（已验收，留档）
   archive/               归档快照（已验收 bug 报告 / 已完成设计）
   design/
     CRASH-SUMMARY-DESIGN.md     崩溃一键定位与摘要展示的产品设计说明（定稿）
