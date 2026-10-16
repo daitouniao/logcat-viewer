@@ -10,6 +10,8 @@
 > 本轮只改测试，未动任何产品代码。
 >
 > 跑测试与出覆盖率的完整流程见 [`TESTING.md`](TESTING.md)。
+>
+> ⚠️ **口径说明**：下表（§0）是 **2026-10-05 审计时点**的数值，不是当前基线。现行基线（用例数 / 行覆盖率 / 分支覆盖率）以 [`TESTING.md`](TESTING.md) 为准。
 
 ---
 
@@ -76,8 +78,8 @@
 ## 2. 变异测试怎么跑
 
 `dotnet test` 在本机环境跑不起来（testhost 加载 `hostfxr.dll` 报 `0x80070005`），
-但可以用反射 runner 绕过：`%TEMP%/tstrun` 控制台工程反射调用 `[Fact]` / `[Theory]`。
-完整做法见 `.workbuddy/memory/MEMORY.md`。本次的变异脚本已入库：
+但可以用反射 runner 绕过：仓库内 `.tmp-test/tstrun` 控制台工程反射调用 `[Fact]` / `[Theory]`。
+完整做法见 [`TESTING.md`](TESTING.md)。本次的变异脚本已入库：
 
 | 脚本 | 用途 |
 |---|---|

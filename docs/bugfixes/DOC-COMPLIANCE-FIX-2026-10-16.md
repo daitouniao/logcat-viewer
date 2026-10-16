@@ -1,0 +1,69 @@
+# 文档合规整改（第二轮实地巡检）
+
+> **状态**：已实施待验收
+> **日期**：2026-10-16
+> **关联提交**：待补
+> **验收结论**：待用户验收
+> **性质**：文档整改（不改产品代码、不改公开 API、不改数据模型）；跨 ≥3 文件触发「较大改动」清单，故按标准流程留档。
+> **方法**：逐份通读全部入库文档 + 代码交叉核对（常量、符号名、分区表、文件名）。**当轮 shell 不可用**（`pwsh` / `cmd` 均以 `STATUS_DLL_INIT_FAILED` 退出），`git` / `dotnet test` 均未执行，凡需命令确认的项在下文标注「未验证」。
+
+## 0. 巡检范围与结论
+
+范围：`README.md` / `README.zh-CN.md`、`docs/**`（含 `design/`、`archive/`、`private/**`）、`THIRD-PARTY-NOTICES.md`、`DISCLAIMER.md`。
+
+合格项（本轮确认无需改动）：版本号 5 处同步；测试数字四方一致（README×2 正文 + 两枚徽章 + `TESTING.md` §0）；`MaxPerList=60` / `MaxRecentFiles=10` / `MaxFavorites=300` / `MaxHistory=120` 与文档相符；`archive/README.md` 已自包含；指向 `docs/private/**` 的 markdown 链接为 0。
+
+## 1. 已执行的整改项
+
+### P1（红线级）
+
+| # | 文件 | 改动 |
+| --- | --- | --- |
+| P1-1 | `docs/design/FILTER-REFACTOR-PLAN.md`（21 处）、`docs/design/RECENT-FILES-DESIGN.md`（4 处） | 链接的 `file:///` 本机 URI（含维护者盘符与仓库绝对路径）→ 仓库内相对路径（`file:///` 前缀即绝对路径泄露；改后保留「文件:行号」便于回查） |
+| P1-2 | `docs/UT-AUDIT.md`、`docs/design/FILTER-REFACTOR-PLAN.md` | 删除指向 git-ignored AI 记忆目录的依赖，改为指向 `docs/TESTING.md` / 自包含表述 |
+| P1-3 | `.gitignore` | `AGENTS.md` → `[Aa][Gg][Ee][Nn][Tt][Ss].[Mm][Dd]`（工作区实际文件名是小写 `agents.md`，原模式在大小写敏感场景下盖不住） |
+
+### P2（规则要求的联动改动）
+
+| # | 文件 | 改动 |
+| --- | --- | --- |
+| P2-4 | `docs/IMPLEMENTATION-TRACKER.md` | 「最近核对」2026-10-15 → 2026-10-16，与 `TESTING.md` 基线日期对齐 |
+| P2-5 | `README.md` / `README.zh-CN.md` | `docs/design/` 结构清单补 `ADB-ROOT-DETECTION.md` 一行 |
+| P2-6 | `docs/TESTING.md` §3 | 残缺句补全（`.tmp-test/` 已被 gitignore；`%TEMP%` 会被清且被盯防） |
+| P2-7 | `docs/UT-AUDIT.md` §2 | runner 位置 `%TEMP%/tstrun` → `.tmp-test/tstrun` |
+| P2-8 | `docs/BUILDING.md` §一 | 版本号同步表补 `README.md` 的当前版本行（原文只列 4 处，实为 5 处） |
+| P2-9 | `docs/BUILDING.md` §三 | 标题与动作对齐（原文标题「跑测试」实际只给 `dotnet build`） |
+
+### P3（内容腐烂 / 一致性）
+
+| # | 文件 | 改动 |
+| --- | --- | --- |
+| P3-10 | `README.md` / `README.zh-CN.md` | 结构清单按磁盘实测补全：`Forms/CrashSummaryForm.cs`、`Models/CrashEvent.cs`、`Services/CrashExtractor.cs`、`Services/CrashAggregator.cs`、`Services/LocTable.CrashUi.cs` |
+| P3-11 | `docs/IMPLEMENTATION-TRACKER.md` | **不改**——首轮巡检误报，复核确认 `frmMain.ApplyTermBoxStyle` 存在于 `frmMain.cs`（两处重载） |
+| P3-12 | `README.md` / `README.zh-CN.md` | `LocTableTests`「18 条断言」→ 实际 **30 用例**（= 16 `[Fact]` + 2 `[Theory]` 展开），与 `TESTING.md` 权威值一致 |
+| P3-13 | `README.md` / `README.zh-CN.md` | LocTable 分区列表按 `Loc.BuildEn` 实测 11 分区修正：补 `CommandUiMain`（方法名），文件为 `LocTable.CommandWindow.cs` |
+| P3-14 | `docs/UT-AUDIT.md` §0 | 表头补口径说明：该表为 2026-10-05 审计时点值，现行基线以 `TESTING.md` 为准 |
+| P3-15 | `docs/UT-AUDIT.md`、`docs/design/TOOLBAR-FAVORITES-DESIGN.md` | **不改**（行号引用属既有历史记录形态；仓库惯例「用符号名不用行号」已在 `ADB-ROOT-DETECTION.md` 声明，存量不专项整改） |
+
+### P4（格式）
+
+| # | 文件 | 改动 |
+| --- | --- | --- |
+| P4-16 | `docs/design/FILTER-REFACTOR-PLAN.md` | 头部 `>日期：` → `> 日期：` |
+| P4-17 | `docs/design/CRASH-SUMMARY-DESIGN.md` | 状态「最终版」→「已定稿」，并补「验收结论」字段 |
+
+## 2. 未执行 / 需另行授权或建档的项
+
+| 项 | 原因 |
+| --- | --- |
+| `agents.md` 是否已被 git 跟踪的**验证** | shell 不可用，`git ls-files` 未跑；未验证 |
+| 若已跟踪则 `git rm --cached agents.md` | git 写操作，需当轮明确授权 |
+| 归档改动与本次整改的 **commit** | 需当轮明确授权（§一.5/§一.6） |
+| `docs/design/` 四份已落地设计的**归档** | 需用户明说「归档」（§3.2） |
+| 私有侧登记（`docs/private/README.md` releasenote 表补 V0.1.4、notes 表状态订正） | 未在用户指令范围内，留待明确 |
+
+## 3. 验证
+
+- **测试**：未验证——当轮 `dotnet test` 与 tstrun 两条路径都起不来（进程创建失败）。本次改动**不含产品代码与测试代码**，理论上不影响用例结果，但按 §一.4 口径**不得声称通过**。
+- **静态核对**：所有改动均为文本替换 + 清单补全，已逐处对照磁盘实测（文件存在性、`Loc.BuildEn` 分区表、常量值）。
+- **待补**：关联提交号、用户验收结论。

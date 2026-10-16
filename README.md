@@ -187,7 +187,7 @@ Current status: **519 tests, all passing**; **98.85%** line coverage (2,937 / 2,
 
 The scope is defined in `tests/logcat.Tests/coverlet.runsettings` and excludes two groups:
 
-- **UI layer** — `Forms` / `Controls` / `frmMain` / `Program`, plus `DpiFix` / `DpiDiag` / `Loc`: WinForms construction and layout depend on a message pump and STA threads, so unit-testing them is costly and low-value. `Loc` is excluded for the same reason as `DpiFix` — half of it is control-tree walking, font swapping and pixel measurement, which only mean something against a real form. Its sibling `LocTable.*` (pure data translation tables) is **kept in scope** and is guarded by 18 `LocTableTests` assertions, including source scans that catch untranslated strings.
+- **UI layer** — `Forms` / `Controls` / `frmMain` / `Program`, plus `DpiFix` / `DpiDiag` / `Loc`: WinForms construction and layout depend on a message pump and STA threads, so unit-testing them is costly and low-value. `Loc` is excluded for the same reason as `DpiFix` — half of it is control-tree walking, font swapping and pixel measurement, which only mean something against a real form. Its sibling `LocTable.*` (pure data translation tables) is **kept in scope** and is guarded by 30 `LocTableTests` cases, including source scans that catch untranslated strings.
 - **Device / system integration layer** — `AdbManager` (needs a real adb server and device), `LogcatStream` (device stream), `ClipboardHelper` (Windows clipboard), `StartupLog` (writes into the user profile).
 
 > In a restricted sandbox (some IDE-managed terminals) the test host may be denied writes to `%TEMP%`, which
@@ -244,6 +244,7 @@ Forms/
   CommandEditDialog.cs  New / edit favourite command
   ScreenShotDialog.cs   Screenshot tab (in DeviceOpsDialog)
   ScreenRecordDialog.cs Screen record tab (in DeviceOpsDialog)
+  CrashSummaryForm.cs   Crash summary window (☠ rows, one-glance grouping, click to jump)
   RecordDialog.cs       Single record detail pop-up
   RunAsDialog.cs        Run-as package name selector
   SimpleInputBox.cs     Simple input dialog
@@ -253,14 +254,17 @@ Models/
   FileEntry.cs          File entry
   FavoriteDir.cs        Favourite directory
   CommandEntry.cs       Favourite command / execution record / channel enum
+  CrashEvent.cs         Crash event detected at index time (type / package / line / timestamp)
 Services/
   Loc.cs                Localization runtime (resource keys, binding, font swap, per-language width fitting)
-  LocTable.*.cs         Translation tables split by area (Common / MainUi / FilterUi / DeviceUi / ApkUi / CommandUi / CommandUiMain / FileUi / RuntimeMsg / CommandSeed / CrashUi)
+  LocTable.*.cs         Translation tables split by area (Common / MainUi / FilterUi / DeviceUi / ApkUi / CommandUi / CommandUiMain / FileUi / RuntimeMsg / CommandSeed / CrashUi; LocTable.CommandWindow.cs holds CommandUiMain)
   DpiDiag.cs            High-DPI layout diagnostics (writes to startup.log [DPI] section)
   DpiFix.cs             High-DPI layout fallback (expands overflowing TLP rows and fixed-height button bars)
   StartupLog.cs         Startup diagnostic log (exe-relative `Log\startup.log`)
   LogDocument.cs        Columnar index document (mmap + columnar index, incremental reload)
   LogParser.cs          Line parser (six formats + continuation detection)
+  CrashExtractor.cs     Crash / ANR / native fault signal detection bound to the index scan
+  CrashAggregator.cs    Groups crash events by type and package for the summary window
   FilterEngine.cs       Filter engine (pre-filter → message match → export)
   AdbManager.cs         ADB wrapper (device enumeration, shell, streaming, local adb, screenshot, push/pull)
   LogcatStream.cs       Live logcat capture stream
@@ -279,9 +283,11 @@ docs/
   UT-AUDIT.md            Mutation-testing audit — where the tests actually bite
   FEATURES.md            Feature plan — what is being built next and what is deliberately not built
   IMPLEMENTATION-TRACKER.md  Design ↔ code ↔ bugfix status, tracked item by item
+  bugfixes/             Bug reports not yet accepted; after acceptance they move to `archive/bug/`
   archive/              Archived snapshots (verified bug reports / completed designs)
   design/
     CRASH-SUMMARY-DESIGN.md      Crash one-glance summary + crash-report window, product design (final)
+    ADB-ROOT-DETECTION.md        ADB root detection (Su / Adbd / None modes, probe timeout)
     FILTER-REFACTOR-PLAN.md      Toolbar-filter / filter-panel decoupling plan (executed, kept for the record)
     RECENT-FILES-DESIGN.md       Most-recently-opened list (MRU), shipped
     TOOLBAR-FAVORITES-DESIGN.md  Toolbar star-favourites + favourites dropdown, final design (shipped, kept for the record)

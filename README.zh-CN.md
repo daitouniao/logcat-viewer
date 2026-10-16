@@ -189,7 +189,7 @@ python tests/coverage-report.py     # 输出 tests/coverage-report.html
 - **UI 层**：`Forms` / `Controls` / `frmMain` / `Program`，以及 `DpiFix` / `DpiDiag` / `Loc`。`Loc`（本地化运行时）与 `DpiFix` 同理——它一半的代码是控件树遍历、字体替换与文本像素测量，没有真实窗体与消息泵无从验证
 - **系统/设备集成层**：`AdbManager`、`LogcatStream`、`ClipboardHelper`、`StartupLog`
 
-> 与 `Loc` 同目录的 `LocTable.*`（纯数据译文表）**不排除**：它是本轮 i18n 的核心验证面，由 `LocTableTests` 的 18 条断言盯住（含扫源码查漏翻）。
+> 与 `Loc` 同目录的 `LocTable.*`（纯数据译文表）**不排除**：它是本轮 i18n 的核心验证面，由 `LocTableTests` 的 30 个用例盯住（含扫源码查漏翻）。
 > 判断标准是「这条代码能否在无窗体条件下被有意义地验证」，不是「这个文件新不新」。
 
 > 在受限沙箱（部分 IDE 托管终端）里测试宿主可能被拒绝写入 `%TEMP%`，导致大量用例失败。
@@ -245,6 +245,7 @@ Forms/
   CommandEditDialog.cs  收藏条目的新建 / 编辑
   ScreenShotDialog.cs   截图页（设备操作窗口）
   ScreenRecordDialog.cs 录屏页（设备操作窗口）
+  CrashSummaryForm.cs   崩溃汇总窗口（☠ 摘要行、按类型/包名分组、点击跳转定位）
   RecordDialog.cs       单条记录详情
   RunAsDialog.cs        run-as 包名选择
   SimpleInputBox.cs     简易输入对话框
@@ -254,14 +255,17 @@ Models/
   FileEntry.cs          文件条目
   FavoriteDir.cs        收藏目录
   CommandEntry.cs       收藏命令 / 执行记录 / 通道枚举
+  CrashEvent.cs         索引阶段提取出的崩溃事件（类型 / 包名 / 行号 / 时间戳）
 Services/
   Loc.cs                本地化运行时（资源键、控件绑定、字体切换、按语言实测宽度）
-  LocTable.*.cs         按区域拆分的译文表（Common / MainUi / FilterUi / DeviceUi / ApkUi / CommandUi / CommandUiMain / FileUi / RuntimeMsg / CommandSeed / CrashUi）
+  LocTable.*.cs         按区域拆分的译文表（Common / MainUi / FilterUi / DeviceUi / ApkUi / CommandUi / CommandUiMain / FileUi / RuntimeMsg / CommandSeed / CrashUi；CommandUiMain 在 LocTable.CommandWindow.cs）
   DpiDiag.cs            高 DPI 布局诊断打点（写入 startup.log [DPI] 段）
   DpiFix.cs             高 DPI 布局兜底（显示后按内容实测撑大装不下的 TLP 绝对行与固定高停靠栏）
   StartupLog.cs         启动诊断日志（exe 同级目录 Log\startup.log，多屏几何与 DPI 排查用）
   LogDocument.cs        列式索引文档（mmap、并行建索引、增量 Reload）
   LogParser.cs          行解析（六种格式 + 续行判定）
+  CrashExtractor.cs     崩溃 / ANR / native fault 信号检测（绑进索引扫描）
+  CrashAggregator.cs    崩溃事件按类型与包名分组，供崩溃汇总窗口使用
   FilterEngine.cs       过滤引擎（预筛 → message 匹配 → 导出）
   AdbManager.cs         ADB 封装（设备枚举、Shell、流式执行、本机 adb、截图、推拉文件）
   LogcatStream.cs       实时 logcat 采集流
@@ -280,9 +284,11 @@ docs/
   UT-AUDIT.md             变异测试审计——测试到底咬不咬得住
   FEATURES.md             功能规划——接下来做什么、明确不做什么
   IMPLEMENTATION-TRACKER.md  设计 ↔ 代码 ↔ bugfix 的状态跟踪（逐项对照）
+  bugfixes/               尚未验收的 bug 报告（验收并归档后移入 archive/bug/）
   archive/               归档快照（已验收 bug 报告 / 已完成设计）
   design/
     CRASH-SUMMARY-DESIGN.md     崩溃一键定位与摘要展示的产品设计说明（定稿）
+    ADB-ROOT-DETECTION.md       ADB root 检测（Su / Adbd / None 三态与探测超时）
     FILTER-REFACTOR-PLAN.md     工具栏过滤与过滤面板解耦的改造计划（已执行完毕，留档）
     RECENT-FILES-DESIGN.md      最近打开文档（MRU）设计（已落地）
     TOOLBAR-FAVORITES-DESIGN.md 工具栏输入框星号收藏 + 收藏下拉的设计定稿（已落地，留档）

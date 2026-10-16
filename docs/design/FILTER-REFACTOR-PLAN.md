@@ -1,7 +1,7 @@
 # 工具栏过滤 与 过滤面板 解耦改造计划
 
 > 状态：**✅ 已执行完毕（2026-10-04）** —— 三件事全部落地并验证
->日期：2026-10-04
+> 日期：2026-10-04
 > 关联提交：a75bcd4 等（2026-10-04 落地批次）
 > 关联需求：检查工具栏过滤选项与面板过滤选项是否一致；面板更复杂，工具栏是简化版；能否「各自处理自己控件」，底层复用同一过滤函数。
 > 本次修订结论：
@@ -77,8 +77,8 @@ v2 §3.4 写「所有含 `Regex = true` 的用例 → 删除」。实际 `Regex 
 
 ### 坑 3：`using System.Text.RegularExpressions;` 不能删
 
-`ParseMinutes`（[FilterEngine.cs:67](file:///d:/01.0.Code/C%23/logcat/Services/FilterEngine.cs#L67)）
-与 `ParseInts`（[:85](file:///d:/01.0.Code/C%23/logcat/Services/FilterEngine.cs#L85)）
+`ParseMinutes`（[FilterEngine.cs:67](Services/FilterEngine.cs#L67)）
+与 `ParseInts`（[:85](Services/FilterEngine.cs#L85)）
 仍在用 `Regex.Split` 做词法切分。**只删** `_reCache` / `CompileRegex` / `pats` 分支，using 保留。
 
 ### 坑 4：Message 默认 op 改 `or` 有 4 处连带
@@ -123,11 +123,11 @@ v2 §3.2 只提了 frmMain.cs:358，实际还要一起改，否则代码里留�
 
 | 环节             | 位置                                                                                          | 说明                                                     |
 | ---------------- | --------------------------------------------------------------------------------------------- | -------------------------------------------------------- |
-| 汇总模型         | [FilterSpec.cs](file:///d:/01.0.Code/C%23/logcat/Models/FilterSpec.cs)                         | 所有条件 AND，单条件内多值 OR                            |
-| 解析输入         | `CollectSpec()`，[frmMain.cs:725-746](file:///d:/01.0.Code/C%23/logcat/frmMain.cs#L725-L746)   | 唯一入口，读面板控件（含被镜像写入的工具栏文本）         |
-| 全量过滤         | `FilterEngine.ApplyFilter`，[FilterEngine.cs:271-348](file:///d:/01.0.Code/C%23/logcat/Services/FilterEngine.cs#L271-L348) | —                                       |
-| 增量过滤（采集） | `FilterEngine.FilterTail`，[FilterEngine.cs:351-399](file:///d:/01.0.Code/C%23/logcat/Services/FilterEngine.cs#L351-L399)  | 复用同一套判定路径                                       |
-| 词法解析         | `SplitTerms` / `ParseInts` / `ParseMinutes`，[FilterEngine.cs:31-94](file:///d:/01.0.Code/C%23/logcat/Services/FilterEngine.cs#L31-L94) | 工具栏与面板共用                                         |
+| 汇总模型         | [FilterSpec.cs](Models/FilterSpec.cs)                         | 所有条件 AND，单条件内多值 OR                            |
+| 解析输入         | `CollectSpec()`，[frmMain.cs:725-746](frmMain.cs#L725-L746)   | 唯一入口，读面板控件（含被镜像写入的工具栏文本）         |
+| 全量过滤         | `FilterEngine.ApplyFilter`，[FilterEngine.cs:271-348](Services/FilterEngine.cs#L271-L348) | —                                       |
+| 增量过滤（采集） | `FilterEngine.FilterTail`，[FilterEngine.cs:351-399](Services/FilterEngine.cs#L351-L399)  | 复用同一套判定路径                                       |
+| 词法解析         | `SplitTerms` / `ParseInts` / `ParseMinutes`，[FilterEngine.cs:31-94](Services/FilterEngine.cs#L31-L94) | 工具栏与面板共用                                         |
 
 ### 2.2 选项能力对照（不一致清单）
 
@@ -156,7 +156,7 @@ v2 §3.2 只提了 frmMain.cs:358，实际还要一起改，否则代码里留�
   → _cbTagOp.SelectedItem = "or"            // frmMain.cs:200  ← 副作用，_syncingFilter 包不住
 ```
 
-[SyncPanelToToolbar](file:///d:/01.0.Code/C%23/logcat/frmMain.cs#L401-L407) 只把 `_syncingFilter` 包住「写 Text」，**不包住工具栏 `TextChanged` 里紧随其后的 `_cbTagOp.SelectedItem = "or"`**（[frmMain.cs:200](file:///d:/01.0.Code/C%23/logcat/frmMain.cs#L200)、[204](file:///d:/01.0.Code/C%23/logcat/frmMain.cs#L204)）。后果：
+[SyncPanelToToolbar](frmMain.cs#L401-L407) 只把 `_syncingFilter` 包住「写 Text」，**不包住工具栏 `TextChanged` 里紧随其后的 `_cbTagOp.SelectedItem = "or"`**（[frmMain.cs:200](frmMain.cs#L200)、[204](frmMain.cs#L204)）。后果：
 
 - 用户在面板把 Tag 的 op 选成 `and`，之后**每次改 Tag 文本，op 都被强制改回 `or`**；
 - Message 同理从 `and` 被改回 `or`。
@@ -173,7 +173,7 @@ v2 §3.2 只提了 frmMain.cs:358，实际还要一起改，否则代码里留�
 
 #### 问题 3（次要）：双向镜像导致重复触发
 
-`SyncToolbarToPanel` 末尾显式调用 `OnFilterChanged()`，写入目标 TextBox 的 `TextChanged` 又会再调一次；`ResetFilter`（[frmMain.cs:748-758](file:///d:/01.0.Code/C%23/logcat/frmMain.cs#L748-L758)）逐控件赋值时也会反复触发自动应用。功能上被 `_autoTimer.Stop()` / `WorkerGen` 挡住不影响正确性，v2 视为可选优化（见 §3.5）。
+`SyncToolbarToPanel` 末尾显式调用 `OnFilterChanged()`，写入目标 TextBox 的 `TextChanged` 又会再调一次；`ResetFilter`（[frmMain.cs:748-758](frmMain.cs#L748-L758)）逐控件赋值时也会反复触发自动应用。功能上被 `_autoTimer.Stop()` / `WorkerGen` 挡住不影响正确性，v2 视为可选优化（见 §3.5）。
 
 ---
 
@@ -205,15 +205,15 @@ v2 §3.2 只提了 frmMain.cs:358，实际还要一起改，否则代码里留�
 
 | 位置                                                     | 现状                                                         | 改为                                              |
 | -------------------------------------------------------- | ------------------------------------------------------------ | ------------------------------------------------- |
-| [_tbTag.TextChanged](file:///d:/01.0.Code/C%23/logcat/frmMain.cs#L200) | `SyncToolbarToPanel(_tbTag,_edTag); _cbTagOp.SelectedItem="or";` | `SyncToolbarToPanel(_tbTag,_edTag);`（删副作用）  |
-| [_tbMsg.TextChanged](file:///d:/01.0.Code/C%23/logcat/frmMain.cs#L204) | `SyncToolbarToPanel(_tbMsg,_edMsg); _cbMsgOp.SelectedItem="or";` | `SyncToolbarToPanel(_tbMsg,_edMsg);`（删副作用）  |
+| [_tbTag.TextChanged](frmMain.cs#L200) | `SyncToolbarToPanel(_tbTag,_edTag); _cbTagOp.SelectedItem="or";` | `SyncToolbarToPanel(_tbTag,_edTag);`（删副作用）  |
+| [_tbMsg.TextChanged](frmMain.cs#L204) | `SyncToolbarToPanel(_tbMsg,_edMsg); _cbMsgOp.SelectedItem="or";` | `SyncToolbarToPanel(_tbMsg,_edMsg);`（删副作用）  |
 
 删除后：工具栏输入不再篡改面板 op；两框文本仍互相镜像，行为可预期。
 
-**配套（v2 修订）**：删除副作用后，工具栏 op 完全**继承**面板设定、自身**不具备修改能力**。为保持工具栏快速过滤的默认语义仍为 `or`，把 Message 面板 op 默认值由 `and` 改为 `or`（[frmMain.cs:358](file:///d:/01.0.Code/C%23/logcat/frmMain.cs#L358)）。此改动与 `TOOLBAR-FAVORITES-DESIGN.md` §2.4 统一为「删除副作用」写法，两文档不再冲突。
+**配套（v2 修订）**：删除副作用后，工具栏 op 完全**继承**面板设定、自身**不具备修改能力**。为保持工具栏快速过滤的默认语义仍为 `or`，把 Message 面板 op 默认值由 `and` 改为 `or`（[frmMain.cs:358](frmMain.cs#L358)）。此改动与 `TOOLBAR-FAVORITES-DESIGN.md` §2.4 统一为「删除副作用」写法，两文档不再冲突。
 
-> **v3 补充**：除 358 外，[frmMain.cs:735](file:///d:/01.0.Code/C%23/logcat/frmMain.cs#L735)（`CollectSpec` 的 Msg 侧兜底）与
-> [989/992](file:///d:/01.0.Code/C%23/logcat/frmMain.cs#L989)（`FindStep`）的 `?? "and"` 也要一起改成 `?? "or"`，
+> **v3 补充**：除 358 外，[frmMain.cs:735](frmMain.cs#L735)（`CollectSpec` 的 Msg 侧兜底）与
+> [989/992](frmMain.cs#L989)（`FindStep`）的 `?? "and"` 也要一起改成 `?? "or"`，
 > 以及 `README.zh-CN.md:216` 的「Message 默认 `and`」——见 §0.1 坑 4。
 
 ### 3.3 输入框颜色提示（新增）
@@ -246,10 +246,10 @@ v2 §3.2 只提了 frmMain.cs:358，实际还要一起改，否则代码里留�
 
 | 层     | 位置 / 符号                                                                                                                    | 处理 |
 | ------ | ----------------------------------------------------------------------------------------------------------------------------- | ---- |
-| UI     | `_ckTagRe` / `_ckMsgRe` 字段（[frmMain.cs:58-59](file:///d:/01.0.Code/C%23/logcat/frmMain.cs#L58-L59)）；`BuildTermControls` 的 `ckRe` 参数与 `正则` 复选框（[frmMain.cs:439-441](file:///d:/01.0.Code/C%23/logcat/frmMain.cs#L439-L441)）；两处调用实参（[351](file:///d:/01.0.Code/C%23/logcat/frmMain.cs#L351)、[357](file:///d:/01.0.Code/C%23/logcat/frmMain.cs#L357)）；`CollectSpec` 赋值（[731](file:///d:/01.0.Code/C%23/logcat/frmMain.cs#L731)、[736](file:///d:/01.0.Code/C%23/logcat/frmMain.cs#L736)）；`ResetFilter` 复位（[753-754](file:///d:/01.0.Code/C%23/logcat/frmMain.cs#L753-L754)）；F3 正则拦截（[987](file:///d:/01.0.Code/C%23/logcat/frmMain.cs#L987)） | 删除 |
-| 模型   | `FilterSpec.TagRegex` / `MsgRegex`（[FilterSpec.cs:11](file:///d:/01.0.Code/C%23/logcat/Models/FilterSpec.cs#L11)、[17](file:///d:/01.0.Code/C%23/logcat/Models/FilterSpec.cs#L17)） | 删除 |
-| 引擎   | `_reCache` + `CompileRegex`（[FilterEngine.cs:16-27](file:///d:/01.0.Code/C%23/logcat/Services/FilterEngine.cs#L16-L27)）；`TagIds` 的 `pats` 分支（[103-139](file:///d:/01.0.Code/C%23/logcat/Services/FilterEngine.cs#L103-L139)）；`MsgFilter` 的 `pats` 分支（[171-230](file:///d:/01.0.Code/C%23/logcat/Services/FilterEngine.cs#L171-L230)） | 删除后回归纯子串匹配 |
-| 测试   | [FilterEngineTests.cs](file:///d:/01.0.Code/C%23/logcat/tests/logcat.Tests/FilterEngineTests.cs)：**5 个纯正则用例整删**（224 `tag开正则模式`、246 `tag正则模式下多值and与or语义`、305 `message开正则模式`、673 `正则模式的大小写开关与多值语义`、962 `正则忽略大小写_与预先折叠等价`）；**3 个混合用例只删正则断言**（:894-895、:952-953、:1005 的 `foreach` 改单值） | **整删 5 个 + 局部删 3 个**，见 §0.1 坑 1 |
+| UI     | `_ckTagRe` / `_ckMsgRe` 字段（[frmMain.cs:58-59](frmMain.cs#L58-L59)）；`BuildTermControls` 的 `ckRe` 参数与 `正则` 复选框（[frmMain.cs:439-441](frmMain.cs#L439-L441)）；两处调用实参（[351](frmMain.cs#L351)、[357](frmMain.cs#L357)）；`CollectSpec` 赋值（[731](frmMain.cs#L731)、[736](frmMain.cs#L736)）；`ResetFilter` 复位（[753-754](frmMain.cs#L753-L754)）；F3 正则拦截（[987](frmMain.cs#L987)） | 删除 |
+| 模型   | `FilterSpec.TagRegex` / `MsgRegex`（[FilterSpec.cs:11](Models/FilterSpec.cs#L11)、[17](Models/FilterSpec.cs#L17)） | 删除 |
+| 引擎   | `_reCache` + `CompileRegex`（[FilterEngine.cs:16-27](Services/FilterEngine.cs#L16-L27)）；`TagIds` 的 `pats` 分支（[103-139](Services/FilterEngine.cs#L103-L139)）；`MsgFilter` 的 `pats` 分支（[171-230](Services/FilterEngine.cs#L171-L230)） | 删除后回归纯子串匹配 |
+| 测试   | [FilterEngineTests.cs](tests/logcat.Tests/FilterEngineTests.cs)：**5 个纯正则用例整删**（224 `tag开正则模式`、246 `tag正则模式下多值and与or语义`、305 `message开正则模式`、673 `正则模式的大小写开关与多值语义`、962 `正则忽略大小写_与预先折叠等价`）；**3 个混合用例只删正则断言**（:894-895、:952-953、:1005 的 `foreach` 改单值） | **整删 5 个 + 局部删 3 个**，见 §0.1 坑 1 |
 | 文档   | README.md 的 34/152/164、README.zh-CN.md 的 59/205/217 | **只删这几行**；24/51 的 "regex fallback" 是 LogParser 的，必须保留（§0.1 坑 2） |
 | 脚本   | `scripts/mutation-test.py:208-211` 的 `CompileRegex` 变异 | 删除该条，否则 `匹配数=0` 噪音 |
 
@@ -261,12 +261,12 @@ v2 §3.2 只提了 frmMain.cs:358，实际还要一起改，否则代码里留�
 
 | 改动                                                                              | 说明                                                                          |
 | --------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
-| 工具栏 `TextChanged` 去掉 `_cbTagOp.SelectedItem="or"` / `_cbMsgOp...` 副作用      | [199-205](file:///d:/01.0.Code/C%23/logcat/frmMain.cs#L199-L205)，§3.2        |
+| 工具栏 `TextChanged` 去掉 `_cbTagOp.SelectedItem="or"` / `_cbMsgOp...` 副作用      | [199-205](frmMain.cs#L199-L205)，§3.2        |
 | 新增 `ApplyTermBoxStyle(...)` 并接入 op/大小写/文本变更                            | §3.3                                                                          |
 | 移除正则：字段、`BuildTermControls` 参数与复选框、`CollectSpec`、`ResetFilter`、F3 | §3.4                                                                          |
 | 工具栏 tooltip 补当前 op/大小写文案                                                | 消除问题 2 的「无指示」                                                       |
-| （可选）`ResetFilter` 清理重复触发，只应用一次                                     | [748-758](file:///d:/01.0.Code/C%23/logcat/frmMain.cs#L748-L758)              |
-| 镜像机制本身**保留**                                                               | [391-407](file:///d:/01.0.Code/C%23/logcat/frmMain.cs#L391-L407)              |
+| （可选）`ResetFilter` 清理重复触发，只应用一次                                     | [748-758](frmMain.cs#L748-L758)              |
+| 镜像机制本身**保留**                                                               | [391-407](frmMain.cs#L391-L407)              |
 
 ### 3.6 测试：`tests/logcat.Tests/FilterEngineTests.cs`
 
@@ -275,8 +275,8 @@ v2 §3.2 只提了 frmMain.cs:358，实际还要一起改，否则代码里留�
 3. 保留并确认：Tag/Message 子串匹配、多词 OR/AND、忽略大小写与 `TagCase/MsgCase` 区分的既有用例仍通过；
 4. （若 §3.5 的可选优化落地）补 `CollectSpec`/镜像相关的轻量测试或手测清单。
 
-> **`dotnet test` 在本机跑不起来**（testhost 加载 hostfxr.dll 报 0x80070005，见 MEMORY.md）。
-> 验证走`%TEMP%/tstrun` 反射 runner；覆盖率仍需在你自己终端按 [`TESTING.md`](TESTING.md) 出。
+> **`dotnet test` 在本机跑不起来**（testhost 加载 hostfxr.dll 报 0x80070005，绕法见 [`TESTING.md`](TESTING.md)）。
+> 验证走仓库内 `.tmp-test/tstrun` 反射 runner（见 [`TESTING.md`](TESTING.md)）；覆盖率仍需在你自己终端按 [`TESTING.md`](TESTING.md) 出。
 > 改完引擎后建议再跑一轮 `python scripts/mutation-test.py FilterEngine`（注意 `docs/UT-AUDIT.md:185` 的行号会漂移）。
 
 ### 3.7 文档

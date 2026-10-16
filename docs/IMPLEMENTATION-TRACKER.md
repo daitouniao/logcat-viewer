@@ -1,7 +1,7 @@
 # 设计落地与缺陷修复跟踪表
 
 > 目的：跟踪 `docs/design/`（已评审定稿的设计）与 bugfix 报告的落地状态，保证文档与代码不脱节。报告验收后归档至 `docs/archive/bug/`，本表只作状态说明。
-> 维护规则见文末。最近核对：**2026-10-15**（测试基线 **519 用例全过** = 493 基线 + 6 条 X-A8 + 20 条 ADB root 检测重构；X-A8 变异测试通过：LogDocument 24 变异点 20 KILLED / 4 SURVIVED 均为 UT-AUDIT 既有记录项；行覆盖 98.85% / 分支 87.79% 为 2026-10-14 口径，口径 Services+Models）。
+> 维护规则见文末。最近核对：**2026-10-16**（测试基线 **519 用例全过** = 493 基线 + 6 条 X-A8 + 20 条 ADB root 检测重构；X-A8 变异测试通过：LogDocument 24 变异点 20 KILLED / 4 SURVIVED 均为 UT-AUDIT 既有记录项；行覆盖 98.85% / 分支 87.79% 为 2026-10-14 口径，口径 Services+Models）。
 
 ## 状态标记
 
@@ -37,6 +37,7 @@
 
 1. **ADB-ROOT-DETECTION 探测链路**——已编码（2589f47）且 519 用例全过；待真机手工验收（Adbd/Su/None 判定、授权框不再重弹、Q6 重试入口）。
 2. CRASH-SUMMARY 阶段④——按 ROADMAP P1 排期，非欠账。
+3. **文档合规整改**——已实施待验收：整改报告在 `docs/bugfixes/DOC-COMPLIANCE-FIX-2026-10-16.md`（清理 25 处本机绝对路径、私有记忆引用、README 结构清单与分区表订正、TESTING/UT-AUDIT/BUILDING 口径联动）。**测试未验证**（当轮 shell 进程创建失败，两条测试路径都起不来）；验后按 §3.2 判断是否归档。
 
 ## 四、维护规则
 

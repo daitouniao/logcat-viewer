@@ -30,7 +30,7 @@
 > 与 10-07 基线的差异：分母变大（崩溃功能 +331 行有效行），行覆盖率 99.38%→98.85% 是
 > 新增代码带来的 34 行未覆盖（旧基线为 14 行），未覆盖清单见 §4 备注。
 >
-> 用例数 519 可信（2026-10-15 跟踪表口径；tstrun 实测 `[Fact]` 360 + `[InlineData]` 159 与之相符）。
+> 用例数 519 可信（2026-10-16 跟踪表口径；tstrun 实测 `[Fact]` 360 + `[InlineData]` 159 与之相符）。
 
 > 本轮口径变化：新增的 `Services/Loc.cs`（本地化运行时）**被排除**，理由同 `DpiFix`——
 > 它一半的代码是控件树遍历、字体替换与文本像素测量，没有真实窗体与消息泵无从验证。
@@ -144,7 +144,7 @@ coverlet logcat.Tests.dll \
 
 ## 3. 智能体沙箱怎么跑测试：tstrun 反射 runner
 
-`.tmp-test/tstrun` 是仓库内的 runner 工程（`.gitignore` 已忽略 `%TEMP%` 会被清、且被沙箱/安全软件盯防，故不放那里）。
+`.tmp-test/tstrun` 是仓库内的 runner 工程（`.tmp-test/` 已被 `.gitignore` 忽略；`%TEMP%` 会被清、且被沙箱/安全软件盯防，故不放那里）。
 它是控制台工程，通过 `ProjectReference` 引用 `logcat.Tests.csproj`，
 反射扫出所有 `[Fact]` / `[Theory]` 方法直接调用，绕开 testhost。
 

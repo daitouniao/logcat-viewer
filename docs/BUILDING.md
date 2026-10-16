@@ -19,6 +19,7 @@
 |---|---|
 | `logcat.csproj` | `<Version>0.1.4</Version>` |
 | `README.md` | 顶部 badge 里的版本文字 |
+| `README.md` | "Current version **V0.1.4**" |
 | `README.zh-CN.md` | 顶部 badge 里的版本文字 |
 | `README.zh-CN.md` | "当前版本 **V0.1.4**" |
 
@@ -31,6 +32,12 @@ dotnet build logcat.csproj -c Release
 ```
 
 ## 三、跑测试
+
+```powershell
+dotnet test tests\logcat.Tests\logcat.Tests.csproj
+```
+
+`dotnet test` 在本机（受限沙箱）跑不起来时，编译测试工程改用：
 
 ```powershell
 dotnet build tests\logcat.Tests\logcat.Tests.csproj -c Release

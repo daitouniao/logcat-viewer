@@ -11,7 +11,7 @@
 
 ## 2. 现状
 
-- 打开文件只有两个用户入口，均汇聚到 [frmMain.OpenFile](file:///d:/01.0.Code/C%23/logcat/frmMain.cs#L848)：
+- 打开文件只有两个用户入口，均汇聚到 [frmMain.OpenFile](frmMain.cs#L848)：
   - 菜单「打开…」/ Ctrl+O → `OpenFileDialog` → `StartIndex(path)`
   - 主窗体拖拽 → `OnDragDrop` → `OpenFile(files[0])`
 - `StartIndex` 成功后 `_doc.Path` 即最终文档路径。
@@ -21,7 +21,7 @@
 
 ### 3.1 存储：FavoritesStore 增加 RecentFiles
 
-复用 [FavoritesStore](file:///d:/01.0.Code/C%23/logcat/Services/FavoritesStore.cs)（favorites.json）而非 AppSettings：
+复用 [FavoritesStore](Services/FavoritesStore.cs)（favorites.json）而非 AppSettings：
 
 - 该类已承载各类"最近使用"列表（RunAsPackages、ApkPaths、TagFilters…），且有**变更立即落盘**、`Changed` 事件与现成单测设施；AppSettings 仅在关窗时 `SaveSettings()` 落盘，崩溃会丢记录。
 - `StoreData` 新增 `List<string> RecentFiles`（**最近在前**），加载时 `??= new()` 兜底。
@@ -37,7 +37,7 @@
 
 ### 3.2 记录时机：StartIndex 成功路径
 
-在 [frmMain.StartIndex](file:///d:/01.0.Code/C%23/logcat/frmMain.cs#L863) 成功构建文档处（`_doc = doc;` 之后）调用：
+在 [frmMain.StartIndex](frmMain.cs#L863) 成功构建文档处（`_doc = doc;` 之后）调用：
 
 ```csharp
 FavoritesStore.Default.AddRecentFile(doc.Path);
@@ -51,7 +51,7 @@ FavoritesStore.Default.AddRecentFile(doc.Path);
 
 在「文件」菜单的「打开…」之后插入 `ToolStripMenuItem`：
 
-- 文本 `最近打开`，`Loc.Bind(mru, "最近打开")`，并在 [LocTable.MainUi.cs](file:///d:/01.0.Code/C%23/logcat/Services/LocTable.MainUi.cs) 增加英文翻译 `["最近打开"] = "Recent Files"`。
+- 文本 `最近打开`，`Loc.Bind(mru, "最近打开")`，并在 [LocTable.MainUi.cs](Services/LocTable.MainUi.cs) 增加英文翻译 `["最近打开"] = "Recent Files"`。
 - **打开下拉时动态重建**（`DropDownOpening` 事件）：清空后按 `RecentFiles` 顺序逐条生成菜单项。
   - 项文本 = 完整路径，超过 80 字符时中间以「…」省略、保留首尾两端（`EllipsizeMiddle`）；`ToolTipText` = 完整路径（同名文件可区分）。
   - 存在性过滤**仅对本地路径**做：`File.Exists` 为 false 的条目跳过显示但不删除（U 盘未接入时保留记录，重连后仍可见；避免读路径触发写盘）。
