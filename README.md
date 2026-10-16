@@ -4,6 +4,8 @@
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
 [![Platform: Windows](https://img.shields.io/badge/platform-Windows-lightgrey)](#requirements)
 [![CI](https://github.com/daitouniao/logcat-viewer/actions/workflows/ci.yml/badge.svg)](https://github.com/daitouniao/logcat-viewer/actions/workflows/ci.yml)
+[![Tests: 519 passing](https://img.shields.io/badge/tests-519%20passing-green)](docs/TESTING.md)
+[![Coverage: 98.85% lines](https://img.shields.io/badge/coverage-98.85%25%20lines-blue)](docs/TESTING.md)
 
 A Windows desktop viewer for Android logs (`logcat`). Built with WinForms on .NET 10, it opens **tens of millions of log lines instantly** using memory-mapped files and a columnar index — and it also drives your device over ADB: live capture, screenshots, screen recording, two-pane file transfer, and APK install/uninstall.
 
@@ -110,7 +112,7 @@ Verification: `Log\startup.log` (next to the exe) records the screen topology, t
 
 ### High-DPI support
 
-The 12 hand-written dialogs under `Forms/` declare `AutoScaleMode.Dpi` and scale with the system DPI, so button text is no longer clipped on high-scaling displays. The app font follows the UI language — Microsoft YaHei UI for Chinese, which fixes the missing-CJK-glyph problem that made Chinese text render as clipped glyphs under GDI font fallback at high DPI; Segoe UI for English.
+Every hand-written dialog under `Forms/` declares `AutoScaleMode.Dpi` and scales with the system DPI, so button text is no longer clipped on high-scaling displays. The app font follows the UI language — Microsoft YaHei UI for Chinese, which fixes the missing-CJK-glyph problem that made Chinese text render as clipped glyphs under GDI font fallback at high DPI; Segoe UI for English.
 
 Multi-monitor with different scaling (e.g. primary 150%, secondary 100%):
 - Filter window height auto-adjusts to content after showing
@@ -181,7 +183,7 @@ dotnet test tests/logcat.Tests/logcat.Tests.csproj --collect:"XPlat Code Coverag
 python tests/coverage-report.py     # writes tests/coverage-report.html
 ```
 
-Current status: **412 tests, all passing**; **99.38%** line coverage (2,226 / 2,240 lines), **87.56%** branch coverage (1,028 / 1,174 branches).
+Current status: **519 tests, all passing**; **98.85%** line coverage (2,937 / 2,971 lines), **87.79%** branch coverage (1,230 / 1,401 branches).
 
 The scope is defined in `tests/logcat.Tests/coverlet.runsettings` and excludes two groups:
 
@@ -253,7 +255,7 @@ Models/
   CommandEntry.cs       Favourite command / execution record / channel enum
 Services/
   Loc.cs                Localization runtime (resource keys, binding, font swap, per-language width fitting)
-  LocTable.*.cs         Translation tables split by area (Common / MainUi / FilterUi / FileUi / ApkUi / DeviceUi / CommandUi / CommandWindow / RuntimeMsg)
+  LocTable.*.cs         Translation tables split by area (Common / MainUi / FilterUi / DeviceUi / ApkUi / CommandUi / CommandUiMain / FileUi / RuntimeMsg / CommandSeed / CrashUi)
   DpiDiag.cs            High-DPI layout diagnostics (writes to startup.log [DPI] section)
   DpiFix.cs             High-DPI layout fallback (expands overflowing TLP rows and fixed-height button bars)
   StartupLog.cs         Startup diagnostic log (exe-relative `Log\startup.log`)
@@ -269,16 +271,20 @@ Services/
   AppInfo.cs            Product name and version (reads Assembly InformationalVersion)
 tests/
   coverage-report.py    Coverage report generation (coverlet cobertura XML → readable HTML)
-  logcat.Tests/         xUnit test project (412 tests: log parsing / columnar index / filter engine / persistence / localization)
+  logcat.Tests/         xUnit test project (519 tests: log parsing / columnar index / filter engine / crash extraction / persistence / localization)
     coverlet.runsettings Coverage scope (Include / Exclude rules)
 docs/
   BUILDING.md            How to build and publish — the two `dotnet publish` commands, artifact verification, pitfall table
   TESTING.md             How to run the suite and produce coverage (single entry point)
   UT-AUDIT.md            Mutation-testing audit — where the tests actually bite
-  FEATURES.md            Planned features (stub)
+  FEATURES.md            Feature plan — what is being built next and what is deliberately not built
+  IMPLEMENTATION-TRACKER.md  Design ↔ code ↔ bugfix status, tracked item by item
+  bugfixes/             Bug fix reports (verified, kept for the record)
+  archive/              Archived snapshots (verified bug reports / completed designs)
   design/
     CRASH-SUMMARY-DESIGN.md      Crash one-glance summary + crash-report window, product design (final)
     FILTER-REFACTOR-PLAN.md      Toolbar-filter / filter-panel decoupling plan (executed, kept for the record)
+    RECENT-FILES-DESIGN.md       Most-recently-opened list (MRU), shipped
     TOOLBAR-FAVORITES-DESIGN.md  Toolbar star-favourites + favourites dropdown, final design (shipped, kept for the record)
   images/main.gif        The demo animation at the top of this file
 LICENSE                 Apache-2.0 full text

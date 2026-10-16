@@ -4,6 +4,8 @@
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
 [![Platform: Windows](https://img.shields.io/badge/platform-Windows-lightgrey)](#环境要求)
 [![CI](https://github.com/daitouniao/logcat-viewer/actions/workflows/ci.yml/badge.svg)](https://github.com/daitouniao/logcat-viewer/actions/workflows/ci.yml)
+[![Tests: 519 passing](https://img.shields.io/badge/tests-519%20passing-green)](docs/TESTING.md)
+[![Coverage: 98.85% lines](https://img.shields.io/badge/coverage-98.85%25%20lines-blue)](docs/TESTING.md)
 
 Windows 桌面端 Android 日志（logcat）查看器。基于 WinForms，使用内存映射文件 + 列式索引，可直接打开并流畅浏览千万行级别的日志文件，同时支持通过 ADB 实时采集设备日志、截图、录屏、文件互传、APK 安装/卸载与分类收藏常用命令。
 
@@ -112,7 +114,7 @@ Windows 桌面端 Android 日志（logcat）查看器。基于 WinForms，使用
 
 ### 高 DPI 适配
 
-`Forms/` 下 12 个手写窗体声明 `AutoScaleMode.Dpi`，随系统 DPI 缩放——2K 等高缩放屏上不再出现按钮文字被截断。界面字体随语言切换：中文用「微软雅黑 UI」，修复默认 Segoe UI 无中文字形导致的高 DPI 中文裁字；英文用原生 Segoe UI。
+`Forms/` 下手写窗体全部声明 `AutoScaleMode.Dpi`，随系统 DPI 缩放——2K 等高缩放屏上不再出现按钮文字被截断。界面字体随语言切换：中文用「微软雅黑 UI」，修复默认 Segoe UI 无中文字形导致的高 DPI 中文裁字；英文用原生 Segoe UI。
 
 多屏不同缩放（如主屏 150%、副屏 100%）下的兜底：
 - 过滤设置窗口高度在显示后按内容实测撑开
@@ -181,7 +183,7 @@ dotnet test tests/logcat.Tests/logcat.Tests.csproj --collect:"XPlat Code Coverag
 python tests/coverage-report.py     # 输出 tests/coverage-report.html
 ```
 
-当前状态：**412 个用例全部通过**，行覆盖率 **99.38%**（2,226 / 2,240 行），分支覆盖率 **87.56%**（1,028 / 1,174 分支）。
+当前状态：**519 个用例全部通过**，行覆盖率 **98.85%**（2,937 / 2,971 行），分支覆盖率 **87.79%**（1,230 / 1,401 分支）。
 
 覆盖口径见 `tests/logcat.Tests/coverlet.runsettings`，排除两类代码：
 - **UI 层**：`Forms` / `Controls` / `frmMain` / `Program`，以及 `DpiFix` / `DpiDiag` / `Loc`。`Loc`（本地化运行时）与 `DpiFix` 同理——它一半的代码是控件树遍历、字体替换与文本像素测量，没有真实窗体与消息泵无从验证
@@ -254,7 +256,7 @@ Models/
   CommandEntry.cs       收藏命令 / 执行记录 / 通道枚举
 Services/
   Loc.cs                本地化运行时（资源键、控件绑定、字体切换、按语言实测宽度）
-  LocTable.*.cs         按区域拆分的译文表（Common / MainUi / FilterUi / FileUi / ApkUi / DeviceUi / CommandUi / CommandWindow / RuntimeMsg）
+  LocTable.*.cs         按区域拆分的译文表（Common / MainUi / FilterUi / DeviceUi / ApkUi / CommandUi / CommandUiMain / FileUi / RuntimeMsg / CommandSeed / CrashUi）
   DpiDiag.cs            高 DPI 布局诊断打点（写入 startup.log [DPI] 段）
   DpiFix.cs             高 DPI 布局兜底（显示后按内容实测撑大装不下的 TLP 绝对行与固定高停靠栏）
   StartupLog.cs         启动诊断日志（exe 同级目录 Log\startup.log，多屏几何与 DPI 排查用）
@@ -270,16 +272,20 @@ Services/
   AppInfo.cs            产品名与版本号（读取程序集 InformationalVersion，标题与关于对话框共用）
 tests/
   coverage-report.py      覆盖率报告生成（coverlet 的 cobertura XML → 可读 HTML）
-  logcat.Tests/           xUnit 测试工程（412 个用例：日志解析 / 列式索引 / 过滤引擎 / 持久化 / 本地化）
+  logcat.Tests/           xUnit 测试工程（519 个用例：日志解析 / 列式索引 / 过滤引擎 / 崩溃提取 / 持久化 / 本地化）
     coverlet.runsettings  覆盖率统计口径（Include / Exclude 规则）
 docs/
   BUILDING.md             怎么编译与发布（两个包各自的命令与产物验证）
   TESTING.md              怎么跑测试、怎么出覆盖率（唯一操作入口）
   UT-AUDIT.md             变异测试审计——测试到底咬不咬得住
-  FEATURES.md             计划实现的功能（模板，内容待补）
+  FEATURES.md             功能规划——接下来做什么、明确不做什么
+  IMPLEMENTATION-TRACKER.md  设计 ↔ 代码 ↔ bugfix 的状态跟踪（逐项对照）
+  bugfixes/               bug 修复报告（已验收，留档）
+  archive/               归档快照（已验收 bug 报告 / 已完成设计）
   design/
     CRASH-SUMMARY-DESIGN.md     崩溃一键定位与摘要展示的产品设计说明（定稿）
     FILTER-REFACTOR-PLAN.md     工具栏过滤与过滤面板解耦的改造计划（已执行完毕，留档）
+    RECENT-FILES-DESIGN.md      最近打开文档（MRU）设计（已落地）
     TOOLBAR-FAVORITES-DESIGN.md 工具栏输入框星号收藏 + 收藏下拉的设计定稿（已落地，留档）
   images/main.gif         README 顶部的演示动图
 LICENSE                 Apache-2.0 全文

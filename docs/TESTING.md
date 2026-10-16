@@ -1,14 +1,14 @@
 # 单元测试与覆盖率实操指南
 
-> 最后更新：2026-10-11
+> 最后更新：2026-10-16
 > 本文是「怎么把测试跑起来、覆盖率怎么出」的**唯一操作入口**。
 > 有效性审计（变异测试）见 [`UT-AUDIT.md`](UT-AUDIT.md)。
 
-## 0. 当前基线（2026-10-11）
+## 0. 当前基线（2026-10-16）
 
 | 项 | 值 |
 | --- | --- |
-| 用例数 | **493**，全过（含 `LocTableTests` 的 19 条本地化一致性测试） |
+| 用例数 | **519**，全过（含 `LocTableTests` 的 30 条本地化一致性用例） |
 | 行覆盖率 | **98.85%** (2,937 / 2,971) |
 | 分支覆盖率 | **87.79%** (1,230 / 1,401) |
 | 方法覆盖率 | **99.32%** (291 / 293) |
@@ -24,13 +24,13 @@
 > 2. **hits 文件写不进 AppData\Temp**：恢复 PDB 后插桩成功但命中仍为 0——
 >    testhost 退出时 `Tracker...TryAcquireExclusiveLockOnFile` 抛
 >    `UnauthorizedAccessException: ...\logcat_<guid>.lock`，testhost 崩溃、hits 未落盘。
->    把 `TMP`/`TEMP` 指到仓库内目录（如 `D:\01.0.Code\C#\logcat\.tmp-test\covtemp`）即正常。
+>    把 `TMP`/`TEMP` 指到仓库内目录（如 `<仓库根>/.tmp-test/covtemp`）即正常。
 >    成因疑为机器上安全软件盯防 AppData\Temp，未再深挖。
 >
 > 与 10-07 基线的差异：分母变大（崩溃功能 +331 行有效行），行覆盖率 99.38%→98.85% 是
 > 新增代码带来的 34 行未覆盖（旧基线为 14 行），未覆盖清单见 §4 备注。
 >
-> 用例数 492 可信（`dotnet test` 与本次带采集的运行一致）。
+> 用例数 519 可信（2026-10-15 跟踪表口径；tstrun 实测 `[Fact]` 360 + `[InlineData]` 159 与之相符）。
 
 > 本轮口径变化：新增的 `Services/Loc.cs`（本地化运行时）**被排除**，理由同 `DpiFix`——
 > 它一半的代码是控件树遍历、字体替换与文本像素测量，没有真实窗体与消息泵无从验证。
@@ -42,6 +42,16 @@
 >
 > 覆盖率是「代码被执行过」的证明，**不等于**「断言咬得住」。
 > 本项目做过一轮变异测试审计，发现 6 处「覆盖率统计覆盖、却一个用例都抓不到」的代码，详见 [`UT-AUDIT.md`](UT-AUDIT.md)。
+
+### 0.1 「通过」的口径
+
+- **「全过」= 受影响类全过 + 全量无新增失败**，不是「跑了没红」。
+- 用 tstrun 报告结果必须带口径声明：**tstrun 口径 N 条**（`[Fact]` 全部 + `[Theory]` 按 `[InlineData]` 展开），
+  并声明已知跳过类别——`MemberData` / `ClassData` 驱动的 Theory 会被 runner **静默跳过**（§3.2 坑 3），
+  汇总行里看不到它们。
+- 交叉验证：tstrun 口径条数应与上表基线（**519**）一致；不一致先怀疑 runner 漏扫，
+  **不要改数字迁就 runner**。
+- 两条路径都跑不了时（如沙箱故障），如实写「**未验证**」——禁止声称「通过」。
 
 ---
 
@@ -71,7 +81,7 @@
 > AppData\Temp，产出空报告。PDB 问题已在 csproj 修复，无需再传 `-p:DebugType`。
 
 ```powershell
-$env:TMP = $env:TEMP = "D:\01.0.Code\C#\logcat\.tmp-test\covtemp"   # 目录需存在，先 mkdir
+$env:TMP = $env:TEMP = "<仓库根>\.tmp-test\covtemp"   # 目录需存在，先 mkdir
 dotnet test tests/logcat.Tests/logcat.Tests.csproj `
   --collect:"XPlat Code Coverage" `
   --settings tests/logcat.Tests/coverlet.runsettings
@@ -93,7 +103,7 @@ dotnet tool install -g coverlet.console        # 需 ≥ 10.1.0，见 §5.3
 ```
 
 ```bash
-cd %TEMP%/tstrun/bin/Debug/net10.0-windows
+cd .tmp-test/tstrun/bin/Debug/net10.0-windows
 coverlet logcat.Tests.dll \
   --target tstrun.exe --targetargs "" \
   --include "[logcat]*" \
@@ -134,7 +144,7 @@ coverlet logcat.Tests.dll \
 
 ## 3. 智能体沙箱怎么跑测试：tstrun 反射 runner
 
-`%TEMP%/tstrun` 是一个**临时**工程（不进 git，%TEMP% 被清就没了）。
+`.tmp-test/tstrun` 是仓库内的 runner 工程（`.gitignore` 已忽略 `%TEMP%` 会被清、且被沙箱/安全软件盯防，故不放那里）。
 它是控制台工程，通过 `ProjectReference` 引用 `logcat.Tests.csproj`，
 反射扫出所有 `[Fact]` / `[Theory]` 方法直接调用，绕开 testhost。
 
@@ -240,7 +250,7 @@ if (fail > 0)
 跑法：
 
 ```bash
-cd %TEMP%/tstrun
+cd .tmp-test/tstrun
 dotnet run                 # 全量
 dotnet run FilterEngine    # 只跑类名含 FilterEngine 的
 ```
@@ -252,7 +262,7 @@ dotnet run FilterEngine    # 只跑类名含 FilterEngine 的
 2. **插值表达式里内嵌 `"null"` 会提前闭合字符串**：`$"...{string.Join(", ", data)}..."` 在某些参数下
    会被解析成 `string.Join(", ", data) + "..."` 之类，`string.Join` 的结果要**先提到变量**再插值。
 3. **只匹配 `FactAttribute` 会漏掉全部 Theory**（20 个）—— 所以要么同时匹配 `TheoryAttribute` 并按
-   `[InlineData]` 展开（上面的代码已做），要么**必须**拿「用例总数」与已知基线（当前 **493**）交叉验证
+   `[InlineData]` 展开（上面的代码已做），要么**必须**拿「用例总数」与已知基线（当前 **519**）交叉验证
    runner 本身没漏。这个交叉验证是每次改 runner 后的必做动作。
 
 ### 3.3 本地化相关的两个特殊坑（2026-10-07）
@@ -269,7 +279,7 @@ Assert.True(scanned > 300, $"只找到 {scanned} 个调用点，解析逻辑大�
 
 改扫描逻辑后，**务必跑一份独立 Python 脚本交叉验证条数**，别信"全绿"。
 
-仓库路径用 csproj 的 `AssemblyMetadata("RepoRoot")` **编译期注入**，不要靠 `AppContext.BaseDirectory` 往上找 `logcat.csproj`——tstrun 从 `%TEMP%` 启动，输出目录不在仓库内，会直接找不到。
+仓库路径用 csproj 的 `AssemblyMetadata("RepoRoot")` **编译期注入**，不要靠 `AppContext.BaseDirectory` 往上找 `logcat.csproj`——tstrun 跑在 `.tmp-test/` 下，bin 输出目录与仓库根的相对层级会随 runner 重建变化，靠往上找不稳。
 
 **② `LocTableTests` 只扫 `Loc.*` 调用点，不扫所有字面量**
 
