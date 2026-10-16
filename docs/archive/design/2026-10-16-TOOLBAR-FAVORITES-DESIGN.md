@@ -1,8 +1,9 @@
 # 工具栏过滤输入框星号收藏 + 收藏选择下拉（设计定稿）
 
 > 日期：2026-10-05
-> 状态：**已落地**（2026-10-05 评审通过并实施，留档）
-> 关联提交：622824d「feat: 工具栏 Tag/Message 输入框添加星号收藏功能」
+> 状态：**已归档**（2026-10-05 评审通过并实施，2026-10-14 核对通过，2026-10-16 用户指示关闭并归档）
+> 关联提交：622824d「feat: 工具栏 Tag/Message 输入框添加星号收藏功能」、1e235bb「fix: 收藏下拉不再按输入框内容过滤」
+> 验收结论：已验收（2026-10-16 用户指示关闭并归档）
 > 关联需求：把 Tag / Message 工具栏输入框升级为「输入框 + 收藏入口 + 收藏下拉」组合
 > 说明：本稿是实现依据，只记录最终结论；过程讨论与方案演变见 git 历史。
 
@@ -14,16 +15,16 @@
 
 已确定的决策：
 
-| 项                              | 结论                                                     |
-| ------------------------------- | -------------------------------------------------------- |
-| 交付形态                        | 按需唤出的收藏选择器，**不做实时联想**（方案 B 存档 §8.2） |
-| 工具栏 Enter 键                 | 保持「应用过滤」既有行为；唤出菜单**只靠点 ▾**；不做焦点唤出 |
-| 收藏满 60 条（每列表）          | **LRU 静默淘汰**，零改动，文档与文案写明即可              |
-| IME 组合态（拼音未上屏）点 ★    | 暂不处理：组合串可被收藏，可再点 ★ 移除                   |
-| 下拉混入未收藏的最近使用        | 不做（需独立第二份内存数据，属另一个功能）                |
-| 工具栏宽度                      | +128px 可接受                                             |
-| 工具栏 ▾ / ★ 的 Overflow 策略   | `★ = Never`（保可见）、`▾ = AsNeeded`；实测空间不足被裁切则回退为都 `AsNeeded`（§5.5） |
-| 「清空收藏」                    | **加二次确认**（MessageBox YesNo），确认后才清空（§5.6）  |
+| 项                            | 结论                                                                                   |
+| ----------------------------- | -------------------------------------------------------------------------------------- |
+| 交付形态                      | 按需唤出的收藏选择器，**不做实时联想**（方案 B 存档 §8.2）                             |
+| 工具栏 Enter 键               | 保持「应用过滤」既有行为；唤出菜单**只靠点 ▾**；不做焦点唤出                           |
+| 收藏满 60 条（每列表）        | **LRU 静默淘汰**，零改动，文档与文案写明即可                                           |
+| IME 组合态（拼音未上屏）点 ★  | 暂不处理：组合串可被收藏，可再点 ★ 移除                                                |
+| 下拉混入未收藏的最近使用      | 不做（需独立第二份内存数据，属另一个功能）                                             |
+| 工具栏宽度                    | +128px 可接受                                                                          |
+| 工具栏 ▾ / ★ 的 Overflow 策略 | `★ = Never`（保可见）、`▾ = AsNeeded`；实测空间不足被裁切则回退为都 `AsNeeded`（§5.5） |
+| 「清空收藏」                  | **加二次确认**（MessageBox YesNo），确认后才清空（§5.6）                               |
 
 ---
 
@@ -31,16 +32,16 @@
 
 ### 2.1 已有能力
 
-| 能力                                  | 位置                                                                                                                             |
-| ------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| 能力                                  | 位置                                                                                                                               |
+| ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
 | 收藏存储、去重、上限、落盘、`Changed` | `Services/FavoritesStore.cs`：`MaxPerList=60`(:12)、`Changed` 声明(:57)、`Changed?.Invoke` 在 `SaveTo`(:115)、过滤收藏区(:206-231) |
-| 过滤收藏增删                          | `AddTagFilter`:214、`RemoveTagFilter`:216、`AddMsgFilter`:218、`RemoveMsgFilter`:220                                             |
-| 面板侧 ▾ / ★ 按钮                     | `BuildTermControls`，`frmMain.cs:507-548`（▾:528、★:532，**均为局部变量**）                                                      |
-| 从收藏选择的下拉                      | `ShowFilterFavMenu(Button anchor, TextBox ed, bool forTag)`，`frmMain.cs:554`                                                    |
-| 收藏切换                              | `ToggleFilterFav(TextBox ed, bool forTag)`，`frmMain.cs:587`（返回 void）                                                        |
-| 工具栏托管自定义控件先例              | `ToolStripControlHost(_chkToolbarMarkedOnly/_chkToolbarFollow)`，`frmMain.cs:214-215`                                            |
-| 工具栏输入框                          | `_tbTag`(130px) / `_tbMsg`(180px)，`frmMain.cs:197-206`                                                                          |
-| 双向同步 + `_syncingFilter`           | `SyncToolbarToPanel`:489 / `SyncPanelToToolbar`:499；字段 `_syncingFilter` 在 `:65`                                              |
+| 过滤收藏增删                          | `AddTagFilter`:214、`RemoveTagFilter`:216、`AddMsgFilter`:218、`RemoveMsgFilter`:220                                               |
+| 面板侧 ▾ / ★ 按钮                     | `BuildTermControls`，`frmMain.cs:507-548`（▾:528、★:532，**均为局部变量**）                                                        |
+| 从收藏选择的下拉                      | `ShowFilterFavMenu(Button anchor, TextBox ed, bool forTag)`，`frmMain.cs:554`                                                      |
+| 收藏切换                              | `ToggleFilterFav(TextBox ed, bool forTag)`，`frmMain.cs:587`（返回 void）                                                          |
+| 工具栏托管自定义控件先例              | `ToolStripControlHost(_chkToolbarMarkedOnly/_chkToolbarFollow)`，`frmMain.cs:214-215`                                              |
+| 工具栏输入框                          | `_tbTag`(130px) / `_tbMsg`(180px)，`frmMain.cs:197-206`                                                                            |
+| 双向同步 + `_syncingFilter`           | `SyncToolbarToPanel`:489 / `SyncPanelToToolbar`:499；字段 `_syncingFilter` 在 `:65`                                                |
 
 ### 2.2 已修复的既有 bug（无需再做）
 
@@ -178,7 +179,7 @@ void ApplyFavText(TextBox ed, string text, bool forTag)
 
 ### 4.4 优点 / 限制
 
-- 优点：零新控件、零手写键盘导航、与面板侧视觉一致、子串匹配、可动态增删项。
+- 优点：零新控件、零手写键盘导航、与面板侧视觉一致、下拉始终展示完整收藏列表、可动态增删项。
 - 限制：只能**按需唤出**（非实时联想）；`AutoClose = true`，点输入框会先关闭菜单。
 
 ---
@@ -234,7 +235,7 @@ _btnFavMenuTag.Overflow = ToolStripItemOverflow.AsNeeded;
 ## 6. 推进顺序
 
 1. `FavoritesStore` 加 `Contains*` / `Toggle*`（§3）+ 测试。
-2. `ShowFilterFavMenu` 拆面板侧/工具栏侧两条路径（§4.1），子串过滤，工具栏 ▾ / ★ 接线，`ToggleFilterFav` 改走 `Toggle*`。
+2. `ShowFilterFavMenu` 拆面板侧/工具栏侧两条路径（§4.1），下拉始终展示完整收藏列表，工具栏 ▾ / ★ 接线，`ToggleFilterFav` 改走 `Toggle*`。
 3. 接 `RefreshFavStars()` + `FavoritesStore.Changed`（§5.1 / §5.2 / §5.6）。
 4. 面板侧 ▾ / ★ 保留，两侧星号共用 `RefreshFavStars()` 刷新。
 
@@ -246,7 +247,7 @@ _btnFavMenuTag.Overflow = ToolStripItemOverflow.AsNeeded;
 
 ### 7.1 功能
 
-- [ ] 点工具栏 ▾ → 按当前输入**子串**过滤的收藏菜单；无匹配显示禁用项
+- [ ] 点工具栏 ▾ → 展示**完整**收藏列表（不按输入过滤）；无收藏时显示禁用项
 - [ ] 菜单项带 ★，↑↓ / Enter / Esc 可用，屏幕边界自动翻转
 - [ ] 点 ★：未收藏→收藏（☆→★），已收藏→移除（★→☆），状态栏有对应提示
 - [ ] 大小写变体（§2.3）：★ 亮 ⇔ IgnoreCase 已存在；**点亮 ★ 再点击必须移除原条目并提示「已移除」**；不得出现「提示已收藏但 ★ 未亮」或「点 ★ 取消却提示已收藏」
@@ -258,7 +259,7 @@ _btnFavMenuTag.Overflow = ToolStripItemOverflow.AsNeeded;
 - [ ] 下拉展开时 Enter=选中当前项；菜单收起时工具栏输入框 Enter=应用过滤（既有行为不变）；Esc 关闭下拉
 - [ ] `FilterDialog` 与主窗体同时打开时，两侧文本与 ★ 双向一致
 - [ ] 面板侧 ▾ / ★ 与工具栏侧 ▾ / ★ 同时存在，同一输入框两侧的 ★ 状态完全一致
-- [ ] 面板侧和工具栏侧的 ▾ 弹出的菜单内容、顺序、子串过滤行为完全一致（同一份 `FilterFavList` 数据源）
+- [ ] 面板侧和工具栏侧的 ▾ 弹出的菜单内容、顺序完全一致（同一份 `FilterFavList` 数据源，均展示完整收藏列表）
 
 ### 7.2 布局与边界
 
@@ -292,10 +293,10 @@ _btnFavMenuTag.Overflow = ToolStripItemOverflow.AsNeeded;
 
 ### 8.3 第三方资源许可（本项目 Apache-2.0）
 
-| 资源                         | 许可                                  | 结论                                                                           |
-| ---------------------------- | ------------------------------------- | ------------------------------------------------------------------------------ |
-| StackOverflow 代码片段       | CC BY-SA                              | 与 Apache-2.0 冲突。通用 Win32 技术须**自行重写**，勿逐行照抄                   |
-| CustomCompleteTextBox        | **GPL**（NuGet 声明；仓库无 LICENSE） | 不可用                                                                         |
-| WinForms.AutoComplete        | **LGPLv3**                            | 仅可作未修改的独立 DLL 依赖，不可拷贝源码                                      |
-| SunnyUI                      | 个人免费 / 商用需授权                 | 不可用于本项目分发                                                             |
-| Lucid / AntdUI / ReaLTaiizor | MIT / Apache-2.0 / MIT                | 许可相容，可作参考；引用代码须登记到 `THIRD-PARTY-NOTICES.md`                  |
+| 资源                         | 许可                                  | 结论                                                          |
+| ---------------------------- | ------------------------------------- | ------------------------------------------------------------- |
+| StackOverflow 代码片段       | CC BY-SA                              | 与 Apache-2.0 冲突。通用 Win32 技术须**自行重写**，勿逐行照抄 |
+| CustomCompleteTextBox        | **GPL**（NuGet 声明；仓库无 LICENSE） | 不可用                                                        |
+| WinForms.AutoComplete        | **LGPLv3**                            | 仅可作未修改的独立 DLL 依赖，不可拷贝源码                     |
+| SunnyUI                      | 个人免费 / 商用需授权                 | 不可用于本项目分发                                            |
+| Lucid / AntdUI / ReaLTaiizor | MIT / Apache-2.0 / MIT                | 许可相容，可作参考；引用代码须登记到 `THIRD-PARTY-NOTICES.md` |

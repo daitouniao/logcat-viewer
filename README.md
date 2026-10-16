@@ -26,15 +26,15 @@ Repositories:
 
 Most logcat viewers choke on large captures. This one keeps the text on disk (mmap) and only the fixed-width columns in memory, so a multi-GB log file opens without loading it into RAM and scrolls at a stable frame rate.
 
-| Capability | How it works |
-| --- | --- |
-| **Instant open on huge files** | Memory-mapped + columnar index, with a cancellable progress bar |
-| **Virtual list** | Only visible rows are rendered, so scrolling stays smooth at 10M+ rows |
-| **Six formats auto-detected** | `threadtime` / `time` / `long` / `brief` / `tag` / `ymd`, via a byte-level fast path with regex fallback |
-| **Multi-line joining** | Stack traces and wrapped messages fold back into their parent record (toggleable) |
-| **Level colours** | V/D/I/W/E/F/A colour-coded |
-| **Full record view** | Double-click a row (`Enter`) to see the untruncated original text |
-| **Incremental reload** | `F5` re-reads only the appended tail, with line-boundary alignment across batch edges |
+| Capability                     | How it works                                                                                             |
+| ------------------------------ | -------------------------------------------------------------------------------------------------------- |
+| **Instant open on huge files** | Memory-mapped + columnar index, with a cancellable progress bar                                          |
+| **Virtual list**               | Only visible rows are rendered, so scrolling stays smooth at 10M+ rows                                   |
+| **Six formats auto-detected**  | `threadtime` / `time` / `long` / `brief` / `tag` / `ymd`, via a byte-level fast path with regex fallback |
+| **Multi-line joining**         | Stack traces and wrapped messages fold back into their parent record (toggleable)                        |
+| **Level colours**              | V/D/I/W/E/F/A colour-coded                                                                               |
+| **Full record view**           | Double-click a row (`Enter`) to see the untruncated original text                                        |
+| **Incremental reload**         | `F5` re-reads only the appended tail, with line-boundary alignment across batch edges                    |
 
 ## Filtering
 
@@ -138,9 +138,9 @@ A language layout audit walks the control tree in both languages at minimum / de
 **To run a published build — Windows is all you need.** Every release ships two builds; pick
 the one that fits your machine:
 
-| Build | Target machine | Size |
-|---|---|---|
-| `logcat-V<version>-win-x64.zip` | **Windows only** — unzip and run, nothing to install | ~120 MB |
+| Build                              | Target machine                                                                                     | Size    |
+| ---------------------------------- | -------------------------------------------------------------------------------------------------- | ------- |
+| `logcat-V<version>-win-x64.zip`    | **Windows only** — unzip and run, nothing to install                                               | ~120 MB |
 | `logcat-V<version>-win-x64-fd.zip` | Needs [.NET 10 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/10.0) installed first | ~1.8 MB |
 
 Not sure? Take the self-contained one — it is the larger download but zero setup.
@@ -206,11 +206,11 @@ The scope is defined in `tests/logcat.Tests/coverlet.runsettings` and excludes t
 | `Ctrl+C`          | Copy selected rows                                     |
 | `Ctrl+Shift+C`    | Open the command window                                |
 | `F2` / `Shift+F2` | Previous / next mark                                   |
-| `F3` / `Shift+F3` | Find next / previous in results                   |
+| `F3` / `Shift+F3` | Find next / previous in results                        |
 | `M`               | Mark the current row                                   |
 | `Enter`           | View the full record for the current row               |
 | `Esc`             | Stop the current task and clear the selection          |
-| `Ctrl+Q`          | Quit                                                  |
+| `Ctrl+Q`          | Quit                                                   |
 
 You can also drag a log file straight onto the window.
 
@@ -287,9 +287,7 @@ docs/
   archive/              Archived snapshots (verified bug reports / completed designs)
   design/
     ADB-ROOT-DETECTION.md        ADB root detection (Su / Adbd / None modes, probe timeout)
-    FILTER-REFACTOR-PLAN.md      Toolbar-filter / filter-panel decoupling plan (executed, kept for the record)
     RECENT-FILES-DESIGN.md       Most-recently-opened list (MRU), shipped
-    TOOLBAR-FAVORITES-DESIGN.md  Toolbar star-favourites + favourites dropdown, final design (shipped, kept for the record)
   images/main.gif        The demo animation at the top of this file
 LICENSE                 Apache-2.0 full text
 THIRD-PARTY-NOTICES.md  Third-party licences
@@ -298,13 +296,13 @@ DISCLAIMER.md           Disclaimer full text
 
 ## Documentation
 
-| Document | When to read it |
-|---|---|
-| [docs/BUILDING.md](docs/BUILDING.md) | Building or publishing — the two `dotnet publish` commands, artifact verification, pitfall table |
-| [docs/TESTING.md](docs/TESTING.md) | Running the suite or producing coverage — includes the workaround for `dotnet test` failing inside a restricted sandbox |
-| [docs/UT-AUDIT.md](docs/UT-AUDIT.md) | Whether the tests actually bite — the mutation-testing audit |
-| [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) | Dependencies and licences — per-package versions, licences, copyright lines and distribution checklist |
-| [DISCLAIMER.md](DISCLAIMER.md) | The full terms to read before using the tool |
+| Document                                         | When to read it                                                                                                         |
+| ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------- |
+| [docs/BUILDING.md](docs/BUILDING.md)             | Building or publishing — the two `dotnet publish` commands, artifact verification, pitfall table                        |
+| [docs/TESTING.md](docs/TESTING.md)               | Running the suite or producing coverage — includes the workaround for `dotnet test` failing inside a restricted sandbox |
+| [docs/UT-AUDIT.md](docs/UT-AUDIT.md)             | Whether the tests actually bite — the mutation-testing audit                                                            |
+| [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) | Dependencies and licences — per-package versions, licences, copyright lines and distribution checklist                  |
+| [DISCLAIMER.md](DISCLAIMER.md)                   | The full terms to read before using the tool                                                                            |
 
 ## Data storage
 
@@ -322,12 +320,12 @@ DISCLAIMER.md           Disclaimer full text
 
 ### Licence compatibility
 
-| Used | Licence | Relationship to this project |
-|---|---|---|
-| AdvancedSharpAdbClient 3.6.16 | Apache-2.0 | The only non-Microsoft NuGet library; its DLL ships with the build → Apache-2.0 keeps things simplest |
-| Microsoft.Extensions.* 10.0.11 (Logging and its dependencies, 13 packages) | MIT | MIT code can be incorporated into an Apache-2.0 project without restriction, keeping its copyright notice |
-| .NET SDK 10.0.400 / C# compiler / WinForms | Source MIT; installed binaries under the Microsoft Software Licence — .NET Library | Build toolchain and runtime; the terms permit building and distributing applications for free |
-| adb.exe (Android platform-tools) | Apache-2.0 | An external program in the user's environment — not bundled or modified; if you redistribute platform-tools, keep its LICENSE/NOTICE |
+| Used                                                                       | Licence                                                                            | Relationship to this project                                                                                                         |
+| -------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| AdvancedSharpAdbClient 3.6.16                                              | Apache-2.0                                                                         | The only non-Microsoft NuGet library; its DLL ships with the build → Apache-2.0 keeps things simplest                                |
+| Microsoft.Extensions.* 10.0.11 (Logging and its dependencies, 13 packages) | MIT                                                                                | MIT code can be incorporated into an Apache-2.0 project without restriction, keeping its copyright notice                            |
+| .NET SDK 10.0.400 / C# compiler / WinForms                                 | Source MIT; installed binaries under the Microsoft Software Licence — .NET Library | Build toolchain and runtime; the terms permit building and distributing applications for free                                        |
+| adb.exe (Android platform-tools)                                           | Apache-2.0                                                                         | An external program in the user's environment — not bundled or modified; if you redistribute platform-tools, keep its LICENSE/NOTICE |
 
 ### Details and compliance
 
