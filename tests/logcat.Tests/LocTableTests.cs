@@ -333,8 +333,7 @@ public class LocTableTests
     /// <see cref="Loc"/> 的 <c>BindCol</c> 只登记资源键并赋 Text，不负责把列挂进
     /// ListView 的 Columns 集合；Details 视图下列集合为空时条目一律不渲染，
     /// 且无任何异常。文件浏览三个面板在 i18n 改造（c574592）中写成裸
-    /// <c>BindCol(new ColumnHeader …)</c>，设备/本机两栏列表全部空白——
-    /// 复盘见已归档报告 FILEBROWSER-BLANK-LIST（2026-10-16 归档）。
+    /// <c>BindCol(new ColumnHeader …)</c>，设备/本机两栏列表全部空白。
     /// </para>
     ///
     /// <para>

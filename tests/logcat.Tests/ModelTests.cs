@@ -53,7 +53,7 @@ public class ModelTests
     // Describe() 全部走 Loc.T / Loc.F，因此结果随界面语言变化。断言必须
     // 显式钉住语言，否则测试结果取决于机器的系统区域：本地中文全绿，
     // CI runner 上是英文环境就会红一片（2026-10-10 实测 9 条失败中的 7 条
-    // 正是这个原因，见 docs/TESTING.md）。
+    // 正是这个原因）。
     //
     // 每条用例都在两种语言下各断言一次：中文侧钉住既有行为，英文侧钉住
     // "确实走了 Loc 而不是硬编码中文"。只断言一种语言的话，把 Describe 退回
@@ -460,7 +460,7 @@ public class AdbManagerStaticTests
         Assert.Equal("-s S1 shell ls", AdbManager.AdbArgs("  shell ls  ", "S1"));
     }
 
-    // ── root 检测分类（docs/private/design/ADB-ROOT-DETECTION.md 方向 A）──
+    // ── root 检测分类 ──
 
     [Theory]
     [InlineData("uid=0(root) gid=0(root) context=u:r:magisk:s0", "unused", RootMode.Adbd, false)]
@@ -486,7 +486,7 @@ public class AdbManagerStaticTests
         Assert.False(entry.SuFailed);
     }
 
-    // ── Q5 修订版重测范围 ──
+    // ── ShouldRedetect 重测范围 ──
 
     [Theory]
     [InlineData(null, true)]
@@ -507,7 +507,7 @@ public class AdbManagerStaticTests
         Assert.False(AdbManager.ShouldRedetect(new RootDetectEntry(RootMode.None, SuFailed: false)));
     }
 
-    // ── Adbd 模式跳过 su 包裹（Q3 定案）──
+    // ── Adbd 模式跳过 su 包裹 ──
 
     [Theory]
     [InlineData(RootMode.Su, "id", "su -c 'id'")]
@@ -526,7 +526,7 @@ public class AdbManagerStaticTests
     }
 }
 
-/// <summary>root 检测缓存容器的行为。探测链路依赖真实 adb 设备（手工验收，见设计文档），
+/// <summary>root 检测缓存容器的行为。探测链路依赖真实 adb 设备（手工验收），
 /// 这里只验证不触网的纯内存行为。</summary>
 public class AdbManagerRootCacheTests
 {

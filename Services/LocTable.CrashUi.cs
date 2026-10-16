@@ -1,6 +1,6 @@
 namespace logcat.Services;
 
-/// <summary>英文译文表：崩溃汇总窗口（F-05）与崩溃摘要行（F-01）。</summary>
+/// <summary>英文译文表：崩溃汇总窗口与崩溃摘要行。</summary>
 static partial class LocTable
 {
     public static Dictionary<string, string> CrashUi() => new Dictionary<string, string>()

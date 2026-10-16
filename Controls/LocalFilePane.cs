@@ -19,7 +19,7 @@ public sealed class LocalFilePane : FilePane
 
     protected override void CreateColumns(ListView list)
     {
-        // BindCol 不负责入列，必须包在 Columns.Add 里（历史教训见已归档复盘 FILEBROWSER-BLANK-LIST）
+        // BindCol 不负责入列，必须包在 Columns.Add 里
         list.Columns.Add(Loc.BindCol(new ColumnHeader { Text = Loc.T("名称"), Width = 250 }, "名称"));
         list.Columns.Add(Loc.BindCol(new ColumnHeader { Text = Loc.T("大小"), Width = 90, TextAlign = HorizontalAlignment.Right }, "大小"));
         list.Columns.Add(Loc.BindCol(new ColumnHeader { Text = Loc.T("类型"), Width = 100 }, "类型"));

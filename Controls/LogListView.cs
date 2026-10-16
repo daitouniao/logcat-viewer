@@ -279,7 +279,7 @@ public class LogListView : ListView
     }
 
     /// <summary>
-    /// 该行若是崩溃头，返回对应崩溃事件（F-01/F-05 共用）；否则返回 null。
+    /// 该行若是崩溃头，返回对应崩溃事件；否则返回 null。
     /// <see cref="LogDocument.Crashes"/> 按 Row 升序，二分查找。
     /// </summary>
     public CrashEvent? CrashOf(int docRow)
@@ -385,7 +385,7 @@ public class LogListView : ListView
         int pid = _doc.Pid[docRow], tid = _doc.Tid[docRow];
         int lvl = _doc.Lvl[docRow];
 
-        // Message：崩溃行显示摘要（F-01），普通行走原文渲染
+        // Message：崩溃行显示摘要，普通行走原文渲染
         string msg = _doc.Decode(_doc.MessageBytes(docRow));
         var crash = CrashOf(docRow);
         if (crash != null)
@@ -414,7 +414,7 @@ public class LogListView : ListView
     /// <summary>
     /// 语言切换后清空行缓存并重绘。
     /// 缓存的行文本里嵌着 <see cref="Loc.F"/> 算出的文案（如「…(+N 字符)」截断后缀），
-    /// 不清缓存的话切语言后已渲染过的行会一直显示旧语言的文字（现存 bug，见 ANALYSIS-2.1 §5⑬）。
+    /// 不清缓存的话切语言后已渲染过的行会一直显示旧语言的文字。
     /// </summary>
     public void OnLanguageChanged()
     {
@@ -423,7 +423,7 @@ public class LogListView : ListView
     }
 
     /// <summary>
-    /// 崩溃行的 Message 列摘要文案（ANALYSIS-2.1 §4.3 / CRASH-SUMMARY-DESIGN §3.1）：
+    /// 崩溃行的 Message 列摘要文案：
     /// <c>☠ 类型 · 包名 · 时间 · +N 行</c>。只是显示得更聪明，原文一个字不动 ——
     /// 查看完整记录、复制原始文本仍读原始字节；带格式复制由 frmMain 还原原文。
     /// </summary>

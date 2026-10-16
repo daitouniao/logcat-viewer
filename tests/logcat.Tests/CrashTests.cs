@@ -5,7 +5,7 @@ using Xunit;
 namespace logcat.Tests;
 
 /// <summary>
-/// 崩溃信息提取（F-02）纯函数测试。验收口径 ANALYSIS-2.1 §7.1：每类 1 正 + 2 反，
+/// 崩溃信息提取纯函数测试。用例口径：每类 1 正 + 2 反，
 /// 误报是重点（业务日志打印 FATAL EXCEPTION / signal 字样、非白名单信号、ANR 缩写词）。
 /// </summary>
 public class CrashExtractorTests
@@ -46,7 +46,7 @@ public class CrashExtractorTests
     [Fact]
     public void Java_无Process行不提取()
     {
-        // 包名提取的反例（§7.1「无 Process: 行的崩溃」）：事件不成立
+        // 包名提取的反例（无 Process: 行的崩溃）：事件不成立
         var text = string.Join("\n",
             "FATAL EXCEPTION: main",
             "java.lang.IllegalStateException: boom",
@@ -155,7 +155,7 @@ public class CrashExtractorTests
     }
 }
 
-/// <summary>崩溃事件聚合（F-05）测试：分组、计数、首末时间、排序与字典解引用。</summary>
+/// <summary>崩溃事件聚合测试：分组、计数、首末时间、排序与字典解引用。</summary>
 public class CrashAggregatorTests
 {
     static CrashEvent E(int row, int excId, int pkgId, long ts, byte kind) => new()
@@ -233,7 +233,7 @@ public class CrashAggregatorTests
 }
 
 /// <summary>
-/// LogDocument 崩溃提取集成（F-02）：独立行形态、缩进合并形态（c 轨补扫）、
+/// LogDocument 崩溃提取集成：独立行形态、缩进合并形态（c 轨补扫）、
 /// Join=false 仍提取、Append 行号偏移与 Ts 回填、跨批 carry 补增 LineCount。
 /// </summary>
 public class CrashDocumentTests
@@ -466,7 +466,7 @@ public class CrashDocumentTests
 }
 
 /// <summary>
-/// <see cref="CrashKind.Name"/> 的类别 → 显示名映射（F-05 汇总窗口的「类别」列、摘要行的类别字段）。
+/// <see cref="CrashKind.Name"/> 的类别 → 显示名映射（汇总窗口的「类别」列、摘要行的类别字段）。
 /// </summary>
 // 本类会改动 Loc 的全局语言状态，必须与其它改语言的类串行（见 LangCollection）
 [Collection(LangCollection.Name)]

@@ -8,12 +8,11 @@
     BUILD-FAIL = 编译失败 → 变异本身写错了
 
 为什么需要它：行覆盖率只证明「代码被执行过」，不证明「断言咬得住」。
-本项目实测三处被覆盖率统计覆盖、却一个都测不出来的代码，见 docs/UT-AUDIT.md。
+本项目实测三处被覆盖率统计覆盖、却一个都测不出来的代码。
 
 依赖：`dotnet test` 在本机跑不起来（testhost 加载 hostfxr.dll 报 0x80070005），
 需先准备反射 runner `%TEMP%/tstrun`（ProjectReference → logcat.Tests.csproj，
 反射扫 [Fact] / [Theory] 按 [InlineData] 展开后 m.Invoke）。
-做法见 .workbuddy/memory/MEMORY.md「智能体跑不了 dotnet test」一节。
 
 用法：
     python scripts/mutation-test.py                # 跑全部
@@ -24,7 +23,7 @@
      但如果你正在编辑仓库，并发写入会让结果失真（曾出现 BUILD-FAIL 误报）。
   2. 本脚本对每个变异执行 `git checkout -- <单个文件>`，不会碰你的其他改动。
   3. SURVIVED 必须逐条甄别，别直接下结论——先确认「变异本身真的改了行为」。
-     用探针打印中间状态，别只静态推理（见 docs/UT-AUDIT.md §4）。
+     用探针打印中间状态，别只静态推理。
 """
 import argparse
 import os
@@ -100,19 +99,19 @@ TEXT_MUTATIONS = [
     ("Services/LogDocument.cs",
      "                prev = -1;\n                prevHead = false;\n                joined = 0;\n                pos = nl >= 0 ? nl + 1 : data.Length;\n                continue;",
      "                prev = 0;\n                pos = nl >= 0 ? nl + 1 : data.Length;\n                continue;",
-     "空行不再重置合并状态（X-A8 回退修法 A，2026-10-15）"),
+     "空行不再重置合并状态（回退修法 A）"),
     ("Services/LogDocument.cs",
      "        var part = ScanRange(Path, IndexedSize, newSize, Join, _prevHeadAtEnd, _joinedAtEnd, progress, ct);",
      "        var part = ScanRange(Path, IndexedSize, newSize, Join, true, _joinedAtEnd, progress, ct);",
-     "Append：prevHeadDoc 改回恒 true（批界合并缓存失效，X-A8 fix-5）"),
+     "Append：prevHeadDoc 改回恒 true（批界合并缓存失效）"),
     ("Services/LogDocument.cs",
      "        var part = ScanRange(Path, IndexedSize, newSize, Join, _prevHeadAtEnd, _joinedAtEnd, progress, ct);",
      "        var part = ScanRange(Path, IndexedSize, newSize, Join, _prevHeadAtEnd, 0, progress, ct);",
-     "Append：joinedDoc 改回每批清零（MAX_JOIN 退化为每批预算，X-A8 fix-6）"),
+     "Append：joinedDoc 改回每批清零（MAX_JOIN 退化为每批预算）"),
     ("Services/LogDocument.cs",
      "        // 批末状态必须在任何早退分支之前入缓存：整批空行走 \"unchanged\" 但合并状态已变\n        _prevHeadAtEnd = part.EndPrevHead;",
      "        // 批末状态必须在任何早退分支之前入缓存：整批空行走 \"unchanged\" 但合并状态已变\n        _prevHeadAtEnd = _prevHeadAtEnd;",
-     "Append：批末合并状态缓存自赋值（永不更新，X-A8 fix-5 收尾）"),
+     "Append：批末合并状态缓存自赋值（永不更新）"),
     ("Services/LogDocument.cs",
      "            if (LogParser.IsBanner(line))\n            {\n                pos = nl >= 0 ? nl + 1 : data.Length;\n                continue;\n            }",
      "            if (LogParser.IsBanner(line))\n            {\n                prev = -1;\n                pos = nl >= 0 ? nl + 1 : data.Length;\n                continue;\n            }",
@@ -140,11 +139,11 @@ TEXT_MUTATIONS = [
     ("Services/LogDocument.cs",
      "            if (lineInChunk % 5000 == 0)\n            {\n                ct.ThrowIfCancellationRequested();\n            }",
      "            if (lineInChunk % 1000000 == 0)\n            {\n                ct.ThrowIfCancellationRequested();\n            }",
-     "扫描期取消检查从每 5000 行改成每 100 万行（docs/UT-AUDIT.md P1-2）"),
+     "扫描期取消检查从每 5000 行改成每 100 万行"),
     ("Services/LogDocument.cs",
      "        long nextReport = 1 << 22;",
      "        long nextReport = 1 << 40;",
-     "扫描进度上报阈值 4MB → 1TB（注意：等价变异会误报，见 UT-AUDIT §4.2）"),
+     "扫描进度上报阈值 4MB → 1TB（等价变异会误报）"),
     ("Services/LogDocument.cs",
      "        int cap = Math.Max(need, _cap + Math.Max(_cap >> 2, 1 << 16));",
      "        int cap = Math.Max(need, _cap + 1);",
@@ -196,7 +195,7 @@ TEXT_MUTATIONS = [
     ("Services/FilterEngine.cs",
      "        if (spec.Tags.Length == 0 || doc.Tags.Count == 0) return result;",
      "        if (spec.Tags.Length == 0) return result;",
-     "TagIds：去掉 doc.Tags 为空的短路（等价变异，见 UT-AUDIT §4.1）"),
+     "TagIds：去掉 doc.Tags 为空的短路（等价变异）"),
     ("Services/FilterEngine.cs",
      "            if (b >= 0x80) return false;      // 非 ASCII：交给调用方回退，不做部分折叠",
      "            if (b >= 0x80) continue;",
@@ -252,13 +251,13 @@ TEXT_MUTATIONS = [
     ("Services/CommandStore.cs",
      "    public const string FallbackCategory = \"shell\";",
      "    public const string FallbackCategory = \"Shell\";",
-     "FallbackCategory 改成 \"Shell\"（docs/UT-AUDIT.md P2-1：断言自证，抓不到）"),
+     "FallbackCategory 改成 \"Shell\"（断言自证，抓不到）"),
 
     # ── FavoritesStore ──
     ("Services/FavoritesStore.cs",
      "        list.Insert(0, value);\n        while (list.Count > MaxPerList) list.RemoveAt(list.Count - 1);\n        return true;",
      "        list.Insert(0, value);\n        while (list.Count > MaxPerList) list.RemoveAt(0);\n        return true;",
-     "AddRecent：超上限丢最早而非最后（docs/UT-AUDIT.md P2-2：没测淘汰方向）"),
+     "AddRecent：超上限丢最早而非最后（没测淘汰方向）"),
     ("Services/FavoritesStore.cs",
      "        list.RemoveAll(p => string.Equals(p, value, StringComparison.OrdinalIgnoreCase));",
      "        if (list.Contains(value, StringComparer.Ordinal)) return false;",
@@ -318,7 +317,7 @@ TEXT_MUTATIONS = [
     ("Models/FilterSpec.cs",
      "        if (Levels.Length > 0 && !Levels.OrderBy(x => x).SequenceEqual(allLevels.OrderBy(x => x)))\n        {\n            var names",
      "        if (Levels.Length > 0)\n        {\n            var names",
-     "FilterSpec.Describe：全集级别也输出「级别 ...」（docs/UT-AUDIT.md P2-3：缺用例）"),
+     "FilterSpec.Describe：全集级别也输出「级别 ...」（缺用例）"),
 ]
 
 # ── 行号型变异（解决同构代码的 str.replace 歧义）────────────────────────────
@@ -465,8 +464,9 @@ def main():
 
     if not os.path.isdir(RUNNER):
         print(f"找不到反射 runner：{RUNNER}\n"
-              f"见 .workbuddy/memory/MEMORY.md「智能体跑不了 dotnet test」一节，"
-              f"按其中步骤搭好后重试。", file=sys.stderr)
+              f"需先搭建反射 runner（ProjectReference → logcat.Tests.csproj，"
+              f"反射扫 [Fact]/[Theory] 按 [InlineData] 展开后调用）再重试。",
+              file=sys.stderr)
         return 2
 
     # 必须工作区干净：并发编辑会让结果失真（曾出现 BUILD-FAIL 误报）
@@ -495,7 +495,6 @@ def main():
         print("\n--- 跳过 / 编译失败 ---")
         for d, v in other:
             print(f"  {v}  {d}")
-    print("\n完整审计结论见 docs/UT-AUDIT.md")
     return 0
 
 

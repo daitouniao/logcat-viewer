@@ -1,8 +1,7 @@
 namespace logcat.Models;
 
 /// <summary>
-/// 设备的 root 形态。检测与提权包裹策略见 docs/private/design/ADB-ROOT-DETECTION.md：
-/// 两种 root 互不蕴含——Su 型（Magisk 等）靠 <c>su -c</c> 单命令提权；
+/// 设备的 root 形态。两种 root 互不蕴含——Su 型（Magisk 等）靠 <c>su -c</c> 单命令提权；
 /// Adbd 型（<c>adb root</c> 生效的模拟器/工程机）adbd 本身以 uid=0 运行，shell 命令天生 root，
 /// 此时再包 <c>su -c</c> 反而可能失败（无 su 二进制），必须跳过包裹。
 /// </summary>

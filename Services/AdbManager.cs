@@ -392,7 +392,7 @@ public sealed class AdbManager : IDisposable
 
     /// <summary>
     /// root 检测结果按序列号缓存。su -c 每执行一次手机上就会弹一次 root 授权，
-    /// 是否重测按 Q5 修订范围决定（见 <see cref="ShouldRedetect"/>）：
+    /// 是否重测按 <see cref="ShouldRedetect"/> 判定：
     /// Su（已授权）与 None（su 阶段未确认，重测会重弹授权框）复用缓存，
     /// Adbd 型重测仅一条裸 id、无授权框，自动重测以跟随 adb root/unroot 的状态变化。
     /// </summary>
@@ -407,7 +407,7 @@ public sealed class AdbManager : IDisposable
         return entry;
     }
 
-    /// <summary>Q5 修订版重测范围：无缓存需首测；Adbd 型重测成本低（一条裸 id，无授权框）自动重测；
+    /// <summary>重测范围：无缓存需首测；Adbd 型重测成本低（一条裸 id，无授权框）自动重测；
     /// Su 与 None 复用缓存，强制重测只走手动刷新确认 / 重试入口的逃生门。</summary>
     internal static bool ShouldRedetect(RootDetectEntry? cached) =>
         cached is null || cached.Mode == RootMode.Adbd;

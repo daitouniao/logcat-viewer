@@ -43,7 +43,7 @@ public sealed class LogDocument : IDisposable
     public List<string> Tags { get; private set; } = new();
     public Dictionary<string, int> TagIndex { get; private set; } = new();
 
-    // ── 崩溃事件（稀疏，F-02）──
+    // ── 崩溃事件（稀疏）──
     // 后台扫描写 / UI 读：引用整体替换（不原位改），读侧持有旧快照也自洽
     List<CrashEvent> _crashes = new();
     /// <summary>崩溃事件清单，按 Row 升序；无崩溃时为空。摘要行与汇总窗口的统一数据源。</summary>
@@ -259,7 +259,7 @@ public sealed class LogDocument : IDisposable
         public int[] Pids; public int[] Tids;
         public byte[] Lvls; public int[] TagIds; public byte[] Flags;
         public List<byte[]> LocalTags;
-        /// <summary>本批提取到的崩溃事件（F-02 稀疏方案）。Row 为批次内相对行号，Append 时 +n 偏移。</summary>
+        /// <summary>本批提取到的崩溃事件（稀疏方案）。Row 为批次内相对行号，Append 时 +n 偏移。</summary>
         public List<CrashEvent> Crashes;
         /// <summary>本批出现的异常类型 / 包名局部字典（id 即 CrashEvent.ExcId/PkgId）。</summary>
         public List<string> LocalExcTypes;
@@ -296,7 +296,7 @@ public sealed class LogDocument : IDisposable
         var tagMap = new Dictionary<string, int>();
         var tagList = new List<byte[]>();
 
-        // ── 崩溃提取（F-02）──
+        // ── 崩溃提取 ──
         var crashes = new List<CrashEvent>();
         var crashRows = new HashSet<int>();       // a 轨已建事件的行号（c 轨批末补扫去重）
         var excMap = new Dictionary<string, int>();
@@ -309,7 +309,7 @@ public sealed class LogDocument : IDisposable
         // 续行状态跨批次传递：本批第一行如果属于上一批末尾那条记录，要并回去，
         // 否则多行日志（崩溃堆栈）会在批次边界被切成年两条记录。
         bool prevHead = prevHeadDoc;
-        // joined 同样跨批传递：MAX_JOIN 是「单记录」全局上限，不是每批预算（X-A8 fix-6，2026-10-15 定案）
+        // joined 同样跨批传递：MAX_JOIN 是「单记录」全局上限，不是每批预算
         int joined = joinedDoc;
         int carryLines = 0;
         long carryEndOff = 0;
@@ -403,7 +403,7 @@ public sealed class LogDocument : IDisposable
                 // 空行：不索引，中断合并。
                 // prevHead/joined 必须一起重置——否则空行后的缩进行仍满足合并判据，
                 // 全量路径（Assemble 不读 CarryLines）会把它蒸发，增量路径（Append 消费 carry）
-                // 却把它吸收进上一条记录，同一字节两条路径结论相反（X-A8，2026-10-14 实测）。
+                // 却把它吸收进上一条记录，同一字节两条路径结论相反。
                 // 对照：横幅行分支刻意不重置（崩溃堆栈中间的横幅不切断堆栈），两者语义相反，勿「统一」。
                 prev = -1;
                 prevHead = false;
@@ -477,7 +477,7 @@ public sealed class LogDocument : IDisposable
 
             // ── 崩溃头识别（a 轨，与 Join 无关）──
             // 字节级快筛零成本放行绝大多数行；命中才解码 msg + 前瞻后续行拼文本做完整提取
-            //（Join=false 时 Process/异常类型行是独立记录，前瞻是拿到它们的唯一途径，见 ANALYSIS-2.1 §1.3 v3）
+            //（Join=false 时 Process/异常类型行是独立记录，前瞻是拿到它们的唯一途径）
             if (CrashExtractor.ContainsCrashKeyword(line))
             {
                 var match = ExtractCrashAt(data, lineOff, lineLen, moff[^1], pos);
@@ -857,7 +857,7 @@ public sealed class LogDocument : IDisposable
         return Append(newSize, progress, ct);
     }
 
-    // ── 批末合并状态跨批缓存（X-A8 批界配套 fix-5 + fix-6）──
+    // ── 批末合并状态跨批缓存 ──
     // ScanRange 透传「批末真实状态」（空行已重置、横幅不重置），替代按已索引行反推——
     // 后者看不见批尾空行，会让全量/增量两路径在批界处结论相反。
     bool _prevHeadAtEnd;
@@ -953,7 +953,7 @@ public sealed class LogDocument : IDisposable
         Array.Copy(newTagId, 0, _tagId, n, k);
         Array.Copy(part.Flags, 0, _flags, n, k);
 
-        // ── 崩溃事件并入（ANALYSIS-2.1 §2.2 第 3 条）──
+        // ── 崩溃事件并入 ──
         // 局部 ExcType/Pkg id 重映射到全局、Row +n 偏移、Ts 从本批 ts 列回填；
         // 整体引用替换（copy-on-write），后台写与 UI 读互不干扰
         if (part.Crashes.Count > 0)

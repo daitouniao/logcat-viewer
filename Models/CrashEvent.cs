@@ -2,7 +2,7 @@ using logcat.Services;
 
 namespace logcat.Models;
 
-/// <summary>崩溃类别。口径与 ROADMAP P1 的信号 bit 对齐（提取期由判据算出，非读 Sig）。</summary>
+/// <summary>崩溃类别。提取期由判据算出，非读 Sig。</summary>
 public static class CrashKind
 {
     public const byte Java = 0;
@@ -23,7 +23,7 @@ public static class CrashKind
 
 /// <summary>
 /// 崩溃事件（稀疏存储，每条崩溃一行事件，约 40 B）。
-/// 摘要行渲染与崩溃汇总窗口的统计都来自它；后续「错误聚类分析」直接复用（设计 §4.4）。
+/// 摘要行渲染与崩溃汇总窗口的统计都来自它。
 /// </summary>
 public struct CrashEvent
 {

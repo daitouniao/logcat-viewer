@@ -24,7 +24,7 @@
   </ItemGroup>
 
   <!--
-    发布形态：每个版本发两个包 —— 自包含 + 框架依赖，步骤见 docs/BUILDING.md 四。
+    发布形态：每个版本发两个包 —— 自包含 + 框架依赖。
 
     ⚠️ **SelfContained 绝不能无条件写在这里。**
     它会沿 ProjectReference 传染：测试工程（框架依赖）会报
@@ -47,7 +47,7 @@
     <!--
       发布产物不打包 pdb（瘦身），但必须按 Configuration 条件化：
       无条件 none 会连 Debug 构建也不产 pdb，coverlet 拒绝对 logcat.dll 插桩，
-      整条覆盖率链路静默产出空报告（2026-10-10 引入、10-11 排查，见 docs/TESTING.md §0）。
+      整条覆盖率链路静默产出空报告（2026-10-10 引入、10-11 排查）。
       dotnet test / 覆盖率采集都在 Debug 下进行，Debug 保留默认 portable。
     -->
     <DebugType Condition="'$(Configuration)' == 'Release'">none</DebugType>

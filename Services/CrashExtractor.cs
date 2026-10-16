@@ -6,11 +6,11 @@ namespace logcat.Services;
 public readonly record struct CrashMatch(byte Kind, string ExcType, string Pkg);
 
 /// <summary>
-/// 崩溃信息提取（F-02）：从崩溃消息文本中识别类别（Java / Native / ANR / tombstone）、
+/// 崩溃信息提取：从崩溃消息文本中识别类别（Java / Native / ANR / tombstone）、
 /// 异常类型与包名。纯函数、无状态，供索引扫描（LogDocument.ScanRange）与
-/// 摘要行的类型回退（F-01）共用。
+/// 摘要行的类型回退共用。
 ///
-/// <para><b>判据设计（重误报防护，验收口径 ANALYSIS-2.1 §7.1：每类 1 正 + 2 反）</b>：</para>
+/// <para><b>判据设计（重误报防护，用例口径每类 1 正 + 2 反）</b>：</para>
 /// <list type="bullet">
 /// <item>Java：行含 <c>FATAL EXCEPTION:</c>，且其後 3 行内存在 <c>Process: &lt;pkg&gt;, PID:</c> 行
 ///       —— 没有 Process 行不算（业务日志打印「FATAL EXCEPTION」字样的 D 级日志不误报）。</item>

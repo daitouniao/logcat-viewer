@@ -255,7 +255,7 @@ public abstract class FilePane : UserControl
     protected virtual void CreateColumns(ListView list)
     {
         // BindCol 只登记资源键与赋 Text，不负责把列挂进集合；Details 视图下列集合为空时条目一律不渲染
-        // （历史教训见已归档复盘 FILEBROWSER-BLANK-LIST，守卫用例：LocTableTests.列头BindCol必须挂进Columns集合）
+        // （守卫用例：LocTableTests.列头BindCol必须挂进Columns集合）
         list.Columns.Add(Loc.BindCol(new ColumnHeader { Text = Loc.T("名称"), Width = 250 }, "名称"));
         list.Columns.Add(Loc.BindCol(new ColumnHeader { Text = Loc.T("大小"), Width = 90, TextAlign = HorizontalAlignment.Right }, "大小"));
         list.Columns.Add(Loc.BindCol(new ColumnHeader { Text = Loc.T("修改日期"), Width = 140 }, "修改日期"));

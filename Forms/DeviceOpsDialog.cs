@@ -85,12 +85,12 @@ public class DeviceOpsDialog : Form, ILocalizedUi
             EnsurePage(PageKind.ApkInstall);
             EnsurePage(PageKind.ApkUninstall);
         }
-        MaybeOfferRootRetry();   // Q6：上次 su 阶段未确认时给一次重试 root 检测的机会
+        MaybeOfferRootRetry();   // 上次 su 阶段未确认时给一次重试 root 检测的机会
         DpiFix.Apply(this);
     }
 
     /// <summary>
-    /// Q6 重试 root 检测入口：当前设备上次 su 阶段未得到明确结果（授权被拒/等待超时）时，
+    /// 重试 root 检测入口：当前设备上次 su 阶段未得到明确结果（授权被拒/等待超时）时，
     /// 弹窗让用户选择重试。仅此条件触发——明确无 su 的设备重测大概率还是失败，不必打扰；
     /// 确认后失效该设备的缓存重测，结果经 DevicesChanged 刷新主窗口的设备标记。
     /// </summary>

@@ -1375,7 +1375,7 @@ public partial class frmMain : Form, ILocalizedUi
             var cells = new List<string> { item.Text };
             for (int c = 0; c < item.SubItems.Count; c++)
                 cells.Add(item.SubItems[c].Text);
-            // 摘要只用于显示：崩溃行带格式复制时 Message 列还原完整堆栈（ANALYSIS-2.1 §9.6）；
+            // 摘要只用于显示：崩溃行带格式复制时 Message 列还原完整堆栈；
             // 换行照显示口径转 _newlineVis，与同行其他多行记录保持一致的表格形态
             if (_listView.CrashOf(dr) != null)
             {
@@ -1758,9 +1758,9 @@ public partial class frmMain : Form, ILocalizedUi
     // ── ADB 设备管理 ──
 
     /// <summary>
-    /// 手动刷新设备列表（Q6 定案的强制重测逃生门）：当存在 Su/None 检测结果的设备时，
+    /// 手动刷新设备列表（强制重测逃生门）：当存在 Su/None 检测结果的设备时，
     /// 先弹确认框让用户选择是否同时强制重测 root（可能重弹设备端授权提示）；
-    /// 选「否」则仅刷新列表、保留检测结果。自动刷新（设备事件）不走这里，按 Q5 范围自动重测。
+    /// 选「否」则仅刷新列表、保留检测结果。自动刷新（设备事件）不走这里，是否重测由 ShouldRedetect 判定。
     /// </summary>
     async Task AdbRefreshManualAsync()
     {
@@ -2074,7 +2074,7 @@ public partial class frmMain : Form, ILocalizedUi
         _filterDialog.Activate();
     }
 
-    /// <summary>打开崩溃汇总窗口（F-05，非模态）：每次打开都按当前文档重建聚合。</summary>
+    /// <summary>打开崩溃汇总窗口（非模态）：每次打开都按当前文档重建聚合。</summary>
     void ShowCrashSummary()
     {
         if (_crashSummary == null || _crashSummary.IsDisposed)
