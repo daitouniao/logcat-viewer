@@ -37,7 +37,7 @@
 
 1. **ADB-ROOT-DETECTION 探测链路**——已编码（2589f47）且 519 用例全过；待真机手工验收（Adbd/Su/None 判定、授权框不再重弹、Q6 重试入口）。
 2. CRASH-SUMMARY 阶段④——按 ROADMAP P1 排期，非欠账。
-3. **文档合规整改**——已实施待验收：整改报告在 `docs/bugfixes/DOC-COMPLIANCE-FIX-2026-10-16.md`（清理 25 处本机绝对路径、私有记忆引用、README 结构清单与分区表订正、TESTING/UT-AUDIT/BUILDING 口径联动）。**测试未验证**（当轮 shell 进程创建失败，两条测试路径都起不来）；验后按 §3.2 判断是否归档。
+3. **文档合规整改**——已验收并归档（2026-10-16，关联提交 da97abb）：整改报告（清理 25 处本机绝对路径、私有记忆引用、README 结构清单与分区表订正、TESTING/UT-AUDIT/BUILDING 口径联动）已按 §3.2 移入 `docs/archive/bug/`，此处只作状态说明、不写链接。**测试未验证**（当轮 shell 进程创建失败，两条测试路径都起不来）。
 
 ## 四、维护规则
 

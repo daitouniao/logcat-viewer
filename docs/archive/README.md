@@ -10,6 +10,7 @@
 | --- | --- | --- | --- |
 | 2026-10-16-FILEBROWSER-BLANK-LIST.md | 2026-10-16 | `docs/bugfixes/` | 文件浏览两栏列表全部空白——i18n 改造后列头未挂进 ListView（已验收 2026-10-14） |
 | 2026-10-16-EMPTY-LINE-STACK-LOSS.md | 2026-10-16 | `docs/bugfixes/` | 空行导致崩溃堆栈行在打开文件时丢失（X-A8，已验收 2026-10-15；修复 57ffae8） |
+| 2026-10-16-DOC-COMPLIANCE-FIX-2026-10-16.md | 2026-10-16 | `docs/bugfixes/` | 第二轮文档合规实地巡检整改（清 25 处本机绝对路径与私有记忆引用、订正 README 结构清单/分区表、联动 TESTING·UT-AUDIT·BUILDING 口径；已验收 2026-10-16） |
 
 ## design/（已完成功能的设计文档）
 
