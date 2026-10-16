@@ -286,7 +286,6 @@ docs/
   bugfixes/             Bug reports not yet accepted; after acceptance they move to `archive/bug/`
   archive/              Archived snapshots (verified bug reports / completed designs)
   design/
-    CRASH-SUMMARY-DESIGN.md      Crash one-glance summary + crash-report window, product design (final)
     ADB-ROOT-DETECTION.md        ADB root detection (Su / Adbd / None modes, probe timeout)
     FILTER-REFACTOR-PLAN.md      Toolbar-filter / filter-panel decoupling plan (executed, kept for the record)
     RECENT-FILES-DESIGN.md       Most-recently-opened list (MRU), shipped

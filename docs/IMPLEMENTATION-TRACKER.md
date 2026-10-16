@@ -11,6 +11,7 @@
 | 🔶    | 部分落地（分期设计，部分阶段未开工） |
 | ⏳    | 待实施（方案已确认，未动工）         |
 | 🖐    | 已实施，待手工验收                   |
+| 🗄    | 已归档（移入 `docs/archive/`）        |
 
 ## 一、docs/design/ 设计文档
 
@@ -20,7 +21,7 @@
 | [TOOLBAR-FAVORITES-DESIGN.md](design/TOOLBAR-FAVORITES-DESIGN.md) | ✅ 已落地                                                | 622824d、1e235bb（§4.1 2026-10-12 修订：下拉不按输入过滤）                                  | `FavoritesStore.ContainsTagFilter/ContainsMsgFilter/ToggleTagFilter/ToggleMsgFilter`；`frmMain` 的 `_btnFavTagMenu/_btnFavTagToggle/_btnFavMsgMenu/_btnFavMsgToggle`（★ `Overflow.Never`）、`ShowFilterFavMenu`、`RefreshFavStars`、「清空收藏」YesNo 二次确认 | 2026-10-14 核对通过；用例在 `FavoritesStoreTests`                                                                                                     |
 | [RECENT-FILES-DESIGN.md](design/RECENT-FILES-DESIGN.md)           | ✅ 已落地                                                | 6f2983d                                                                                     | `FavoritesStore.RecentFiles/MaxRecentFiles/AddRecentFile`；`frmMain` 的 `_mruMenu/RebuildRecentMenu/IsNetworkPath`；`StartIndex` 成功路径调用 `AddRecentFile`                                                                                                  | 2026-10-14 核对通过；4 条 `AddRecentFile` 单测在位；`LocTable.MainUi` 含「最近打开 → Recent Files」。**文档头部原写「待评审」已滞后，本次核对已订正** |
 | [ADB-ROOT-DETECTION.md](design/ADB-ROOT-DETECTION.md)                   | ✅ 已编码；🖐 探测链路待真机手工验收                              | 2589f47                                                                                     | `Models/DeviceInfo.cs`（`RootMode` None/Su/Adbd + `RootDetectEntry` + `DeviceInfo.IsRoot`）、`AdbManager`（`DetectRootAsync`/`TryProbeAsync` 8s 超时/`ClassifyRootOutput`/`ShouldRedetect`/`BuildRootShellCmd`/`RedetectRootAsync`）、`DeviceFilePane.ShellCmd`、`frmMain.AdbRefreshManualAsync`、`DeviceOpsDialog.MaybeOfferRootRetry`                                                                                                                                                                                                                                             | 2026-10-16 自 `docs/private/design/` 移档入库（de4005e）；20 条单测在 `ModelTests`；真机验收（Adbd/Su/None 判定、授权框不再重弹、Q6 重试入口）待做                                                                                                       |
-| [CRASH-SUMMARY-DESIGN.md](design/CRASH-SUMMARY-DESIGN.md)         | 🔶 阶段⓪①②③ 已落地；阶段④ 未开工（符合「后续增强」定位） | c574592（⓪ i18n 底座=语言切换残留修复）、58fbd8a（①②③ F-01/F-02/F-05）、7bc7f17（测试补齐） | `CrashEvent`/`CrashExtractor`（`ContainsCrashKeyword`/`ExtractCrashAt`，绑定索引阶段）/`CrashAggregator`；`LogListView` ☠ 摘要行；`CrashSummaryForm`（非模态 + VirtualMode + 「无崩溃」空态 + 点击定位）；frmMain「崩溃汇总…」菜单；`LocTable.CrashUi`         | 2026-10-14 核对通过；用例在 `CrashTests.cs`。阶段④（按类型过滤 / 指纹分组 / 时间轴联动）待 ROADMAP 排期，非欠账                                       |
+| CRASH-SUMMARY-DESIGN（🗄 已归档 2026-10-16） | 🗄 已归档；阶段⓪①②③ 已落地，阶段④ 暂时关闭 | c574592（⓪ i18n 底座=语言切换残留修复）、58fbd8a（①②③ F-01/F-02/F-05）、7bc7f17（测试补齐） | `CrashEvent`/`CrashExtractor`（`ContainsCrashKeyword`/`ExtractCrashAt`，绑定索引阶段）/`CrashAggregator`；`LogListView` ☠ 摘要行；`CrashSummaryForm`（非模态 + VirtualMode + 「无崩溃」空态 + 点击定位）；frmMain「崩溃汇总…」菜单；`LocTable.CrashUi`         | 2026-10-14 核对通过；用例在 `CrashTests.cs`。阶段④（按类型过滤 / 指纹分组 / 时间轴联动）经用户决定**暂时关闭**（2026-10-16），后续有明确需求再继续；设计文档已归档至 `docs/archive/design/` |
 
 > **备注（2026-10-16）**：ADB-ROOT-DETECTION.md 已于 2026-10-16 移档 `docs/design/` 并入库（de4005e），见上表 ADB-ROOT-DETECTION 行。
 
@@ -36,7 +37,7 @@
 ## 三、当前待办（按优先级）
 
 1. **ADB-ROOT-DETECTION 探测链路**——已编码（2589f47）且 519 用例全过；待真机手工验收（Adbd/Su/None 判定、授权框不再重弹、Q6 重试入口）。
-2. CRASH-SUMMARY 阶段④——按 ROADMAP P1 排期，非欠账。
+2. **CRASH-SUMMARY 阶段④**——经用户决定**暂时关闭**（2026-10-16），后续有明确需求再继续；设计文档已归档至 `docs/archive/design/`，本项移出待办。
 3. **文档合规整改**——已验收并归档（2026-10-16，关联提交 da97abb）：整改报告（清理 25 处本机绝对路径、私有记忆引用、README 结构清单与分区表订正、TESTING/UT-AUDIT/BUILDING 口径联动）已按 §3.2 移入 `docs/archive/bug/`，此处只作状态说明、不写链接。**测试未验证**（当轮 shell 进程创建失败，两条测试路径都起不来）。
 
 ## 四、维护规则

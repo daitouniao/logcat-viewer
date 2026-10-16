@@ -287,7 +287,6 @@ docs/
   bugfixes/               尚未验收的 bug 报告（验收并归档后移入 archive/bug/）
   archive/               归档快照（已验收 bug 报告 / 已完成设计）
   design/
-    CRASH-SUMMARY-DESIGN.md     崩溃一键定位与摘要展示的产品设计说明（定稿）
     ADB-ROOT-DETECTION.md       ADB root 检测（Su / Adbd / None 三态与探测超时）
     FILTER-REFACTOR-PLAN.md     工具栏过滤与过滤面板解耦的改造计划（已执行完毕，留档）
     RECENT-FILES-DESIGN.md      最近打开文档（MRU）设计（已落地）
