@@ -21,6 +21,7 @@ artifacts/
 .vscode/
 .idea/
 .workbuddy/
+.codebuddy/
 *.suo
 *.user
 *.userosscache

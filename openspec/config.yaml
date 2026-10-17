@@ -1,0 +1,33 @@
+schema: spec-driven
+
+context: |
+  语言：所有产物（proposal / design / tasks / specs）用简体中文撰写。
+  项目：logcat —— C# / .NET 10 WinForms 桌面日志查看器，主打 Android logcat 格式。
+  测试口径：本机 dotnet test 不可用（testhost 加载报 0x80070005）；唯一口径是仓库内 .tmp-test/tstrun 反射 runner（扫 [Fact] + [Theory(InlineData)]），基线数字以 docs/TESTING.md 为唯一权威源。任何「测试通过」的声明必须带口径数字，禁止声称未经验证的通过。
+  文档红线（公开仓库，双站推送）：产物不得硬编码本机绝对路径或用户名；openspec/ 与 docs/ 公开内容一律视为对克隆者可见；docs/private/** 的内容不进任何产物。
+  规范定位：openspec/specs/ 是系统行为的权威描述——只写行为契约（需求 + GIVEN/WHEN/THEN 场景），不写实现细节；类名、库选择、算法取舍归属 design.md。
+  联动：docs/FEATURES.md 是「有什么」的公开清单；archive 时必须同批更新受影响的 FEATURES 条目，两者不允许漂移。
+  易错行为规则（如横幅行不是记录、空行续行处理、索引块起点顺序推进）随相关改动沉淀进 specs/ 对应 capability，不依赖私有文档传递。
+
+rules:
+  proposal:
+    - 必须显式写出范围与非目标（out of scope）
+    - 存量项目：只描述 delta（ADDED/MODIFIED/REMOVED），不重述整个规范
+  specs:
+    - 每条需求至少一个 GIVEN/WHEN/THEN 场景
+    - 禁止出现类名、文件路径等实现细节
+  design:
+    - 关键技术决策必须附理由；优先引用项目现有模式，不发明新模式
+  tasks:
+    - 单任务粒度约 1-2 小时、可独立验证
+    - 涉及日志解析 / 索引 / 扫描的任务必须附对应测试用例名
+
+operations:
+  apply:
+    guidance:
+      - 严格按 tasks.md 逐条实现，不夹带任务外改动
+      - 每完成一批任务跑一次 tstrun 并报告口径数字
+  archive:
+    guidance:
+      - 归档前确认 tasks 全部完成且 tstrun 全过（相对基线无新增失败）
+      - 归档后同批更新 docs/FEATURES.md 受影响条目
