@@ -414,26 +414,33 @@ public class FileProxyLoopbackTests
     [Fact]
     public void 读响应负载超上限或为负_收负载前即报越界()
     {
-        // FakeProxy 只回异常的 n 头、不发负载：越界拒绝必须发生在收取负载之前
-        using var file = new TempBinary(Pattern(64));
-        using var proxy = new FakeProxy { FakeReadN = FileProxyClient.MaxReadLen + 1 };
-        proxy.WaitListeningAsync().GetAwaiter().GetResult();
-        using var client = Connect(proxy);
-        var (h, _) = client.OpenAsync(file.Path).GetAwaiter().GetResult();
+        // FakeProxy 只回异常的 n 头、不发负载：越界拒绝必须发生在收取负载之前。
+        // 异常消息走 Loc.F 本地化（zh「越界」/ en "out-of-range"），而 CI runner 是
+        // en-US 区域——2026-10-18 CI 实挂在硬编码中文断言上，详见
+        // docs/bugfixes/CI-LOCALE-ASSERT-FILEPROXY.md。
+        // 修法：两种界面语言各「生成 + 断言」一遍。生成必须发生在语言作用域内——
+        // 消息是抛出那一刻按当时语言算出来的，事后切语言拿到的是旧语言的串；
+        // 且只测中文的话，被测代码退回硬编码中文仍然全绿，抓不住回归。
+        void Reject(long fakeN, string keyword)
+        {
+            using var file = new TempBinary(Pattern(64));
+            using var proxy = new FakeProxy { FakeReadN = fakeN };
+            proxy.WaitListeningAsync().GetAwaiter().GetResult();
+            using var client = Connect(proxy);
+            var (h, _) = client.OpenAsync(file.Path).GetAwaiter().GetResult();
 
-        var ex = Trap<FileProxyException>(() => client.ReadAsync(h, 0, 16).GetAwaiter().GetResult(), out _);
-        Assert.Equal(FileProxyErrorCode.Io, ex.Code);
-        Assert.Contains("越界", ex.Message);
-        Assert.Contains((FileProxyClient.MaxReadLen + 1).ToString(), ex.Message);
+            var ex = Trap<FileProxyException>(() => client.ReadAsync(h, 0, 16).GetAwaiter().GetResult(), out _);
+            Assert.Equal(FileProxyErrorCode.Io, ex.Code);
+            Assert.Contains(keyword, ex.Message);
+            Assert.Contains(fakeN.ToString(), ex.Message);   // 越界值回显（不随语言变）
+        }
+
+        LangScope.InZh(() => Reject(FileProxyClient.MaxReadLen + 1, "越界"));
+        LangScope.InEn(() => Reject(FileProxyClient.MaxReadLen + 1, "out-of-range"));
 
         // 负值同样拒绝（服务端回异常 n 即断开，另起一条连接）
-        using var proxy2 = new FakeProxy { FakeReadN = -5 };
-        proxy2.WaitListeningAsync().GetAwaiter().GetResult();
-        using var client2 = Connect(proxy2);
-        var (h2, _) = client2.OpenAsync(file.Path).GetAwaiter().GetResult();
-        var ex2 = Trap<FileProxyException>(() => client2.ReadAsync(h2, 0, 16).GetAwaiter().GetResult(), out _);
-        Assert.Equal(FileProxyErrorCode.Io, ex2.Code);
-        Assert.Contains("越界", ex2.Message);
+        LangScope.InZh(() => Reject(-5, "越界"));
+        LangScope.InEn(() => Reject(-5, "out-of-range"));
     }
 
     [Fact]
