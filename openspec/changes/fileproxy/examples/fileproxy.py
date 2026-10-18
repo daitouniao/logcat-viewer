@@ -27,7 +27,7 @@ import os
 import sys
 import threading
 
-PIPE_PREFIX = '\\.\pipe\'
+PIPE_PREFIX = '\\\\.\\pipe\\'
 # _winapi 只导出非零值的管道常量；BYTE 模式（type/readmode）在 Win32 中恒为 0，本地定义
 # （PIPE_ACCESS_DUPLEX / PIPE_WAIT / ERROR_PIPE_CONNECTED / PIPE_UNLIMITED_INSTANCES 用 _winapi 的）。
 PIPE_TYPE_BYTE = 0x00000000
