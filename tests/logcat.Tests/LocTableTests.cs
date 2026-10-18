@@ -115,6 +115,7 @@ public class LocTableTests
             ("RuntimeMsg",   LocTable.RuntimeMsg()),
             ("CommandSeed",  LocTable.CommandSeed()),
             ("CrashUi",      LocTable.CrashUi()),
+            ("FileProxyUi",  LocTable.FileProxyUi()),
         };
 
     /// <summary>

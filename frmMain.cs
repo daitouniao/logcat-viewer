@@ -48,6 +48,10 @@ public partial class frmMain : Form, ILocalizedUi
     ToolStrip _toolStrip2 = null!;
     StatusStrip _statusStrip = null!;
     ToolStripStatusLabel _lblFile = null!, _lblStat = null!, _lblPos = null!, _lblMsg = null!;
+    /// <summary>渠道状态区标签（文件名分区之后，常驻不隐藏；spec「渠道状态区」）。</summary>
+    ToolStripStatusLabel _lblChannel = null!;
+    /// <summary>spool 在途（分流段经代理拉取期间），驱动渠道状态切「文件代理读」。</summary>
+    bool _proxySpooling;
     ToolStripProgressBar _pbar = null!;
     ToolStripComboBox _comboDevice = null!;
 
@@ -141,6 +145,8 @@ public partial class frmMain : Form, ILocalizedUi
         var mSet = Loc.Bind(new ToolStripMenuItem("设置"), "设置");
 
         var actOpen = Loc.Bind(new ToolStripMenuItem("打开…", null, (_, _) => OpenFile(), Keys.Control | Keys.O), "打开…");
+        // 目录 LIST 收紧 / 权限被收时文件对话框列不出目标文件：手动输入完整路径，照常进模式判定链
+        var actOpenPath = Loc.Bind(new ToolStripMenuItem("手动输入完整路径…", null, (_, _) => OpenFileByInput()), "手动输入完整路径…");
         var actReload = Loc.Bind(new ToolStripMenuItem("重载", null, (_, _) => Reload(), Keys.F5), "重载");
         var actExport = Loc.Bind(new ToolStripMenuItem("导出结果…", null, (_, _) => ExportRows(false), Keys.Control | Keys.E), "导出结果…");
         var actExportMarked = Loc.Bind(new ToolStripMenuItem("导出标记行…", null, (_, _) => ExportRows(true)), "导出标记行…");
@@ -148,7 +154,7 @@ public partial class frmMain : Form, ILocalizedUi
         _actSaveLog = Loc.Bind(new ToolStripMenuItem("保存日志…", null, (_, _) => AdbSaveLog()) { Enabled = false }, "保存日志…");
         _mruMenu = Loc.Bind(new ToolStripMenuItem("最近打开"), "最近打开");
         _mruMenu.DropDownOpening += (_, _) => RebuildRecentMenu();
-        mFile!.DropDownItems.AddRange(new ToolStripItem[] { actOpen, _mruMenu, actReload, actExport, actExportMarked, _actSaveLog, new ToolStripSeparator(), actQuit });
+        mFile!.DropDownItems.AddRange(new ToolStripItem[] { actOpen, actOpenPath, _mruMenu, actReload, actExport, actExportMarked, _actSaveLog, new ToolStripSeparator(), actQuit });
         RebuildRecentMenu();   // 初始化 Enabled：列表为空时子菜单置灰，避免「禁用后无法触发 DropDownOpening」死锁
 
         _actJoin = Loc.Bind(new ToolStripMenuItem("续行合并（堆栈并入上一条记录）") { Checked = true, CheckOnClick = true }, "续行合并（堆栈并入上一条记录）");
@@ -160,6 +166,7 @@ public partial class frmMain : Form, ILocalizedUi
         mSet.DropDownItems.Add(_actSingleExport);
         mSet.DropDownItems.Add(new ToolStripSeparator());
         mSet.DropDownItems.Add(Loc.Bind(new ToolStripMenuItem("过滤设置…", null, (_, _) => ShowFilterDialog()), "过滤设置…"));
+        mSet.DropDownItems.Add(Loc.Bind(new ToolStripMenuItem("文件代理…", null, (_, _) => ShowFileProxyDialog()), "文件代理…"));
 
         // ── 情报菜单：崩溃等情报分析入口 ──
         var mIntel = Loc.Bind(new ToolStripMenuItem("情报"), "情报");
@@ -294,11 +301,13 @@ public partial class frmMain : Form, ILocalizedUi
         // ── 状态栏 ──
         _statusStrip = new StatusStrip();
         _lblFile = new ToolStripStatusLabel(Loc.T("未打开文件 —— 可直接把日志文件拖进窗口")) { Spring = true, TextAlign = ContentAlignment.MiddleLeft };
+        _lblChannel = new ToolStripStatusLabel("");
         _lblStat = new ToolStripStatusLabel("");
         _lblPos = new ToolStripStatusLabel("");
         _lblMsg = new ToolStripStatusLabel("");
         _pbar = new ToolStripProgressBar { Visible = false, AutoSize = false, Size = new Size(180, 16) };
-        _statusStrip.Items.AddRange(new ToolStripItem[] { _lblFile, _lblStat, _lblPos, _lblMsg, _pbar });
+        // 渠道状态标签插在文件名分区之后（spec「渠道状态区」）；空文本占位不隐藏
+        _statusStrip.Items.AddRange(new ToolStripItem[] { _lblFile, _lblChannel, _lblStat, _lblPos, _lblMsg, _pbar });
         Controls.Add(_statusStrip);
 
         // ── 布局 ──
@@ -913,8 +922,47 @@ public partial class frmMain : Form, ILocalizedUi
         StartIndex(path);
     }
 
+    /// <summary>
+    /// 「文件 → 手动输入完整路径…」：目录 LIST 收紧 / 权限被收时对话框列不出目标文件，
+    /// 用户直接贴完整路径。输入照常进 <see cref="StartIndex"/> 的判定链（含文件代理分流）。
+    /// </summary>
+    void OpenFileByInput()
+    {
+        var path = Forms.SimpleInputBox.Show(this,
+            Loc.T("手动输入完整路径"), Loc.T("请输入日志文件的完整路径："));
+        if (string.IsNullOrWhiteSpace(path)) return;
+        StartIndex(path.Trim());
+    }
+
+    /// <summary>「设置 → 文件代理…」：打开文件代理设置对话框（模态，保存即生效）。</summary>
+    void ShowFileProxyDialog()
+    {
+        using var dlg = new Forms.FileProxyDialog();
+        dlg.ShowDialog(this);
+    }
+
     async void StartIndex(string path)
     {
+        // ── 分流判定（spec「装载入口分流」；Off 模式整体不进分流段，零行为变化）──
+        // 嗅探探测在停当前工作、关旧文档之前完成：auto 探测失败转代理时旧文档仍在屏，
+        // 用户不面对空窗口。On 模式不探测恒走代理；Auto 才做直接打开 + 文本嗅探。
+        var mode = FileProxyModes.Parse(AppSettings.Default.FileProxyMode);
+        bool useProxy = false;
+        Exception? directOpenError = null;
+        if (mode != FileProxyMode.Off)
+        {
+            bool directOk = false, looksText = false;
+            if (mode == FileProxyMode.Auto)
+            {
+                try { looksText = TextProbe.LooksLikeText(path); directOk = true; }
+                catch (Exception ex) { directOpenError = ex; }
+            }
+            useProxy = FileProxyDecision.ShouldUseProxy(mode, directOk, looksText);
+            if (useProxy)
+                StartupLog.Write($"[FileProxy] 转代理读取：{path}" +
+                    (directOpenError != null ? $"（直接打开失败：{directOpenError.Message}）" : ""));
+        }
+
         // 采集与打开文件互斥：打开新文件前先停掉采集，避免 AdbAutoReload
         // 在 _doc 置空的窗口期把采集临时文件重新顶上来
         if (_adbCapturing)
@@ -931,6 +979,7 @@ public partial class frmMain : Form, ILocalizedUi
         try { _doc?.Close(); _doc = null; }
         finally { _docBusy.Release(); }
         _marked.Clear();
+        RefreshChannelState();   // 旧文档已关：渠道状态复位（失败/取消后同样复位空）
 
         var cts = new CancellationTokenSource();
         _ctsWorker = cts;
@@ -941,15 +990,25 @@ public partial class frmMain : Form, ILocalizedUi
 
         try
         {
-            var doc = await LogDocument.BuildAsync(path, _join,
-                new Progress<(double pct, string msg)>(p =>
-                {
-                    if (_workerGen == gen)
+            LogDocument doc;
+            if (useProxy)
+            {
+                // 分流段：关旧文档之后、构建之前（spec「分流时序」）；
+                // spool 进度 0–50%，构建进度 50–100%（分段映射）
+                doc = await LoadViaProxyAsync(path, gen, cts.Token);
+            }
+            else
+            {
+                doc = await LogDocument.BuildAsync(path, _join,
+                    new Progress<(double pct, string msg)>(p =>
                     {
-                        _pbar.Value = (int)(p.pct * 100);
-                        ShowStatusRaw(p.msg);
-                    }
-                }), cts.Token);
+                        if (_workerGen == gen)
+                        {
+                            _pbar.Value = (int)(p.pct * 100);
+                            ShowStatusRaw(p.msg);
+                        }
+                    }), cts.Token);
+            }
 
             if (_workerGen != gen) return;
             sw.Stop();
@@ -957,6 +1016,7 @@ public partial class frmMain : Form, ILocalizedUi
             _doc = doc;
             _listView.SetDocument(doc);
             _lblFile.Text = $"{doc.Path}   ({HumanSize(doc.Size)})";
+            RefreshChannelState();   // 新文档就位：按当前渠道重算
             if (FavoritesStore.Default.AddRecentFile(doc.Path))
             {
                 FavoritesStore.Default.Save();
@@ -965,6 +1025,16 @@ public partial class frmMain : Form, ILocalizedUi
             await ApplyFilter();
         }
         catch (OperationCanceledException) { }
+        catch (FileProxyException fpex)
+        {
+            // 失败分类（spec「失败分类与错误消息」）：分类码的消息已带可执行指引；
+            // 代理侧错误（ProxyError）原文透出不加壳；转代理前的直接打开原始异常附带。
+            if (directOpenError != null && fpex.DirectOpenError == null)
+                fpex.DirectOpenError = directOpenError;
+            ShowError(fpex.Message + (fpex.DirectOpenError != null
+                ? "\n" + Loc.F("（转代理前直接打开失败：{0}）", fpex.DirectOpenError.Message)
+                : ""));
+        }
         catch (Exception ex)
         {
             ShowError(Loc.F("建立索引失败：{0}", ex.Message));
@@ -979,10 +1049,85 @@ public partial class frmMain : Form, ILocalizedUi
         }
     }
 
+    /// <summary>
+    /// 经文件代理装载（spec「分流时序」）：连接代理（必要时自动拉起）→ open（size 已知）→
+    /// 超大文件确认（&gt;1GB 阻断，取消即中止）→ spool（进度 0–50%）→ 暂存文件 BuildAsync
+    /// （进度 50–100%，显示路径 = 用户原路径）。取消/抢占复用既有取消管线：token 贯穿全程，
+    /// spool 失败/取消自删目录；确认取消/构建失败由本方法兜删。
+    /// </summary>
+    async Task<LogDocument> LoadViaProxyAsync(string originalPath, int gen, CancellationToken ct)
+    {
+        var sessionDir = SpoolPaths.NewSessionDir();
+        _proxySpooling = true;
+        RefreshChannelState();   // spool 在途即切「文件代理读」
+        try
+        {
+            ShowStatusRaw(Loc.T("正在启动文件代理…"));
+            var session = await FileProxyService.OpenSpoolAsync(originalPath, sessionDir, ct);
+            try
+            {
+                // 超大文件预警（阈值 1GB 写死，决策 D14）：确认框阻断，取消即中止。
+                // StartIndex 的 await 续体在 UI 线程，可直接弹模态框。
+                if (FileProxyService.NeedsHugeFileConfirm(session.ExpectedSize))
+                {
+                    var msg = Loc.F("目标文件大小 {0}，经文件代理读取前将整体暂存到本机磁盘（应用目录 temp 下），磁盘不足可能失败。是否继续？",
+                        HumanSize(session.ExpectedSize));
+                    if (MessageBox.Show(this, msg, Loc.T("文件代理"),
+                            MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes)
+                        throw new OperationCanceledException("用户在超大文件确认框取消");
+                }
+
+                // spool 写盘（进度 0–50%，SpoolProgress 纯函数派生文案）
+                var result = await FileProxyService.SpoolCoreAsync(session.Client, session.Handle,
+                    session.ExpectedSize, session.OriginalPath, session.SessionDir,
+                    new Progress<(double pct, string msg)>(p =>
+                    {
+                        if (_workerGen == gen)
+                        {
+                            _pbar.Value = (int)(p.pct * 100);
+                            ShowStatusRaw(p.msg);
+                        }
+                    }), ct);
+
+                // 索引构建：进度映射到 50–100%；显示路径 = 用户原路径（源路径 = 暂存文件）
+                var doc = await LogDocument.BuildAsync(result.SpoolFilePath, _join,
+                    new Progress<(double pct, string msg)>(p =>
+                    {
+                        if (_workerGen == gen)
+                        {
+                            _pbar.Value = (int)((0.5 + 0.5 * p.pct) * 100);
+                            ShowStatusRaw(p.msg);
+                        }
+                    }), ct, displayPath: originalPath);
+                doc.IsProxied = true;
+                doc.SpoolDir = sessionDir;   // Close 时自删暂存目录
+                return doc;
+            }
+            finally
+            {
+                ((IDisposable)session.Client).Dispose();   // 连接一次性：spool 结束（含失败/取消）即释放
+            }
+        }
+        catch
+        {
+            // 确认取消 / 构建失败：spool 自身失败已删目录，这里兜删其余路径的残留
+            FileProxyService.DeleteDirBestEffort(sessionDir);
+            throw;
+        }
+        finally
+        {
+            _proxySpooling = false;
+            RefreshChannelState();
+        }
+    }
+
     // ── 重载 ──
     async void Reload()
     {
         if (_doc == null) { OpenFile(); return; }
+        // 代理文档转全量重建（spec「Reload」）：增量 Reload 对暂存文件无意义，
+        // 按显示路径重新走完整装载流程（含重新分流判定 / spool），显示路径不变
+        if (_doc.IsProxied) { StartIndex(_doc.Path); return; }
         var cts = new CancellationTokenSource();
         _ctsWorker = cts;
         int gen = ++_workerGen;
@@ -1486,6 +1631,9 @@ public partial class frmMain : Form, ILocalizedUi
         else if (_adbTempPath != null) _lblFile.Text = Loc.F("[实时采集] {0}", _adbTempPath);
         else _lblFile.Text = Loc.T("未打开文件 —— 可直接把日志文件拖进窗口");
 
+        // 渠道状态区：文案随当前渠道按当前语言重算（禁 static readonly 缓存，spec「渠道状态区」）
+        RefreshChannelState();
+
         UpdateStat();
 
         // 视口位置（复用 OnScrolled 缓存的顶行索引，LogListView 未公开 TopIndex）
@@ -1505,6 +1653,18 @@ public partial class frmMain : Form, ILocalizedUi
         // ShowStatusRaw 登记的键为 null（进度上报、已翻好的成品串），保持原样。
         if (_statusKey != null) _lblMsg.Text = Loc.F(_statusKey, _statusArgs ?? Array.Empty<object?>());
     }
+
+    /// <summary>
+    /// 渠道状态区重算（spec「渠道状态区」）：三态互斥判定取当前状态（ADB 在途优先 →
+    /// spool 在途或代理文档 → 直接读 → 空），空渠道给空文本占位、标签不隐藏。
+    /// 文档开关 / 采集起停 / spool 起止 / 失败取消 / 语言切换各处调用。
+    /// </summary>
+    void RefreshChannelState()
+        => _lblChannel.Text = ProxyChannelStates.Text(ProxyChannelStates.Decide(
+            adbActive: _adbCapturing || _adbIndexing,
+            spoolActive: _proxySpooling,
+            hasDoc: _doc != null,
+            docProxied: _doc?.IsProxied ?? false));
 
     void ApplyFont(int pt)
     {
@@ -1571,6 +1731,9 @@ public partial class frmMain : Form, ILocalizedUi
         SaveSettings();
         _doc?.Close();
         _docBusy.Dispose();
+        // 退出双保险之一（决策 D10）：主窗关闭流程杀拉起的代理进程树；
+        // 进程退出事件（Program.Main 挂的 ProcessExit）是第二保险
+        FileProxyService.KillLaunchedProcesses();
         base.OnFormClosing(e);
     }
 
@@ -1855,6 +2018,7 @@ public partial class frmMain : Form, ILocalizedUi
         finally { _docBusy.Release(); }
         _marked.Clear();
         _adbIndexing = false;
+        RefreshChannelState();
         _listView.SetDocument(null);
 
         _streamThread = new LogcatStream(_adbManager, serial, _adbTempPath, _logger);
@@ -1913,6 +2077,7 @@ public partial class frmMain : Form, ILocalizedUi
         _btnAdbStart.Enabled = hasDevice && !_adbCapturing;
         _btnAdbStop.Enabled = hasDevice && _adbCapturing;
         _actSaveLog.Enabled = !_adbCapturing && _adbTempPath != null;
+        RefreshChannelState();   // 采集起停改变渠道状态（ADB 在途优先级最高）
     }
 
     void AdbSaveLog()
@@ -1951,14 +2116,16 @@ public partial class frmMain : Form, ILocalizedUi
                     int gen = ++_workerGen;
                     _adbGen = gen;
                     _adbIndexing = true;
+                    RefreshChannelState();
 
                     var doc = await LogDocument.BuildAsync(_adbTempPath, _join,
                         new Progress<(double, string)>(), cts0.Token);
-                    if (_workerGen != gen) { _adbIndexing = false; return; }
+                    if (_workerGen != gen) { _adbIndexing = false; RefreshChannelState(); return; }
                     _doc = doc;
                     _listView.SetDocument(doc);
                     _lblFile.Text = Loc.F("[实时采集] {0}", _adbTempPath);
                     _adbIndexing = false;
+                    RefreshChannelState();
                     await ApplyFilter();
                 }
                 else

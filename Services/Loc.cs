@@ -189,7 +189,7 @@ public static class Loc
         {
             LocTable.Common(), LocTable.MainUi(), LocTable.FilterUi(), LocTable.DeviceUi(),
             LocTable.ApkUi(), LocTable.CommandUi(), LocTable.CommandUiMain(), LocTable.FileUi(),
-            LocTable.RuntimeMsg(), LocTable.CommandSeed(), LocTable.CrashUi(),
+            LocTable.RuntimeMsg(), LocTable.CommandSeed(), LocTable.CrashUi(), LocTable.FileProxyUi(),
         })
         {
             foreach (var kv in part) d[kv.Key] = kv.Value;

@@ -75,6 +75,19 @@ public sealed class AppSettings
     public bool ApkKeepData { get; set; }
     public bool ApkUseRoot { get; set; }
 
+    // ── 文件代理（fileproxy，默认全关闭）──
+    // 模式原始串（"off" / "on" / "auto"），解析见 FileProxyModes.Parse；
+    // 默认空串，空/off/乱码一律按 Off——解析失败不得导致代理被启用（安全侧默认，spec「模式配置与默认关闭」）
+    public string FileProxyMode { get; set; } = "";
+    /// <summary>命名管道名（不含 \\.\pipe\ 前缀）。</summary>
+    public string FileProxyPipeName { get; set; } = "logcat-fileproxy";
+    /// <summary>启动命令：可执行文件（解释器或 exe 完整路径）。空 = 不自动拉起。</summary>
+    public string FileProxyLaunchFile { get; set; } = "";
+    /// <summary>启动命令：参数模板，{pipe} 占位符替换为实际管道名。</summary>
+    public string FileProxyLaunchArgs { get; set; } = "--pipe {pipe}";
+    /// <summary>自动拉起后轮询等待管道就绪的超时（毫秒）。</summary>
+    public int FileProxyLaunchTimeoutMs { get; set; } = 5000;
+
     /// <summary>internal：从指定路径加载（单元测试传临时文件，见 InternalsVisibleTo）。</summary>
     internal static AppSettings LoadFrom(string path)
     {

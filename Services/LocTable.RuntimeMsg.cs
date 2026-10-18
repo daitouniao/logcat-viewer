@@ -36,5 +36,16 @@ static partial class LocTable
 
         // ── 进度行尾注 ──
         ["（未取到应用名，已用包名末段代替）"] = " (app names unavailable; using the last segment of each package name)",
+
+        // ── 文件代理：渠道状态区（三态互斥）与拉取进度 ──
+        ["直接读文件"] = "Local File",
+        ["文件代理读"] = "File Proxy",
+        ["ADB 采集"] = "ADB Capture",
+        ["正在经文件代理读取… {0}%"] = "Reading via file proxy… {0}%",
+        ["正在经文件代理读取（已接收 {0} MB，源文件持续增长）…"] = "Reading via file proxy ({0} MB received, source file keeps growing)…",
+        ["正在启动文件代理…"] = "Starting file proxy…",
+
+        // ── 文件代理：单实例守卫（入口程序，无宿主窗体）──
+        ["logcat 已在运行。"] = "logcat is already running.",
     };
 }

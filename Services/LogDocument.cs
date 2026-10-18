@@ -18,7 +18,24 @@ public sealed class LogDocument : IDisposable
 
     static readonly ILogger _logger = Microsoft.Extensions.Logging.Abstractions.NullLoggerFactory.Instance.CreateLogger("LogDocument");
 
+    /// <summary>
+    /// 显示路径（用户原路径）：标题栏、MRU、导出默认文件名等 UI 面统一用它。
+    /// 非代理文档与源路径相同；代理文档指向用户给的原始路径（spec「文档路径语义」）。
+    /// </summary>
     public string Path { get; }
+
+    /// <summary>源路径（实际读取的文件）：内部触及文件的唯一锚。代理文档时为暂存文件。</summary>
+    public string SourcePath { get; }
+
+    /// <summary>是否经文件代理装载（决策 D6：显式布尔标记，不做运行时路径比较）。</summary>
+    public bool IsProxied { get; internal set; }
+
+    /// <summary>
+    /// spool 暂存目录（代理文档非 null）。Close 在既有释放序列之后自删（删不掉只留痕，不抛）；
+    /// 非代理文档恒为 null，Close 不做任何目录操作（零行为变化）。
+    /// </summary>
+    public string? SpoolDir { get; internal set; }
+
     public string EncodingName { get; } = "utf-8";
     public long Size { get; private set; }
     public long IndexedSize { get; private set; }
@@ -63,9 +80,11 @@ public sealed class LogDocument : IDisposable
     int? _yearLast;
     long? _withinLast;
 
-    public LogDocument(string path, string encoding = "utf-8")
+    public LogDocument(string path, string encoding = "utf-8", string? displayPath = null)
     {
-        Path = System.IO.Path.GetFullPath(path);
+        SourcePath = System.IO.Path.GetFullPath(path);
+        // 显示路径默认等于源路径；代理文档传入用户原路径（可能是打不开的受限路径，仅作展示，不触发文件访问）
+        Path = displayPath is null ? SourcePath : System.IO.Path.GetFullPath(displayPath);
         EncodingName = encoding;
     }
 
@@ -126,7 +145,7 @@ public sealed class LogDocument : IDisposable
         _retired = (_view, _mmf, _fh);
         _view = null; _mmf = null; _fh = null;
 
-        _fh = new FileStream(Path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+        _fh = new FileStream(SourcePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
         try
         {
             if (_fh.Length == 0)
@@ -159,6 +178,13 @@ public sealed class LogDocument : IDisposable
         _view?.Dispose(); _mmf?.Dispose(); _fh?.Dispose();
         _view = null; _mmf = null; _fh = null;
         ReleaseRetired();
+        // 代理文档：既有释放序列之后自删暂存目录（删不掉只留痕，不抛）。
+        // 非代理文档 SpoolDir 为 null，零行为变化。
+        if (SpoolDir != null)
+        {
+            FileProxyService.DeleteDirBestEffort(SpoolDir);
+            SpoolDir = null;
+        }
     }
 
     public void Dispose() => Close();
@@ -223,25 +249,27 @@ public sealed class LogDocument : IDisposable
 
     // ── 构建 ──
     public static async Task<LogDocument> BuildAsync(string path, bool join = true,
-        IProgress<(double pct, string msg)>? progress = null, CancellationToken ct = default)
+        IProgress<(double pct, string msg)>? progress = null, CancellationToken ct = default,
+        string? displayPath = null)
     {
-        return await Task.Run(() => Build(path, join, progress, ct), ct);
+        return await Task.Run(() => Build(path, join, progress, ct, displayPath), ct);
     }
 
     public static LogDocument Build(string path, bool join = true,
-        IProgress<(double pct, string msg)>? progress = null, CancellationToken ct = default)
+        IProgress<(double pct, string msg)>? progress = null, CancellationToken ct = default,
+        string? displayPath = null)
     {
-        var doc = new LogDocument(path) { Join = join };
+        var doc = new LogDocument(path, displayPath: displayPath) { Join = join };
         doc.DoBuild(null, join, progress, ct);
         return doc;
     }
 
     void DoBuild(int? baseYear, bool join, IProgress<(double, string)>? progress, CancellationToken ct)
     {
-        Size = new FileInfo(Path).Length;
+        Size = new FileInfo(SourcePath).Length;
         OpenMap();
         progress?.Report((0.0, Loc.T("扫描行…")));
-        var part = ScanRange(Path, 0, Size, join, false, 0, progress, ct);
+        var part = ScanRange(SourcePath, 0, Size, join, false, 0, progress, ct);
         ct.ThrowIfCancellationRequested();
         // 整体重建：批末合并状态缓存一并刷新（Reload 检测到头变化走重建时，旧缓存态作废）
         _prevHeadAtEnd = part.EndPrevHead;
@@ -830,7 +858,7 @@ public sealed class LogDocument : IDisposable
     public string Reload(bool? join = null, IProgress<(double, string)>? progress = null, CancellationToken ct = default)
     {
         if (join.HasValue) Join = join.Value;
-        long newSize = new FileInfo(Path).Length;
+        long newSize = new FileInfo(SourcePath).Length;
         if (newSize == IndexedSize && _view != null)
             return "unchanged";
         if (newSize < IndexedSize || IndexedSize == 0 || _view == null)
@@ -842,7 +870,7 @@ public sealed class LogDocument : IDisposable
         // 检查头部是否变化
         int head = (int)Math.Min(IndexedSize, 1 << 16);
         byte[] headBuf = new byte[head];
-        using (var f = new FileStream(Path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+        using (var f = new FileStream(SourcePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
             f.ReadExactly(headBuf);
 
         byte[] oldHead = new byte[head];
@@ -874,7 +902,7 @@ public sealed class LogDocument : IDisposable
         if (newSize <= IndexedSize)
             return "unchanged";
 
-        var part = ScanRange(Path, IndexedSize, newSize, Join, _prevHeadAtEnd, _joinedAtEnd, progress, ct);
+        var part = ScanRange(SourcePath, IndexedSize, newSize, Join, _prevHeadAtEnd, _joinedAtEnd, progress, ct);
         if (ct.IsCancellationRequested) return "unchanged";
         // 批末状态必须在任何早退分支之前入缓存：整批空行走 "unchanged" 但合并状态已变
         _prevHeadAtEnd = part.EndPrevHead;
@@ -1008,7 +1036,7 @@ public sealed class LogDocument : IDisposable
     {
         try
         {
-            using var f = new FileStream(Path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+            using var f = new FileStream(SourcePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
             long pos = size - 1;
             while (pos >= floor)
             {
