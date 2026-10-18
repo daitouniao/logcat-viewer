@@ -6,13 +6,13 @@
 
 ## 0. 当前基线（2026-10-18）
 
-| 项 | 值 |
-| --- | --- |
-| 用例数 | **623**，全过（含 `LocTableTests` 的 30 条本地化一致性用例） |
-| 行覆盖率 | **97.36%** (3,463 / 3,557) |
-| 分支覆盖率 | **88.44%** (1,409 / 1,593) |
-| 方法覆盖率 | **95.32%** (367 / 385) |
-| 统计口径 | 仅 Services + Models（UI 与设备/系统集成层已排除，见 §4） |
+| 项         | 值                                                           |
+| ---------- | ------------------------------------------------------------ |
+| 用例数     | **628**，全过（含 `LocTableTests` 的 30 条本地化一致性用例） |
+| 行覆盖率   | **97.60%** (3,499 / 3,585)                                   |
+| 分支覆盖率 | **88.46%** (1,411 / 1,595)                                   |
+| 方法覆盖率 | **95.65%** (374 / 391)                                       |
+| 统计口径   | 仅 Services + Models（UI 与设备/系统集成层已排除，见 §4）    |
 
 > ✅ 空计数回归已查明并解决（2026-10-11），两个独立根因：
 > 1. **PDB 没了**：10-10 的自包含发布改动（`1b17b79`）给主工程加了
@@ -33,7 +33,15 @@
 > 的下滑全部来自新增代码的异常/拉起错误路径（见 §4 未覆盖清单），核心路径经变异
 > 测试验证咬得住（103 个变异点 102 KILLED + 1 个确认等价变异）。
 >
-> 用例数 623 可信（2026-10-18 实测；tstrun 口径 `[Fact]` 438 + `[InlineData]` 185 = 623 与之相符）。
+> 用例数 628 可信（2026-10-18 实测；tstrun 口径 `[Fact]` 443 + `[InlineData]` 185 = 628 与之相符）。
+>
+> 2026-10-18 二次重采（`fix-spool-multisession` 落地后）：用例 623 → 628（+5 条暂存目录活性锁
+> 用例，全部是 `[Fact]`）；行覆盖率 97.36% → 97.60%（分母 +28 行 = 活性锁原语，其中 3 行未覆盖：
+> 两个公开无参重载 + 活性探测的外层防御 `catch`，仅由生产路径调用）；分支 88.44% → 88.46%（1,411 / 1,595）；
+> 方法 95.32% → 95.65%（+7 个方法全部覆盖）。未覆盖行清单已按当前 HEAD 行号刷新（见 §4）。
+>
+> ⚠️ 采集命令见 §2.2：**该命令此前漏了 `Services/Loc.cs` 排除项**，照抄会得到一个不可比的
+> 分母（3,861 行 / 92.25%）——已补齐（本次即按补齐后的命令采集）。
 
 > 本轮口径变化：新增的 `Services/Loc.cs`（本地化运行时）**被排除**，理由同 `DpiFix`——
 > 它一半的代码是控件树遍历、字体替换与文本像素测量，没有真实窗体与消息泵无从验证。
@@ -52,7 +60,7 @@
 - 用 tstrun 报告结果必须带口径声明：**tstrun 口径 N 条**（`[Fact]` 全部 + `[Theory]` 按 `[InlineData]` 展开），
   并声明已知跳过类别——`MemberData` / `ClassData` 驱动的 Theory 会被 runner **静默跳过**（§3.2 坑 3），
   汇总行里看不到它们。
-- 交叉验证：tstrun 口径条数应与上表基线（**623**）一致；不一致先怀疑 runner 漏扫，
+- 交叉验证：tstrun 口径条数应与上表基线（**628**）一致；不一致先怀疑 runner 漏扫，
   **不要改数字迁就 runner**。
 - 两条路径都跑不了时（如沙箱故障），如实写「**未验证**」——禁止声称「通过」。
 
@@ -60,11 +68,11 @@
 
 ## 1. 两条路径，先选对再往下看
 
-| | 路径 A：人终端 | 路径 B：智能体沙箱 |
-| --- | --- | --- |
-| 跑测试 | `dotnet test`（直接可用） | `tstrun` 反射 runner（§3） |
-| 出覆盖率 | `dotnet test --collect`（§2.1） | `coverlet.console` 驱动 tstrun（§2.2） |
-| 为什么 | 正常路径 | **`dotnet test` 在沙箱里起不来**，见 §1.1 |
+|          | 路径 A：人终端                  | 路径 B：智能体沙箱                        |
+| -------- | ------------------------------- | ----------------------------------------- |
+| 跑测试   | `dotnet test`（直接可用）       | `tstrun` 反射 runner（§3）                |
+| 出覆盖率 | `dotnet test --collect`（§2.1） | `coverlet.console` 驱动 tstrun（§2.2）    |
+| 为什么   | 正常路径                        | **`dotnet test` 在沙箱里起不来**，见 §1.1 |
 
 ### 1.1 为什么有两条路径
 
@@ -124,6 +132,7 @@ coverlet logcat.Tests.dll \
   --exclude "[logcat]logcat.Services.StartupLog" \
   --exclude "[logcat]logcat.Services.DpiFix" \
   --exclude "[logcat]logcat.Services.DpiDiag" \
+  --exclude "[logcat]logcat.Services.Loc" \
   --exclude-byfile "**/Forms/*.cs" \
   --exclude-byfile "**/Controls/*.cs" \
   --exclude-byfile "**/frmMain.cs" \
@@ -131,6 +140,7 @@ coverlet logcat.Tests.dll \
   --exclude-byfile "**/Program.cs" \
   --exclude-byfile "**/Services/DpiFix.cs" \
   --exclude-byfile "**/Services/DpiDiag.cs" \
+  --exclude-byfile "**/Services/Loc.cs" \
   --format cobertura \
   --output <仓库>/tests/logcat.Tests/TestResults/coverlet-tstrun/coverage.cobertura.xml
 ```
@@ -138,7 +148,7 @@ coverlet logcat.Tests.dll \
 然后同样跑 `python tests/coverage-report.py` 出 HTML（它按 mtime 取最新 xml，不关心是哪个 collector 产的）。
 
 > **⚠️ 头号坑：`--exclude` 不接受逗号分隔。**
-> 上面写成了 **14 个 `--exclude` + 7 个 `--exclude-byfile`**，这不是啰嗦，是**必须**这么写。
+> 上面写成了 **15 个 `--exclude` + 8 个 `--exclude-byfile`**，这不是啰嗦，是**必须**这么写。
 > 把 `coverlet.runsettings` 里 `<Exclude>` 的逗号串原样塞进单个 `--exclude`，coverlet console
 > 会把它当成**一个**无效表达式，然后**全部静默失效** —— 不报错、不警告，只是 UI / 集成层全被算进
 > valid，行覆盖率假降到 **23.85%**。详见 §5.1。
@@ -265,7 +275,7 @@ dotnet run FilterEngine    # 只跑类名含 FilterEngine 的
 2. **插值表达式里内嵌 `"null"` 会提前闭合字符串**：`$"...{string.Join(", ", data)}..."` 在某些参数下
    会被解析成 `string.Join(", ", data) + "..."` 之类，`string.Join` 的结果要**先提到变量**再插值。
 3. **只匹配 `FactAttribute` 会漏掉全部 Theory** —— 所以要么同时匹配 `TheoryAttribute` 并按
-   `[InlineData]` 展开（上面的代码已做），要么**必须**拿「用例总数」与已知基线（当前 **623**）交叉验证
+   `[InlineData]` 展开（上面的代码已做），要么**必须**拿「用例总数」与已知基线（当前 **628**）交叉验证
    runner 本身没漏。这个交叉验证是每次改 runner 后的必做动作。
 
 ### 3.3 本地化相关的两个特殊坑（2026-10-07）
@@ -295,10 +305,10 @@ Assert.True(scanned > 300, $"只找到 {scanned} 个调用点，解析逻辑大�
 覆盖率**只统计可单测的业务逻辑层**，规则集中定义在 `tests/logcat.Tests/coverlet.runsettings`，
 排除两类代码：
 
-| 排除类别 | 成员 | 理由 |
-| --- | --- | --- |
-| **UI 层** | `Forms.*` / `Controls.*` / `frmMain` / `Program` / `DpiFix` / `DpiDiag` / `Loc` / `ApplicationConfiguration` | WinForms 依赖消息泵与 STA 线程，构造/布局/事件绑定单测成本极高、收益极低；DPI 兜底要真实窗口与缩放链路才有意义；`Loc` 的控件树遍历、字体替换与像素测量同理。行业惯例交给 UI 自动化或人工验收。 |
-| **系统 / 设备集成层** | `AdbManager`（只测了两个纯函数）/ `LogcatStream` / `ClipboardHelper` / `StartupLog` | 分别需要真实 adb+设备、设备流、Windows 剪贴板（共享资源+UI 线程）、固定写用户目录（会污染真实数据）。 |
+| 排除类别              | 成员                                                                                                         | 理由                                                                                                                                                                                           |
+| --------------------- | ------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **UI 层**             | `Forms.*` / `Controls.*` / `frmMain` / `Program` / `DpiFix` / `DpiDiag` / `Loc` / `ApplicationConfiguration` | WinForms 依赖消息泵与 STA 线程，构造/布局/事件绑定单测成本极高、收益极低；DPI 兜底要真实窗口与缩放链路才有意义；`Loc` 的控件树遍历、字体替换与像素测量同理。行业惯例交给 UI 自动化或人工验收。 |
+| **系统 / 设备集成层** | `AdbManager`（只测了两个纯函数）/ `LogcatStream` / `ClipboardHelper` / `StartupLog`                          | 分别需要真实 adb+设备、设备流、Windows 剪贴板（共享资源+UI 线程）、固定写用户目录（会污染真实数据）。                                                                                          |
 
 > `LocTable.*`（纯数据译文表）**刻意留在口径内** —— 它没有控件依赖，且是 i18n 的核心验证面。
 > 判断标准是「**这条代码能不能在无窗体条件下被有意义地验证**」，不是「这个文件新不新」。
@@ -306,16 +316,18 @@ Assert.True(scanned > 300, $"只找到 {scanned} 个调用点，解析逻辑大�
 所以报告里的 ~100% 指的是「**该测的都测到了**」，不是「整个程序集都测到了」。
 看覆盖率变化要**按类对比**，别只看总数字 —— 总数字持平完全可能掩盖了某个类的塌方。
 
-> 2026-10-18 重采后的 94 行未覆盖清单（行号按当前 HEAD，按行号去重）：
-> `AppSettings.cs:104`；`CommandStore.cs:80,306,311-315`；`CrashExtractor.cs:127,128,130,214,223`
+> 2026-10-18 二次重采后的 86 行未覆盖清单（行号按当前 HEAD，按行号去重）：
+> `AppSettings.cs:104`；`CommandStore.cs:80,306,311-315`；`CrashExtractor.cs:127,130,214,223`
 > （Java 异常类型「第一个非空行不是已知命名空间」与包名校验的死支路）；
-> `FavoritesStore.cs:91`；`FileProxyClient.cs:71-76,106,115,147,162,163,199-206,216,324-330`
+> `FavoritesStore.cs:91`；`FileProxyClient.cs:106,115,147,162,199-202,206,216,324,327-330`
 > （连接/握手/收尾的异常与超时路径）；`FileProxyException.cs:55`；
-> `FileProxyService.cs:151,152,204-217,260,303,352,363-403,413`（自动拉起编排的
-> 异常留痕、进程句柄观测与杀进程树的防御分支）；
-> `FilterEngine.cs:208`；`LogDocument.cs:159-164,628,645,736-738,880-882,1049`；
+> `FileProxyService.cs:151,204,207-210,212-215,217,260,304,352,363-367,374-380,393,400,450,461`
+> （自动拉起编排的异常留痕、进程句柄观测与杀进程树的防御分支；`304`/`400` = 仅生产路径
+> 调用的公开无参重载，`393` = `DefaultRoot` 初始化，`450` = 活性探测的外层防御 `catch`，
+> `461` = `SpoolFileNameFor` 的非法路径分支）；
+> `FilterEngine.cs:208`；`LogDocument.cs:160-165,630,647,738-740,882-884,1051`；
 > `LogParser.cs:155,163-165`；`SingleInstance.cs:45`。
-> fileproxy 新增的未覆盖集中在「需要真实子进程/网络态失败」的拉起与连接错误路径，
+> fileproxy 未覆盖集中在「需要真实子进程/网络态失败」的拉起与连接错误路径，
 > 构造代价与风险不匹配，与既往口径一致不硬凑；其余多为 10-07 旧基线就有的死支路。
 
 ---

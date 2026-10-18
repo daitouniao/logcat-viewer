@@ -8,8 +8,8 @@ namespace logcat.Tests;
 
 /// <summary>
 /// LogDocument 显示路径/源路径分离与代理文档语义（任务 5.1，spec「文档路径语义」）：
-/// 构造/构建入口可选显示路径参数（默认等于路径）、代理布尔字段、暂存目录字段（默认 null）、
-/// Close 自删暂存目录（删不掉只留痕）、非代理文档 Close 零行为变化。
+/// 构造/构建入口可选显示路径参数（默认等于路径）、代理布尔字段、暂存目录租约字段（默认 null）、
+/// Close 先删暂存目录后释放活性锁（删不掉只留痕、锁仍释放可再清理）、非代理文档 Close 零行为变化。
 ///
 /// 「7 处文件触及点改源路径」用「显示路径指向打不开的路径」间接验证：
 /// 若任一触及点（打开映射、重载头部探测、增量回退、两处文件长度查询、两处扫描传参）
@@ -77,40 +77,48 @@ public class LogDocumentProxiedTests
     }
 
     [Fact]
-    public void Close_删暂存目录()
+    public void Close_删暂存目录_并释放活性锁()
     {
         var line = "09-23 18:00:00.000 E Tag x\n";
         using var tmp = new TempLogFile(line);
-        var spoolDir = Path.Combine(TempRoot.Dir, "proxd-" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(spoolDir);
-        File.WriteAllText(Path.Combine(spoolDir, "part-0.log"), "data");
+        var lease = SpoolPaths.NewSessionDir(TempRoot.Dir);
+        File.WriteAllText(Path.Combine(lease.Dir, "part-0.log"), "data");
+        Assert.True(SpoolPaths.IsDirAlive(lease.Dir));   // 持锁期间：活性探测判有主
 
         var doc = LogDocument.Build(tmp.Path, displayPath: UnreadableDisplay);
         doc.IsProxied = true;
-        doc.SpoolDir = spoolDir;
+        doc.SpoolDir = lease;
         doc.Close();
 
-        Assert.False(Directory.Exists(spoolDir));    // 既有释放序列之后自删暂存目录
+        // 先删目录（锁仍持有也能删：锁文件以 FileShare.Delete 打开），后释放锁
+        Assert.False(Directory.Exists(lease.Dir));
+        Assert.False(SpoolPaths.IsDirAlive(lease.Dir));  // 无锁句柄泄漏（探测判无主）
     }
 
     [Fact]
-    public void Close_删不掉只留痕不抛()
+    public void Close_删不掉只留痕不抛_锁仍释放可再清理()
     {
         var line = "09-23 18:00:00.000 E Tag x\n";
         using var tmp = new TempLogFile(line);
-        var spoolDir = Path.Combine(TempRoot.Dir, "proxd-locked-" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(spoolDir);
-        using var lockFs = new FileStream(Path.Combine(spoolDir, "locked.bin"),
+        var root = Path.Combine(TempRoot.Dir, "proxd-locked-" + Guid.NewGuid().ToString("N"));
+        var lease = SpoolPaths.NewSessionDir(root);
+        using var lockFs = new FileStream(Path.Combine(lease.Dir, "locked.bin"),
             FileMode.Create, FileAccess.ReadWrite, FileShare.None);
 
         var doc = LogDocument.Build(tmp.Path, displayPath: UnreadableDisplay);
         doc.IsProxied = true;
-        doc.SpoolDir = spoolDir;
-        doc.Close();                                 // 不抛：删不掉只留痕（StartupLog 记录）
+        doc.SpoolDir = lease;
+        doc.Close();                                 // 不抛：删不掉只留痕（locked.bin 占着）
 
-        Assert.True(Directory.Exists(spoolDir));
+        Assert.True(Directory.Exists(lease.Dir));
+        Assert.False(SpoolPaths.IsDirAlive(lease.Dir));   // 活性锁已释放 → 残留目录判无主
+
         lockFs.Dispose();
-        try { Directory.Delete(spoolDir, recursive: true); } catch { }
+        var (deleted, skipped, failed) = FileProxyService.CleanupStaleSpoolDirs(root);
+        Assert.Equal(1, deleted);                    // 残留目录可被启动清理收走
+        Assert.Equal(0, skipped);
+        Assert.Equal(0, failed);
+        try { Directory.Delete(root, recursive: true); } catch { }
     }
 
     [Fact]

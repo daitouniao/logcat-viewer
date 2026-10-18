@@ -293,24 +293,24 @@ public static class FileProxyService
         catch (Exception ex) { StartupLog.Write($"[FileProxy] 暂存目录删除失败（留痕不抛）：{dir} — {ex.Message}"); }
     }
 
-    // ── 启动清理（依赖单实例，决策 D13）──
+    // ── 启动清理（暂存目录活性判定，决策 D1/D13）──
 
     /// <summary>
-    /// 清理暂存根目录下全部残留子目录（无时间阈值），跳过 <paramref name="activeDirs"/>。
-    /// 单实例前提下残留必为崩溃/强杀的死亡目录；逐目录删不掉只留痕。
+    /// 清理暂存根目录下全部残留子目录（无时间阈值）：逐个先做跨进程活性探测，
+    /// 被任何存活实例持有（含本实例自己）的跳过，无主的删除；逐目录删不掉只留痕。
+    /// 安全性不依赖单实例互斥量的覆盖范围（跨会话并存由活性判定独立保证）。
     /// </summary>
-    public static (int Deleted, int Skipped, int Failed) CleanupStaleSpoolDirs(IReadOnlyCollection<string>? activeDirs = null)
-        => CleanupStaleSpoolDirs(SpoolPaths.DefaultRoot, activeDirs);
+    public static (int Deleted, int Skipped, int Failed) CleanupStaleSpoolDirs()
+        => CleanupStaleSpoolDirs(SpoolPaths.DefaultRoot);
 
     /// <summary>internal：指定根目录的清理（单测用临时根，不碰应用目录）。</summary>
-    internal static (int Deleted, int Skipped, int Failed) CleanupStaleSpoolDirs(
-        string root, IReadOnlyCollection<string>? activeDirs)
+    internal static (int Deleted, int Skipped, int Failed) CleanupStaleSpoolDirs(string root)
     {
         int deleted = 0, skipped = 0, failed = 0;
         if (!Directory.Exists(root)) return (0, 0, 0);
         foreach (var dir in Directory.EnumerateDirectories(root))
         {
-            if (activeDirs != null && activeDirs.Contains(dir)) { skipped++; continue; }
+            if (SpoolPaths.IsDirAlive(dir)) { skipped++; continue; }
             try { Directory.Delete(dir, recursive: true); deleted++; }
             catch (Exception ex)
             {
@@ -384,7 +384,8 @@ public sealed record SpoolSession(
 ///
 /// 根目录 = 应用所在目录下 <c>temp\logcat-proxy</c>（不提供配置项）：跟随应用所在盘，
 /// 避开系统盘写满风险；exe 目录可写是既有前提（settings.json 同在此目录）。
-/// 每次获取用一个独立 guid 子目录，崩溃残留由 <see cref="FileProxyService.CleanupStaleSpoolDirs"/> 兜底。
+/// 每次获取用一个独立 guid 子目录，创建即持有跨进程活性锁（决策 D1/D2）；
+/// 崩溃残留由 <see cref="FileProxyService.CleanupStaleSpoolDirs"/> 按活性判定兜底。
 /// </summary>
 public static class SpoolPaths
 {
@@ -392,14 +393,61 @@ public static class SpoolPaths
     public static string DefaultRoot { get; } =
         Path.Combine(AppContext.BaseDirectory, "temp", "logcat-proxy");
 
-    /// <summary>新建一次获取的独立子目录（guid）。</summary>
-    public static string NewSessionDir() => NewSessionDir(DefaultRoot);
+    /// <summary>活性锁文件名：session 目录内的固定名，随目录删除而消失，不留孤儿登记项（决策 D2）。</summary>
+    internal const string LockFileName = ".alive.lock";
+
+    /// <summary>新建一次获取的独立子目录并立即持有活性锁（句柄生命周期 = 目录生命周期）。</summary>
+    public static SpoolDirLease NewSessionDir() => NewSessionDir(DefaultRoot);
 
     /// <summary>internal：指定根目录新建子目录（单测用临时根，不碰应用目录）。</summary>
-    internal static string NewSessionDir(string root)
+    internal static SpoolDirLease NewSessionDir(string root) => NewSessionDir(root, null);
+
+    /// <summary>
+    /// internal：指定根目录新建 + 建锁前钩子（单测注入 D3 微秒窗口：建目录后、建锁前目录被并发清理删掉）。
+    /// 建锁失败时重建目录重试一次（收窄窗口），二次仍失败才抛 I/O 错由打开路径报告。
+    /// </summary>
+    internal static SpoolDirLease NewSessionDir(string root, Action<string>? onBeforeLock)
     {
         Directory.CreateDirectory(root);
-        return Path.Combine(root, Guid.NewGuid().ToString("N"));
+        string dir = Path.Combine(root, Guid.NewGuid().ToString("N"));
+        for (int attempt = 0; ; attempt++)
+        {
+            Directory.CreateDirectory(dir);
+            onBeforeLock?.Invoke(dir);
+            try
+            {
+                // FileShare.Delete：允许持有者自己删除所在目录（Close 先删目录、后释放锁）；
+                // 同时仍拒绝任何其它句柄的读写访问 → 清理侧探测必然判「有主」
+                var handle = new FileStream(Path.Combine(dir, LockFileName), FileMode.CreateNew,
+                    FileAccess.ReadWrite, FileShare.Delete, bufferSize: 1);
+                return new SpoolDirLease(dir, handle);
+            }
+            catch (IOException) when (attempt == 0)
+            {
+                // 目录在建锁前被并发清理删掉的微秒窗口：重建目录重试一次（决策 D3）
+            }
+        }
+    }
+
+    /// <summary>
+    /// 跨进程活性探测（清理判据）：锁文件不存在 → 无主；存在且能被本进程排他打开 → 无主；
+    /// 打不开 → 有主。Windows 文件共享校验按句柄、不按进程，故「本实例活跃目录」与
+    /// 「他实例活跃目录」由同一判据覆盖（决策 D1）。三种输入均给确定结论，不抛未处理异常。
+    /// </summary>
+    internal static bool IsDirAlive(string dir)
+    {
+        try
+        {
+            var lockPath = Path.Combine(dir, LockFileName);
+            if (!File.Exists(lockPath)) return false;
+            try
+            {
+                using var probe = new FileStream(lockPath, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+                return false;   // 打得开 = 无主（探测句柄随 using 立即关闭，不留下占用）
+            }
+            catch { return true; }   // 打不开 = 有主（被任何存活实例的排他句柄占着）
+        }
+        catch { return false; }   // 路径非法 / 目录并发消失：按无主（交删除路径报错留痕）
     }
 
     /// <summary>
@@ -415,6 +463,25 @@ public static class SpoolPaths
         if (name.Length <= 64) return name;
         return string.Concat(name.AsSpan(0, 48), name.AsSpan(name.Length - 16));
     }
+}
+
+/// <summary>
+/// 一次暂存目录的租约：目录路径 + 目录内活性锁文件的排他句柄（决策 D1）。
+/// 句柄生命周期 = 目录生命周期；不变式：<b>目录存在 ⇒ 锁仍持有</b>（决策 D4）——
+/// 故调用方必须<b>先删除目录、后</b> <see cref="Release"/>。
+/// </summary>
+public sealed class SpoolDirLease : IDisposable
+{
+    readonly FileStream _handle;
+    internal SpoolDirLease(string dir, FileStream handle) { Dir = dir; _handle = handle; }
+
+    /// <summary>暂存目录路径。</summary>
+    public string Dir { get; }
+
+    /// <summary>释放活性锁（幂等）。删不掉目录时锁释放后残留目录无主，由下次启动清理收走。</summary>
+    public void Release() => _handle.Dispose();
+
+    public void Dispose() => Release();
 }
 
 /// <summary>

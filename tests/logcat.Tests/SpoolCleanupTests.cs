@@ -73,21 +73,23 @@ public class SpoolCleanupTests
         {
             var dead1 = Path.Combine(root, Guid.NewGuid().ToString("N"));
             var dead2 = Path.Combine(root, Guid.NewGuid().ToString("N"));
-            var active = Path.Combine(root, Guid.NewGuid().ToString("N"));
-            foreach (var d in new[] { dead1, dead2, active })
+            foreach (var d in new[] { dead1, dead2 })
             {
-                Directory.CreateDirectory(d);
+                Directory.CreateDirectory(d);   // 崩溃残留：无锁文件
                 File.WriteAllText(Path.Combine(d, "part-0.log"), "x");
             }
+            // 活跃目录 = 测试内持锁模拟（本进程持锁与「他实例持锁」由同一判据覆盖）
+            using var active = SpoolPaths.NewSessionDir(root);
+            File.WriteAllText(Path.Combine(active.Dir, "part-0.log"), "x");
 
-            var (deleted, skipped, failed) = FileProxyService.CleanupStaleSpoolDirs(root, new[] { active });
+            var (deleted, skipped, failed) = FileProxyService.CleanupStaleSpoolDirs(root);
 
             Assert.Equal(2, deleted);
             Assert.Equal(1, skipped);
             Assert.Equal(0, failed);
             Assert.False(Directory.Exists(dead1));
             Assert.False(Directory.Exists(dead2));
-            Assert.True(Directory.Exists(active));   // 活跃 guid 目录（本进程 spool 在途）不误删
+            Assert.True(Directory.Exists(active.Dir));   // 活性锁持有的目录不误删
         }
         finally { try { Directory.Delete(root, recursive: true); } catch { } }
     }
@@ -99,7 +101,7 @@ public class SpoolCleanupTests
         Directory.CreateDirectory(root);
         try
         {
-            var (deleted, skipped, failed) = FileProxyService.CleanupStaleSpoolDirs(root, null);
+            var (deleted, skipped, failed) = FileProxyService.CleanupStaleSpoolDirs(root);
             Assert.Equal((0, 0, 0), (deleted, skipped, failed));
         }
         finally { try { Directory.Delete(root, recursive: true); } catch { } }
@@ -109,7 +111,7 @@ public class SpoolCleanupTests
     public void 启动清理_根目录不存在时零操作不抛()
     {
         var root = Path.Combine(TempRoot.Dir, "cleanup-gone-" + Guid.NewGuid().ToString("N"));
-        var (deleted, skipped, failed) = FileProxyService.CleanupStaleSpoolDirs(root, null);
+        var (deleted, skipped, failed) = FileProxyService.CleanupStaleSpoolDirs(root);
         Assert.Equal((0, 0, 0), (deleted, skipped, failed));
     }
 
@@ -119,11 +121,11 @@ public class SpoolCleanupTests
         var root = Path.Combine(TempRoot.Dir, "cleanup-locked-" + Guid.NewGuid().ToString("N"));
         var victim = Path.Combine(root, Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(victim);
-        // 独占句柄锁住目录内文件 → Directory.Delete 必失败
+        // 独占句柄锁住目录内文件 → Directory.Delete 必失败（无锁文件，活性探测判无主）
         var lockedFile = Path.Combine(victim, "locked.bin");
         using (var fs = new FileStream(lockedFile, FileMode.Create, FileAccess.ReadWrite, FileShare.None))
         {
-            var (deleted, skipped, failed) = FileProxyService.CleanupStaleSpoolDirs(root, null);
+            var (deleted, skipped, failed) = FileProxyService.CleanupStaleSpoolDirs(root);
             Assert.Equal(0, deleted);
             Assert.Equal(1, failed);   // 只留痕不抛
             Assert.Equal(0, skipped);
@@ -141,19 +143,18 @@ public class SpoolCleanupTests
         try
         {
             var dead = Path.Combine(root, "dead");
-            var active = Path.Combine(root, "active");
+            Directory.CreateDirectory(dead);                       // 无锁 → 删
+            using var active = SpoolPaths.NewSessionDir(root);      // 持锁 → 跳过
             var locked = Path.Combine(root, "locked");
-            Directory.CreateDirectory(dead);
-            Directory.CreateDirectory(active);
-            Directory.CreateDirectory(locked);
+            Directory.CreateDirectory(locked);                      // 无锁但内容被占 → 删除失败
             var lockFs = new FileStream(Path.Combine(locked, "l.bin"), FileMode.Create, FileAccess.ReadWrite, FileShare.None);
             try
             {
-                var (deleted, skipped, failed) = FileProxyService.CleanupStaleSpoolDirs(
-                    root, new[] { active, locked });   // active 集合同时含活跃与「删不掉」的都按跳过计
+                var (deleted, skipped, failed) = FileProxyService.CleanupStaleSpoolDirs(root);
                 Assert.Equal(1, deleted);
-                Assert.Equal(2, skipped);
-                Assert.Equal(0, failed);
+                Assert.Equal(1, skipped);
+                Assert.Equal(1, failed);
+                Assert.True(Directory.Exists(active.Dir));
             }
             finally { lockFs.Dispose(); }
         }

@@ -1057,13 +1057,15 @@ public partial class frmMain : Form, ILocalizedUi
     /// </summary>
     async Task<LogDocument> LoadViaProxyAsync(string originalPath, int gen, CancellationToken ct)
     {
-        var sessionDir = SpoolPaths.NewSessionDir();
+        // 创建即持活性锁（决策 D1）：spool 完成到文档关闭之间锁仍持有，
+        // 启动清理（含跨会话并存的另一实例）依活性探测跳过本目录，不误删
+        var sessionLease = SpoolPaths.NewSessionDir();
         _proxySpooling = true;
         RefreshChannelState();   // spool 在途即切「文件代理读」
         try
         {
             ShowStatusRaw(Loc.T("正在启动文件代理…"));
-            var session = await FileProxyService.OpenSpoolAsync(originalPath, sessionDir, ct);
+            var session = await FileProxyService.OpenSpoolAsync(originalPath, sessionLease.Dir, ct);
             try
             {
                 // 超大文件预警（阈值 1GB 写死，决策 D14）：确认框阻断，取消即中止。
@@ -1100,7 +1102,7 @@ public partial class frmMain : Form, ILocalizedUi
                         }
                     }), ct, displayPath: originalPath);
                 doc.IsProxied = true;
-                doc.SpoolDir = sessionDir;   // Close 时自删暂存目录
+                doc.SpoolDir = sessionLease;   // 租约随文档：Close 先删暂存目录、后释放活性锁
                 return doc;
             }
             finally
@@ -1110,8 +1112,10 @@ public partial class frmMain : Form, ILocalizedUi
         }
         catch
         {
-            // 确认取消 / 构建失败：spool 自身失败已删目录，这里兜删其余路径的残留
-            FileProxyService.DeleteDirBestEffort(sessionDir);
+            // 确认取消 / 构建失败：spool 自身失败已删目录，这里兜删其余路径的残留；
+            // 先删目录、后释放活性锁（决策 D4），避免锁泄漏把残留目录钉成「有主」
+            FileProxyService.DeleteDirBestEffort(sessionLease.Dir);
+            sessionLease.Release();
             throw;
         }
         finally

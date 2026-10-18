@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.IO;
 using System.IO.Pipes;
 using System.Text;
@@ -388,6 +388,7 @@ public class FileProxyLoopbackTests
         Assert.Equal(content.Length, ex.Expected);
         Assert.True(ex.Received > 0);
         Assert.False(Directory.Exists(sessionDir));   // 不符即删，无残留
+        Assert.False(SpoolPaths.IsDirAlive(sessionDir));   // 无锁句柄泄漏（活性探测判无主）
     }
 
     [Fact]
@@ -409,6 +410,7 @@ public class FileProxyLoopbackTests
         Assert.Equal(512, ex.Received);
         Assert.Equal(content.Length, ex.Expected);
         Assert.False(Directory.Exists(sessionDir));   // 干净收尾的短读同样删目录，无残留
+        Assert.False(SpoolPaths.IsDirAlive(sessionDir));   // 无锁句柄泄漏（活性探测判无主）
     }
 
     [Fact]
@@ -469,6 +471,7 @@ public class FileProxyLoopbackTests
             () => FileProxyService.SpoolAsync(client, file.Path, sessionDir, prog, cts.Token).GetAwaiter().GetResult(), out _);
         Assert.NotNull(ex);
         Assert.False(Directory.Exists(sessionDir));   // 取消即删，无残留
+        Assert.False(SpoolPaths.IsDirAlive(sessionDir));   // 无锁句柄泄漏（活性探测判无主）
     }
 
     [Fact]

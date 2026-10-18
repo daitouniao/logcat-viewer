@@ -31,10 +31,11 @@ public sealed class LogDocument : IDisposable
     public bool IsProxied { get; internal set; }
 
     /// <summary>
-    /// spool 暂存目录（代理文档非 null）。Close 在既有释放序列之后自删（删不掉只留痕，不抛）；
-    /// 非代理文档恒为 null，Close 不做任何目录操作（零行为变化）。
+    /// spool 暂存目录租约（代理文档非 null）：目录路径 + 活性锁句柄。
+    /// Close 在既有释放序列之后<b>先删暂存目录、后释放活性锁</b>（不变式：目录存在 ⇒ 锁仍持有），
+    /// 删不掉只留痕不抛；非代理文档恒为 null，Close 不做任何目录操作（零行为变化）。
     /// </summary>
-    public string? SpoolDir { get; internal set; }
+    public SpoolDirLease? SpoolDir { get; internal set; }
 
     public string EncodingName { get; } = "utf-8";
     public long Size { get; private set; }
@@ -178,11 +179,12 @@ public sealed class LogDocument : IDisposable
         _view?.Dispose(); _mmf?.Dispose(); _fh?.Dispose();
         _view = null; _mmf = null; _fh = null;
         ReleaseRetired();
-        // 代理文档：既有释放序列之后自删暂存目录（删不掉只留痕，不抛）。
+        // 代理文档：既有释放序列之后先删暂存目录、后释放活性锁（决策 D4，删不掉只留痕不抛）。
         // 非代理文档 SpoolDir 为 null，零行为变化。
         if (SpoolDir != null)
         {
-            FileProxyService.DeleteDirBestEffort(SpoolDir);
+            FileProxyService.DeleteDirBestEffort(SpoolDir.Dir);
+            SpoolDir.Release();    // 不变式：目录存在 ⇒ 锁仍持有，故删目录在前、释放锁在后
             SpoolDir = null;
         }
     }

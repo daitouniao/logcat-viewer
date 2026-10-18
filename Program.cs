@@ -31,8 +31,8 @@ namespace logcat
                 return;
             }
 
-            // 启动后台清理（决策 D13：单实例前提下暂存根目录的残留必为死亡目录，
-            // 无时间阈值全删；主界面启动前起线程，不阻塞 UI）
+            // 启动后台清理（决策 D1/D13：逐个候选目录做跨进程活性探测，被任何存活实例
+            // 持有的跳过，无主的按死亡残留删除；无时间阈值，主界面启动前起线程，不阻塞 UI）
             var spoolCleanup = new System.Threading.Thread(
                 () => logcat.Services.FileProxyService.CleanupStaleSpoolDirs())
             {

@@ -381,9 +381,9 @@ TEXT_MUTATIONS = [
      "            if (false) throw ShortRead(received, expected);",
      "SpoolCoreAsync：EOF 后不再校验实收==期望（完整性判定失效）"),
     ("Services/FileProxyService.cs",
-     "            if (activeDirs != null && activeDirs.Contains(dir)) { skipped++; continue; }",
+     "            if (SpoolPaths.IsDirAlive(dir)) { skipped++; continue; }",
      "            if (false) { skipped++; continue; }",
-     "CleanupStaleSpoolDirs：不再跳过活跃目录"),
+     "CleanupStaleSpoolDirs：不再跳过活性目录"),
 
     # ── FileProxyClient：协议握手 / 帧 ──
     ("Services/FileProxyClient.cs",
