@@ -47,10 +47,42 @@ public class FileProxyLaunchTests : IDisposable
         // 可执行文件含空格加引号；参数含空格同样
         Assert.Equal("\"C:\\Program Files\\proxy.exe\" --pipe \"my pipe\"",
             FileProxyService.BuildCommandLine("C:\\Program Files\\proxy.exe", "--pipe {pipe}", "my pipe"));
-        // 无空格不加引号；无参数只留可执行文件
+        // 无空格不加引号；空参数自动追加 --pipe（新形态，design D17）
         Assert.Equal("C:\\tools\\proxy.exe --pipe p1",
             FileProxyService.BuildCommandLine("C:\\tools\\proxy.exe", "--pipe {pipe}", "p1"));
-        Assert.Equal("proxy.exe", FileProxyService.BuildCommandLine("proxy.exe", "", "p1"));
+        Assert.Equal("proxy.exe --pipe p1", FileProxyService.BuildCommandLine("proxy.exe", "", "p1"));
+    }
+
+    [Fact]
+    public void BuildLaunchArgs_无占位符_末尾自动追加pipe()
+    {
+        // 新形态（design D17）：参数不含 {pipe} → 末尾自动追加 --pipe 管道名
+        Assert.Equal("--verbose --pipe abc", FileProxyService.BuildLaunchArgs("--verbose", "abc"));
+        Assert.Equal("--pipe abc", FileProxyService.BuildLaunchArgs("", "abc"));
+        Assert.Equal("--pipe abc", FileProxyService.BuildLaunchArgs(null, "abc"));
+        // 首尾空白先修剪再追加，管道名含空格自动加引号
+        Assert.Equal("--root D:\\data --pipe abc", FileProxyService.BuildLaunchArgs(" --root D:\\data ", "abc"));
+        Assert.Equal("--verbose --pipe \"a b\"", FileProxyService.BuildLaunchArgs("--verbose", "a b"));
+    }
+
+    [Fact]
+    public void BuildLaunchArgs_含占位符_走旧替换不追加()
+    {
+        // 旧形态兼容（design D17）：模板含 {pipe} → 仍按替换，避免 --pipe 出现两次
+        Assert.Equal("--pipe new", FileProxyService.BuildLaunchArgs("--pipe {pipe}", "new"));
+        Assert.Equal("--pipe new --verbose", FileProxyService.BuildLaunchArgs("--pipe {pipe} --verbose", "new"));
+    }
+
+    [Fact]
+    public void NormalizeLegacyArgs_剥尾部pipe模板()
+    {
+        Assert.Equal("", FileProxyService.NormalizeLegacyArgs("--pipe {pipe}"));
+        Assert.Equal("", FileProxyService.NormalizeLegacyArgs("--pipe={pipe}"));
+        Assert.Equal("--root D:\\data", FileProxyService.NormalizeLegacyArgs("--root D:\\data --pipe {pipe}"));
+        Assert.Equal("--root D:\\data", FileProxyService.NormalizeLegacyArgs(" --root D:\\data --pipe={pipe} "));
+        // 不含模板的参数原样返回
+        Assert.Equal("--verbose", FileProxyService.NormalizeLegacyArgs("--verbose"));
+        Assert.Equal("", FileProxyService.NormalizeLegacyArgs(null));
     }
 
     [Fact]

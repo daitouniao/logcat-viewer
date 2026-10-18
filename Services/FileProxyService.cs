@@ -43,14 +43,39 @@ public static class FileProxyService
     // ── 启动命令构造 ──
 
     /// <summary>
-    /// 拼出完整命令行（展示 / 排障用）：可执行文件 + 参数模板，{pipe} 替换为实际管道名，
-    /// 替换结果含空格时自动加引号；可执行文件含空格同样加引号。
+    /// 拼出完整命令行（展示 / 预览 / 排障用）：可执行文件 + 组装后的参数（<see cref="BuildLaunchArgs"/>：
+    /// {pipe} 占位符替换或末尾自动追加 --pipe），含空格处自动加引号。
     /// </summary>
     public static string BuildCommandLine(string exe, string argsTemplate, string pipeName)
     {
-        var args = SubstPipe(argsTemplate, pipeName);
+        var args = BuildLaunchArgs(argsTemplate, pipeName);
         return QuoteIfNeeded(exe) + (args.Length > 0 ? " " + args : "");
     }
+
+    /// <summary>
+    /// internal：组装实际传给代理进程的参数（design D17）。
+    /// 旧形态：模板含 {pipe} 占位符 → 仍按替换处理（兼容已存 settings.json 与手改配置）；
+    /// 新形态：模板不含 {pipe} → 参数末尾自动追加 `--pipe 管道名`（管道名单一来源，参数栏只填其余参数）。
+    /// 启动进程与命令行预览/留痕共用此串，避免两处口径漂移。
+    /// </summary>
+    internal static string BuildLaunchArgs(string? argsTemplate, string pipeName)
+        => (argsTemplate ?? "").Contains("{pipe}", StringComparison.Ordinal)
+            ? SubstPipe(argsTemplate, pipeName)
+            : AppendPipeArg((argsTemplate ?? "").Trim(), pipeName);
+
+    /// <summary>internal：旧 settings 的参数模板可能带尾部 `--pipe {pipe}`，载入展示时剥掉（服务层会自动追加）。</summary>
+    internal static string NormalizeLegacyArgs(string? args)
+    {
+        string s = (args ?? "").Trim();
+        if (s.EndsWith("--pipe {pipe}", StringComparison.OrdinalIgnoreCase))
+            s = s[..^"--pipe {pipe}".Length].TrimEnd();
+        else if (s.EndsWith("--pipe={pipe}", StringComparison.OrdinalIgnoreCase))
+            s = s[..^"--pipe={pipe}".Length].TrimEnd();
+        return s;
+    }
+
+    static string AppendPipeArg(string args, string pipeName)
+        => args.Length > 0 ? args + " --pipe " + QuoteIfNeeded(pipeName) : "--pipe " + QuoteIfNeeded(pipeName);
 
     /// <summary>internal：只替换 {pipe} 的参数部分（ProcessStartInfo.Arguments 用同一串，避免两处口径漂移）。</summary>
     internal static string SubstPipe(string? argsTemplate, string pipeName)
@@ -95,7 +120,7 @@ public static class FileProxyService
         Process? proc = null;
         try
         {
-            proc = Process.Start(new ProcessStartInfo(settings.LaunchFile, SubstPipe(settings.LaunchArgs, settings.PipeName))
+            proc = Process.Start(new ProcessStartInfo(settings.LaunchFile, BuildLaunchArgs(settings.LaunchArgs, settings.PipeName))
             {
                 UseShellExecute = false,
                 CreateNoWindow = true,

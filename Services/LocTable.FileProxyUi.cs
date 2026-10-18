@@ -23,7 +23,6 @@ static partial class LocTable
         ["管道名"] = "Pipe Name",
         ["启动命令"] = "Launch Command",
         ["可执行文件（解释器或程序的完整路径）"] = "Executable (full path to the interpreter or program)",
-        ["参数（{pipe} 为管道名占位符）"] = "Arguments ({pipe} is replaced with the pipe name)",
         ["启动等待超时（毫秒）"] = "Launch timeout (ms)",
         ["测试连接"] = "Test Connection",
         ["保存"] = "Save",
@@ -32,6 +31,16 @@ static partial class LocTable
         ["管道名不能为空"] = "Pipe name cannot be empty",
         ["管道名不能包含路径分隔符"] = "Pipe name cannot contain path separators",
         ["管道名过长（上限 {0} 个字符）"] = "Pipe name is too long (max {0} characters)",
+
+        // ── 设置对话框：浏览按钮（design D16）──（「浏览…」已入 Common 表，勿重复定义）
+        ["选择可执行文件"] = "Select Executable",
+        ["选择脚本文件"] = "Select Script File",
+        ["程序 (*.exe)|*.exe|所有文件 (*.*)|*.*"] = "Programs (*.exe)|*.exe|All Files (*.*)|*.*",
+        ["脚本 (*.js;*.py)|*.js;*.py|所有文件 (*.*)|*.*"] = "Scripts (*.js;*.py)|*.js;*.py|All Files (*.*)|*.*",
+
+        // ── 设置对话框：--pipe 自动追加与命令行预览（design D17）──
+        ["参数（其余参数；--pipe 管道名由应用自动追加）"] = "Arguments (extra args only; --pipe <name> is appended automatically)",
+        ["命令行预览：{0}"] = "Command line preview: {0}",
 
         // ── 协议客户端错误（FileProxyClient / FrameReader）──
         ["连接文件代理超时（{0} ms）：管道 {1} 无响应"] = "Connecting to the file proxy timed out ({0} ms): pipe {1} is not responding",

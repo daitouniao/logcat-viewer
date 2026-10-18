@@ -6,17 +6,18 @@ using logcat.Services;
 namespace logcat.Forms;
 
 /// <summary>
-/// 文件代理设置对话框：模式三选一（默认停用）、管道名、启动命令（可执行文件 + 参数模板）、
-/// 启动等待超时、测试连接（只发 hello，不开文件）。
+/// 文件代理设置对话框：模式三选一（默认停用）、管道名、启动命令（可执行文件 + 参数模板，各附「浏览…」）、
+/// 启动等待超时、测试连接（复用打开文件的完整拉起链路，design D15）。
 /// 保存写 settings.json 并立即生效——装载判定每次打开文件时现读，不需要重启（spec「保存后立即生效」）。
 /// </summary>
 public sealed class FileProxyDialog : Form, ILocalizedUi
 {
     RadioButton _rbOff = null!, _rbOn = null!, _rbAuto = null!;
     TextBox _txtPipe = null!, _txtLaunchFile = null!, _txtLaunchArgs = null!;
+    Button _btnBrowseFile = null!, _btnBrowseArgs = null!;
     NumericUpDown _numTimeout = null!;
     Button _btnTest = null!;
-    Label _lblTestResult = null!;
+    Label _lblTestResult = null!, _lblPreview = null!;
 
     // 测试结果 Label 的「资源键 + 参数」：文案随语言切换重算（禁 static readonly，同 _statusKey 口径）
     string? _testKey;
@@ -27,8 +28,8 @@ public sealed class FileProxyDialog : Form, ILocalizedUi
         AutoScaleDimensions = new SizeF(96F, 96F);
         AutoScaleMode = AutoScaleMode.Dpi;
         Text = Loc.T("文件代理设置");
-        Size = new Size(560, 400);
-        MinimumSize = new Size(520, 380);
+        Size = new Size(560, 428);
+        MinimumSize = new Size(520, 408);
         StartPosition = FormStartPosition.CenterParent;
         FormBorderStyle = FormBorderStyle.FixedDialog;
         MaximizeBox = false;
@@ -54,21 +55,41 @@ public sealed class FileProxyDialog : Form, ILocalizedUi
         _txtPipe = new TextBox { Location = new Point(120, 76), Width = 300 };
         Controls.Add(_txtPipe);
 
-        // ── 启动命令（可执行文件 + 参数模板两个独立字段，不做整行解析）──
-        var grpLaunch = Loc.Bind(new GroupBox { Location = new Point(10, 108), Size = new Size(524, 112) }, "启动命令");
+        // ── 启动命令（可执行文件 + 其余参数两个独立字段，不做整行解析；各附「浏览…」杜绝手敲路径，design D16；
+        //    --pipe 管道名由服务层自动追加，见 design D17）──
+        var grpLaunch = Loc.Bind(new GroupBox { Location = new Point(10, 108), Size = new Size(524, 140) }, "启动命令");
         grpLaunch.Controls.Add(Loc.Bind(new Label { Location = new Point(10, 20), AutoSize = true }, "可执行文件（解释器或程序的完整路径）"));
-        _txtLaunchFile = new TextBox { Location = new Point(10, 40), Width = 500 };
+        _txtLaunchFile = new TextBox { Location = new Point(10, 40), Width = 405 };
         grpLaunch.Controls.Add(_txtLaunchFile);
-        grpLaunch.Controls.Add(Loc.Bind(new Label { Location = new Point(10, 70), AutoSize = true }, "参数（{pipe} 为管道名占位符）"));
-        _txtLaunchArgs = new TextBox { Location = new Point(10, 90), Width = 500 };
+        _btnBrowseFile = Loc.Bind(new Button { Location = new Point(423, 38), Size = new Size(90, 25) }, "浏览…");
+        _btnBrowseFile.Click += (_, _) => BrowseExecutable();
+        grpLaunch.Controls.Add(_btnBrowseFile);
+        grpLaunch.Controls.Add(Loc.Bind(new Label { Location = new Point(10, 70), AutoSize = true }, "参数（其余参数；--pipe 管道名由应用自动追加）"));
+        _txtLaunchArgs = new TextBox { Location = new Point(10, 90), Width = 405 };
         grpLaunch.Controls.Add(_txtLaunchArgs);
+        _btnBrowseArgs = Loc.Bind(new Button { Location = new Point(423, 88), Size = new Size(90, 25) }, "浏览…");
+        _btnBrowseArgs.Click += (_, _) => BrowseScript();
+        grpLaunch.Controls.Add(_btnBrowseArgs);
+        _lblPreview = new Label
+        {
+            Location = new Point(10, 118),
+            Size = new Size(504, 18),
+            AutoSize = false,
+            AutoEllipsis = true,
+            ForeColor = Color.DimGray,
+        };
+        grpLaunch.Controls.Add(_lblPreview);
+        // 命令行预览实时刷新（design D17）；三个字段任一变化都重算
+        _txtPipe.TextChanged += (_, _) => UpdatePreview();
+        _txtLaunchFile.TextChanged += (_, _) => UpdatePreview();
+        _txtLaunchArgs.TextChanged += (_, _) => UpdatePreview();
         Controls.Add(grpLaunch);
 
         // ── 启动等待超时 ──
-        Controls.Add(Loc.Bind(new Label { Location = new Point(12, 232), AutoSize = true }, "启动等待超时（毫秒）"));
+        Controls.Add(Loc.Bind(new Label { Location = new Point(12, 260), AutoSize = true }, "启动等待超时（毫秒）"));
         _numTimeout = new NumericUpDown
         {
-            Location = new Point(220, 228),
+            Location = new Point(220, 256),
             Width = 100,
             Minimum = 200,
             Maximum = 60000,
@@ -76,13 +97,13 @@ public sealed class FileProxyDialog : Form, ILocalizedUi
         };
         Controls.Add(_numTimeout);
 
-        // ── 测试连接（只发 hello，不开任何文件）──
-        _btnTest = Loc.Bind(new Button { Location = new Point(10, 262), Width = 110, Height = 26 }, "测试连接");
+        // ── 测试连接（复用打开文件的完整拉起链路，design D15；不开任何文件）──
+        _btnTest = Loc.Bind(new Button { Location = new Point(10, 290), Width = 110, Height = 26 }, "测试连接");
         _btnTest.Click += async (_, _) => await TestConnectAsync();
         Controls.Add(_btnTest);
         _lblTestResult = new Label
         {
-            Location = new Point(130, 264),
+            Location = new Point(130, 292),
             Size = new Size(400, 40),
             AutoSize = false,
             ForeColor = Color.DimGray,
@@ -95,7 +116,7 @@ public sealed class FileProxyDialog : Form, ILocalizedUi
         var btnCancel = Loc.SizedButton(Loc.T("取消"), "取消", zhMinWidth: 80);
         btnSave.Click += (_, _) => { if (TrySave()) DialogResult = DialogResult.OK; };
         btnCancel.Click += (_, _) => DialogResult = DialogResult.Cancel;
-        Loc.LayoutButtonPair(this, btnSave, btnCancel, right: 522, y: 330);
+        Loc.LayoutButtonPair(this, btnSave, btnCancel, right: 522, y: 358);
         AcceptButton = btnSave;
         CancelButton = btnCancel;
     }
@@ -113,7 +134,8 @@ public sealed class FileProxyDialog : Form, ILocalizedUi
         }
         _txtPipe.Text = s.FileProxyPipeName;
         _txtLaunchFile.Text = s.FileProxyLaunchFile;
-        _txtLaunchArgs.Text = s.FileProxyLaunchArgs;
+        // 旧配置的参数模板可能带尾部 --pipe {pipe}：载入时剥掉展示（design D17，服务层会自动追加）
+        _txtLaunchArgs.Text = FileProxyService.NormalizeLegacyArgs(s.FileProxyLaunchArgs);
         _numTimeout.Value = Math.Clamp(s.FileProxyLaunchTimeoutMs, (int)_numTimeout.Minimum, (int)_numTimeout.Maximum);
     }
 
@@ -168,7 +190,11 @@ public sealed class FileProxyDialog : Form, ILocalizedUi
         _btnTest.Enabled = false;
         try
         {
-            using var client = await Services.FileProxyClient.ConnectAsync(pipe, 2000).ConfigureAwait(true);
+            // 复用打开文件的完整拉起链路（design D15）：以对话框当前字段值现构 settings，
+            // 测的就是所配即所得，不需要先保存；拉起进程驻留复用，应用退出统一回收
+            var settings = new Services.FileProxySettings(pipe,
+                _txtLaunchFile.Text.Trim(), _txtLaunchArgs.Text.Trim(), (int)_numTimeout.Value);
+            using var client = await Services.FileProxyService.EnsureProxyAsync(settings).ConfigureAwait(true);
             SetTestResult("测试连接成功：{0}（协议版本 {1}）",
                 new object?[] { client.ProxyName ?? "", Services.FileProxyClient.ProtoVersion });
         }
@@ -177,6 +203,57 @@ public sealed class FileProxyDialog : Form, ILocalizedUi
             SetTestResult("测试连接失败：{0}", new object?[] { ex.Message });
         }
         finally { _btnTest.Enabled = true; }
+    }
+
+    // ── 浏览：文件选择填路径，杜绝手敲整行命令与全角引号（design D16）──
+
+    // 命令行预览实时刷新（design D17）：展示最终完整启动命令，透明代替魔法，可直接复制手动运行
+    void UpdatePreview()
+    {
+        _lblPreview.Text = Loc.F("命令行预览：{0}",
+            FileProxyService.BuildCommandLine(_txtLaunchFile.Text.Trim(), _txtLaunchArgs.Text.Trim(), _txtPipe.Text.Trim()));
+    }
+
+    void BrowseExecutable()
+    {
+        using var dlg = new OpenFileDialog
+        {
+            Title = Loc.T("选择可执行文件"),
+            Filter = Loc.T("程序 (*.exe)|*.exe|所有文件 (*.*)|*.*"),
+            CheckFileExists = true,
+        };
+        if (dlg.ShowDialog(this) == DialogResult.OK)
+            _txtLaunchFile.Text = dlg.FileName;
+    }
+
+    void BrowseScript()
+    {
+        using var dlg = new OpenFileDialog
+        {
+            Title = Loc.T("选择脚本文件"),
+            Filter = Loc.T("脚本 (*.js;*.py)|*.js;*.py|所有文件 (*.*)|*.*"),
+            CheckFileExists = true,
+        };
+        if (dlg.ShowDialog(this) != DialogResult.OK) return;
+        // 含空格才加引号，与 FileProxyService.QuoteIfNeeded 同口径；引号一律半角
+        string path = dlg.FileName.Contains(' ') ? "\"" + dlg.FileName + "\"" : dlg.FileName;
+        // 智能替换而非光标插入：参数开头若已是路径 token（带引号，或含 \ / 的首段）则整体替换，
+        // 避免重复选择脚本时路径互相拼接；开头不是路径（如只有 --pipe {pipe}）才从头插入
+        string cur = _txtLaunchArgs.Text;
+        int selStart = 0, selLen = 0;
+        if (cur.Length > 0 && cur[0] == '"')
+        {
+            int close = cur.IndexOf('"', 1);
+            if (close > 0) selLen = close + 1;
+        }
+        else
+        {
+            int sp = cur.IndexOf(' ');
+            if (sp < 0) sp = cur.Length;
+            if (sp > 0 && cur.IndexOfAny(new[] { '\\', '/' }, 0, sp) >= 0) selLen = sp;
+        }
+        _txtLaunchArgs.Select(selStart, selLen);
+        _txtLaunchArgs.SelectedText = path;
     }
 
     void SetTestResult(string keyOrText, object?[]? args)

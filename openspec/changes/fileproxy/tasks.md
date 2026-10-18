@@ -51,6 +51,21 @@
 - [x] 7.3 跑 tstrun 全量并报告口径数字（相对基线无新增失败），验证输出含用例总数与通过数（**tstrun 口径：633 过 / 0 失败 / 0 跳过** = 519 基线 + 114 条新增；相对基线无回归）
 - [x] 7.4 写发布说明（打 tag 前完成）：含「单实例为 BREAKING 行为变更」显著声明，并**明确写出丧失的能力**（不能再多窗口对比多份日志——单实例代价无使用统计数据可量化，项目无遥测，声明是唯一触达手段，见 design D13），验证 release note 文件存在且声明单实例变更与能力丧失（`docs/private/releasenote/RELEASE-V0.1.5.md` 已建，中英双语含 ⚠️ BREAKING 声明与能力丧失说明；版本号未动——升级与打 tag 为发布动作，待维护者指示）
 
+## 8. 设置对话框易用性增强（2026-10-18 追加，design D15/D16）
+
+- [x] 8.1 测试连接改走 `EnsureProxyAsync` 完整拉起链路（对话框字段值现构 `FileProxySettings`，服务层零改动）
+- [x] 8.2 可执行文件 / 参数两字段各加「浏览…」（OpenFileDialog；脚本路径按 `QuoteIfNeeded` 口径半角引号插入光标处）
+- [x] 8.3 新增 i18n 资源键进 `LocTable.FileProxyUi`（两个对话框标题 + 两组文件过滤器；「浏览…」Common 表已有定义，跨表重复会被扫描器测试拦下，勿重复添加）。LocTable 过滤集 30/0 过
+- [x] 8.4 全量测试无新增失败（stash 前后对照实验：改动前代码 FileProxyLoopbackTests 同样 14 过 / 2 失败，与本次改动无关）。注意两点既有问题待查：① 应用正在运行时 SingleInstance/SpoolCleanup/LogDocumentProxied 共 6 条因互斥体与目录占用失败（环境性，关应用即过）；② `SpoolAsync_短读`/`SpoolAsync_中途取消` 两条在本机确定性失败——失败/取消路径的 sessionDir 未删且无删除失败留痕，文件系统级立即删除 8MB 新文件无此问题，疑似 tstrun 并行执行或环境差异，需单独排查
+
+## 9. 管道名自动追加 + 命令行预览（2026-10-18 追加，design D17）
+
+- [x] 9.1 服务层 `BuildLaunchArgs`：含 `{pipe}` → 旧替换；不含 → 末尾追加 `--pipe 管道名`（启动进程/测试连接/预览/留痕共用同一串）；`NormalizeLegacyArgs` 剥尾部模板
+- [x] 9.2 对话框：参数标签换新键、载入归一化、命令行预览实时刷新（三字段 TextChanged）、布局下移（grpLaunch 112→140，下方控件 +28）
+- [x] 9.3 LocTable.FileProxyUi：新键 2 条（参数标签、命令行预览），删旧键「参数（{pipe} 为管道名占位符）」
+- [x] 9.4 FileProxyLaunchTests：BuildLaunchArgs 两种形态 + NormalizeLegacyArgs 共 3 条新用例；BuildCommandLine 空参数断言随新语义更新（`proxy.exe --pipe p1`）
+- [x] 9.5 tstrun 验证 + 示例 README 同步（FileProxyLaunch 过滤集 13/0；全量 627 过——应用运行中 7 条环境性失败（SingleInstance/SpoolCleanup/LogDocumentProxied，关应用即过）+ 2 条既有 SpoolAsync 失败（§8.4 已记录），无本次改动引入的失败；README 中英 4 处已同步）
+
 ## Workflow follow-up
 
 - 维护者验收通过后，如其明确指示归档：执行 `openspec archive fileproxy`（delta 并入 specs、change 入 archive），同批更新 FEATURES 受影响条目
