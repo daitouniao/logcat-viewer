@@ -101,12 +101,12 @@ TEXT_MUTATIONS = [
      "                prev = 0;\n                pos = nl >= 0 ? nl + 1 : data.Length;\n                continue;",
      "空行不再重置合并状态（回退修法 A）"),
     ("Services/LogDocument.cs",
-     "        var part = ScanRange(Path, IndexedSize, newSize, Join, _prevHeadAtEnd, _joinedAtEnd, progress, ct);",
-     "        var part = ScanRange(Path, IndexedSize, newSize, Join, true, _joinedAtEnd, progress, ct);",
+     "        var part = ScanRange(SourcePath, IndexedSize, newSize, Join, _prevHeadAtEnd, _joinedAtEnd, progress, ct);",
+     "        var part = ScanRange(SourcePath, IndexedSize, newSize, Join, true, _joinedAtEnd, progress, ct);",
      "Append：prevHeadDoc 改回恒 true（批界合并缓存失效）"),
     ("Services/LogDocument.cs",
-     "        var part = ScanRange(Path, IndexedSize, newSize, Join, _prevHeadAtEnd, _joinedAtEnd, progress, ct);",
-     "        var part = ScanRange(Path, IndexedSize, newSize, Join, _prevHeadAtEnd, 0, progress, ct);",
+     "        var part = ScanRange(SourcePath, IndexedSize, newSize, Join, _prevHeadAtEnd, _joinedAtEnd, progress, ct);",
+     "        var part = ScanRange(SourcePath, IndexedSize, newSize, Join, _prevHeadAtEnd, 0, progress, ct);",
      "Append：joinedDoc 改回每批清零（MAX_JOIN 退化为每批预算）"),
     ("Services/LogDocument.cs",
      "        // 批末状态必须在任何早退分支之前入缓存：整批空行走 \"unchanged\" 但合并状态已变\n        _prevHeadAtEnd = part.EndPrevHead;",
@@ -318,6 +318,138 @@ TEXT_MUTATIONS = [
      "        if (Levels.Length > 0 && !Levels.OrderBy(x => x).SequenceEqual(allLevels.OrderBy(x => x)))\n        {\n            var names",
      "        if (Levels.Length > 0)\n        {\n            var names",
      "FilterSpec.Describe：全集级别也输出「级别 ...」（缺用例）"),
+
+    # ══ 2026-10-18 第二轮：fileproxy（6973681/27190e2）/ 崩溃汇总（58fbd8a）/ root 检测（2589f47）══
+    # 这些代码在首轮变异清单建立之后落地，此前从未被变异测试验证。
+
+    # ── FileProxyService：代理判定 / 启动命令构造 ──
+    ("Services/FileProxyService.cs",
+     "            FileProxyMode.On => true,",
+     "            FileProxyMode.On => false,",
+     "FileProxyDecision：On 模式恒走代理失效"),
+    ("Services/FileProxyService.cs",
+     "            FileProxyMode.Auto => !directOpenSucceeded || !looksLikeText,",
+     "            FileProxyMode.Auto => !directOpenSucceeded && !looksLikeText,",
+     "FileProxyDecision：Auto 的 || 退化为 &&（真值表应抓）"),
+    ("Services/FileProxyService.cs",
+     "        if (name.Contains('\\\\') || name.Contains('/')) return \"管道名不能包含路径分隔符\";",
+     "        if (name.Contains('\\\\')) return \"管道名不能包含路径分隔符\";",
+     "ValidatePipeName：不再拒绝正斜杠分隔符"),
+    ("Services/FileProxyService.cs",
+     "    public static bool NeedsHugeFileConfirm(long openSize) => openSize > HugeFileThreshold;",
+     "    public static bool NeedsHugeFileConfirm(long openSize) => openSize >= HugeFileThreshold;",
+     "NeedsHugeFileConfirm：> 改 >=（边界探测）"),
+    ("Services/FileProxyService.cs",
+     "        => (argsTemplate ?? \"\").Contains(\"{pipe}\", StringComparison.Ordinal)",
+     "        => (argsTemplate ?? \"\").Contains(\"{PIPE}\", StringComparison.Ordinal)",
+     "BuildLaunchArgs：{pipe} 占位符判定失效（旧形态全走追加分支）"),
+    ("Services/FileProxyService.cs",
+     "        if (s.EndsWith(\"--pipe {pipe}\", StringComparison.OrdinalIgnoreCase))",
+     "        if (false)",
+     "NormalizeLegacyArgs：不再剥尾部 --pipe {pipe}"),
+    ("Services/FileProxyService.cs",
+     "        => args.Length > 0 ? args + \" --pipe \" + QuoteIfNeeded(pipeName) : \"--pipe \" + QuoteIfNeeded(pipeName);",
+     "        => args.Length > 0 ? args + \"--pipe \" + QuoteIfNeeded(pipeName) : \"--pipe \" + QuoteIfNeeded(pipeName);",
+     "AppendPipeArg：丢参数间空格"),
+    ("Services/FileProxyService.cs",
+     "        => s.Length > 0 && (s.Contains(' ') || s.Contains('\\t')) ? \"\\\"\" + s + \"\\\"\" : s;",
+     "        => s;",
+     "QuoteIfNeeded：不再加引号（含空格路径）"),
+
+    # ── FileProxyService：spool 进度 / 落盘 / 清理 ──
+    ("Services/FileProxyService.cs",
+     "            var pct = Math.Min(0.5, 0.5 * received / expected);",
+     "            var pct = 0.5 * received / expected;",
+     "SpoolProgress：去掉 50% 封顶"),
+    ("Services/FileProxyService.cs",
+     "        if (expected > 0 && received <= expected)",
+     "        if (expected > 0 && received < expected)",
+     "SpoolProgress：实收恰等于期望时误入追逐态分支（边界）"),
+    ("Services/FileProxyService.cs",
+     "        if (name.Length == 0) return \"proxy.log\";",
+     "        if (false) return \"proxy.log\";",
+     "SpoolFileNameFor：空文件名不再回退 proxy.log"),
+    ("Services/FileProxyService.cs",
+     "        return string.Concat(name.AsSpan(0, 48), name.AsSpan(name.Length - 16));",
+     "        return string.Concat(name.AsSpan(0, 48), name.AsSpan(name.Length - 15));",
+     "SpoolFileNameFor：截断尾段 16 → 15"),
+    # ⚠️ 不能变异 `received += chunk.Length;`（如 -1）：received 同时是读偏移，
+    # 会让读位置渐进逼近文件尾却永不到达 EOF → 死循环，runner 30 分钟超时。
+    # 改为直接关掉 EOF 后的完整性判定。
+    ("Services/FileProxyService.cs",
+     "            if (received != expected) throw ShortRead(received, expected);",
+     "            if (false) throw ShortRead(received, expected);",
+     "SpoolCoreAsync：EOF 后不再校验实收==期望（完整性判定失效）"),
+    ("Services/FileProxyService.cs",
+     "            if (activeDirs != null && activeDirs.Contains(dir)) { skipped++; continue; }",
+     "            if (false) { skipped++; continue; }",
+     "CleanupStaleSpoolDirs：不再跳过活跃目录"),
+
+    # ── FileProxyClient：协议握手 / 帧 ──
+    ("Services/FileProxyClient.cs",
+     "        if (resp.Proto != ProtoVersion)",
+     "        if (false)",
+     "HelloAsync：协议版本校验失效"),
+    ("Services/FileProxyClient.cs",
+     "        if (n < 0 || n > MaxReadLen)",
+     "        if (n < 0)",
+     "ReadAsync：不再拒绝超上限负载长度"),
+    ("Services/FileProxyClient.cs",
+     "    internal static int ClampLen(int len) => Math.Clamp(len, 0, MaxReadLen);",
+     "    internal static int ClampLen(int len) => len;",
+     "ClampLen：不再截断到 16MB 上限"),
+    ("Services/FileProxyClient.cs",
+     "        if (resp.Id != id)",
+     "        if (false)",
+     "SendAsync：响应 ID 匹配校验失效"),
+    ("Services/FileProxyClient.cs",
+     "            filled = take;",
+     "            filled = 0;",
+     "ReadExactAsync：leftover 字节不再计入（帧错位回归）"),
+
+    # ── CrashExtractor：误报防线 ──
+    ("Services/CrashExtractor.cs",
+     "        for (int j = head + 1; j <= head + 3 && j < lines.Length; j++)",
+     "        for (int j = head + 1; j <= head + 1 && j < lines.Length; j++)",
+     "TryJava：Process 行窗口 3 行 → 1 行（窗口边界探测）"),
+    ("Services/CrashExtractor.cs",
+     "            if (!t.Contains(\", PID\")) continue;",
+     "            if (false) continue;",
+     "TryJava：不再要求 , PID（业务日志误报防线失效）"),
+    ("Services/CrashExtractor.cs",
+     "                if (string.Equals(name, s, StringComparison.Ordinal)) return name;",
+     "                if (name.StartsWith(\"SIG\", StringComparison.Ordinal)) return name;",
+     "FindSignal：信号白名单退化为 SIG 前缀（SIGKILL 应被抓）"),
+    ("Services/CrashExtractor.cs",
+     "        if (s[0] < 'a' || s[0] > 'z') return false;",
+     "        if (false) return false;",
+     "IsPackageName：不再要求小写字母开头"),
+    ("Services/CrashExtractor.cs",
+     "            if (!tombstoneHead && t.StartsWith(\"*** *** ***\", StringComparison.Ordinal))\n                tombstoneHead = true;",
+     "            if (false)\n                tombstoneHead = true;",
+     "TryNative：tombstone 头不再识别（tombstone 全归 native）"),
+    ("Services/CrashExtractor.cs",
+     "            if (!t.StartsWith(\"ANR in \", StringComparison.Ordinal)) continue;",
+     "            if (!t.StartsWith(\"ANR\", StringComparison.Ordinal)) continue;",
+     "TryAnr：前缀放宽为 ANR（业务日志误报防线失效）"),
+    ("Services/CrashExtractor.cs",
+     "    internal static readonly string[] FastKeywords = { \"FATAL EXCEPTION\", \"SIG\", \"ANR in \", \"*** ***\" };",
+     "    internal static readonly string[] FastKeywords = { \"FATAL EXCEPTION\", \"ANR in \", \"*** ***\" };",
+     "FastKeywords：快筛丢 SIG 关键字（扫描零分配路径覆盖探测）"),
+
+    # ── AdbManager：root 检测纯函数 ──
+    ("Services/AdbManager.cs",
+     "        if (suIdOut == null)\n            return new RootDetectEntry(RootMode.None, SuFailed: true);",
+     "        if (false)\n            return new RootDetectEntry(RootMode.None, SuFailed: true);",
+     "ClassifyRootOutput：su 无输出不再判 SuFailed"),
+    ("Services/AdbManager.cs",
+     "        cached is null || cached.Mode == RootMode.Adbd;",
+     "        cached is null;",
+     "RootDetect ShouldRedetect：Adbd 型不再自动重测"),
+    ("Services/AdbManager.cs",
+     "        mode == RootMode.Su ? $\"su -c {ShellQuote(cmd)}\" : cmd;",
+     "        cmd;",
+     "BuildRootShellCmd：Su 型不再加 su 包裹"),
 ]
 
 # ── 行号型变异（解决同构代码的 str.replace 歧义）────────────────────────────
@@ -354,13 +486,12 @@ LINE_MUTATIONS = [
      "if (ts < 0) continue;",
      "if (ts < 0 && minSet.Count == int.MaxValue) continue;",
      "FilterTail(335)：分钟过滤不再跳过无时间戳行"),
-    # 2026-10-05 核对：本行原为 281（上面多了一行 Trim 防御），已下移到 280。
-    # 2026-10-15 核对：MAX_JOIN 13→14（ScanPart 增 EndPrevHead/EndJoined 注释行上移）；TagOf 204→217（同因+fix 注释）。
-    ("Services/CommandStore.cs", 280,
+    # 2026-10-18 核对：RenameCategory 空名校验从 280 漂到 336（X-A8 后多次增删）。
+    ("Services/CommandStore.cs", 336,
      "if (oldName.Length == 0 || newName.Length == 0) return false;",
      "if (oldName.Length == 0) return false;",
      "RenameCategory：不再拒绝空的新名"),
-    ("Services/CommandStore.cs", 280,
+    ("Services/CommandStore.cs", 336,
      "if (oldName.Length == 0 || newName.Length == 0) return false;",
      "if (false) return false;",
      "RenameCategory：不再拒绝任一空名"),
@@ -368,7 +499,7 @@ LINE_MUTATIONS = [
      "const int MAX_JOIN = 200;",
      "const int MAX_JOIN = 1;",
      "MAX_JOIN 200 → 1（续行合并上限）"),
-    ("Services/LogDocument.cs", 217,
+    ("Services/LogDocument.cs", 243,
      'if (row < 0 || row >= _n) return "";',
      'if (row < 0) return "";',
      "TagOf：去掉上界检查（只挡负数）"),
@@ -377,10 +508,14 @@ LINE_MUTATIONS = [
 
 def run_tests():
     """跑全量测试，解析反射 runner 的输出。返回 (失败数, 摘要行, 错误详情)。"""
-    r = subprocess.run(
-        ["dotnet", "run", "-c", "Release", "--no-restore"],
-        cwd=RUNNER, capture_output=True, text=True,
-        encoding="utf-8", errors="replace", timeout=1800)
+    try:
+        r = subprocess.run(
+            ["dotnet", "run", "-c", "Release", "--no-restore"],
+            cwd=RUNNER, capture_output=True, text=True,
+            encoding="utf-8", errors="replace", timeout=1800)
+    except subprocess.TimeoutExpired:
+        # 变异可能造成死循环；超时必须如实报，不能拖死整轮
+        return None, None, f"测试超时（>1800s，疑似变异导致死循环）"
     out = (r.stdout or "") + (r.stderr or "")
     for line in out.splitlines():
         if "passed:" in line:

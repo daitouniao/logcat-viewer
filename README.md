@@ -4,8 +4,8 @@
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
 [![Platform: Windows](https://img.shields.io/badge/platform-Windows-lightgrey)](#requirements)
 [![CI](https://github.com/daitouniao/logcat-viewer/actions/workflows/ci.yml/badge.svg)](https://github.com/daitouniao/logcat-viewer/actions/workflows/ci.yml)
-[![Tests: 519 passing](https://img.shields.io/badge/tests-519%20passing-green)](docs/TESTING.md)
-[![Coverage: 98.85% lines](https://img.shields.io/badge/coverage-98.85%25%20lines-blue)](docs/TESTING.md)
+[![Tests: 623 passing](https://img.shields.io/badge/tests-623%20passing-green)](docs/TESTING.md)
+[![Coverage: 97.36% lines](https://img.shields.io/badge/coverage-97.36%25%20lines-blue)](docs/TESTING.md)
 
 A Windows desktop viewer for Android logs (`logcat`). Built with WinForms on .NET 10, it opens **tens of millions of log lines instantly** using memory-mapped files and a columnar index — and it also drives your device over ADB: live capture, screenshots, screen recording, two-pane file transfer, and APK install/uninstall.
 
@@ -183,7 +183,7 @@ dotnet test tests/logcat.Tests/logcat.Tests.csproj --collect:"XPlat Code Coverag
 python tests/coverage-report.py     # writes tests/coverage-report.html
 ```
 
-Current status: **519 tests, all passing**; **98.85%** line coverage (2,937 / 2,971 lines), **87.79%** branch coverage (1,230 / 1,401 branches).
+Current status: **623 tests, all passing**; **97.36%** line coverage (3,463 / 3,557 lines), **88.44%** branch coverage (1,409 / 1,593 branches).
 
 The scope is defined in `tests/logcat.Tests/coverlet.runsettings` and excludes two groups:
 
@@ -275,7 +275,7 @@ Services/
   AppInfo.cs            Product name and version (reads Assembly InformationalVersion)
 tests/
   coverage-report.py    Coverage report generation (coverlet cobertura XML → readable HTML)
-  logcat.Tests/         xUnit test project (519 tests: log parsing / columnar index / filter engine / crash extraction / persistence / localization)
+  logcat.Tests/         xUnit test project (623 tests: log parsing / columnar index / filter engine / crash extraction / persistence / localization)
     coverlet.runsettings Coverage scope (Include / Exclude rules)
 docs/
   BUILDING.md            How to build and publish — the two `dotnet publish` commands, artifact verification, pitfall table

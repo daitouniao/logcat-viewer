@@ -5,7 +5,8 @@ namespace logcat.Tests;
 
 /// <summary>
 /// 代理使用判定（spec「代理使用判定」九格真值表 + 「模式配置与默认关闭」）。
-/// 与 <see cref="AppSettingsTests"/> 的分工：那边管持久化字段与默认值，这边管判定语义。
+/// 与 <see cref="AppSettingsTests"/> 的分工：那边管持久化字段、默认值与落盘 round-trip；
+/// 模式解析与判定语义以这里为唯一入口（勿在两处重复）。管道名校验见 <see cref="FileProxyLaunchTests"/>。
 /// Off 模式「不进分流段 / 装载路径逐字节一致」的集成锚随装载入口接入（tasks 5.2）补进本类。
 /// </summary>
 public class FileProxyModeTests
@@ -34,16 +35,11 @@ public class FileProxyModeTests
     [InlineData("off", FileProxyMode.Off)]
     [InlineData("on", FileProxyMode.On)]
     [InlineData("auto", FileProxyMode.Auto)]
-    [InlineData("On ", FileProxyMode.Off)]
+    [InlineData("On ", FileProxyMode.Off)]     // spec 场景逐字点名的「看着像其实不是」
+    [InlineData("ON", FileProxyMode.Off)]      // 只认小写
+    [InlineData(" on", FileProxyMode.Off)]
+    [InlineData("开启", FileProxyMode.Off)]     // 只认小写英文原始串，中文不认
     [InlineData("xyz", FileProxyMode.Off)]
     public void 模式解析_不识别一律回退关闭(string raw, FileProxyMode expect)
         => Assert.Equal(expect, FileProxyModes.Parse(raw));
-
-    [Fact]
-    public void Off模式_任何输入组合都不走代理()
-    {
-        foreach (var openOk in new[] { true, false })
-            foreach (var text in new[] { true, false })
-                Assert.False(FileProxyDecision.ShouldUseProxy(FileProxyMode.Off, openOk, text));
-    }
 }

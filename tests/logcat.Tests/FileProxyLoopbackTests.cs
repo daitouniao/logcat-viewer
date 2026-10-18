@@ -391,6 +391,63 @@ public class FileProxyLoopbackTests
     }
 
     [Fact]
+    public void SpoolAsync_代理干净收尾但实收不足_仍报ShortRead删目录()
+    {
+        // 短读的另一半路径：不走异常（断线），而是代理优雅收尾（n=0 EOF）但实收 < open.size。
+        // 完整性判据是「实收 == open.size」，干净关闭不豁免（「不符即删」同一口径）
+        var content = Pattern(1024);
+        using var file = new TempBinary(content);
+        using var proxy = new FakeProxy { ServeMaxBytes = 512 };
+        proxy.WaitListeningAsync().GetAwaiter().GetResult();
+        using var client = Connect(proxy);
+
+        var sessionDir = System.IO.Path.Combine(TempRoot.Dir, "spool-" + Guid.NewGuid().ToString("N"));
+        var ex = Trap<FileProxyException>(
+            () => FileProxyService.SpoolAsync(client, file.Path, sessionDir).GetAwaiter().GetResult(), out _);
+
+        Assert.Equal(FileProxyErrorCode.ShortRead, ex.Code);
+        Assert.Equal(512, ex.Received);
+        Assert.Equal(content.Length, ex.Expected);
+        Assert.False(Directory.Exists(sessionDir));   // 干净收尾的短读同样删目录，无残留
+    }
+
+    [Fact]
+    public void 读响应负载超上限或为负_收负载前即报越界()
+    {
+        // FakeProxy 只回异常的 n 头、不发负载：越界拒绝必须发生在收取负载之前
+        using var file = new TempBinary(Pattern(64));
+        using var proxy = new FakeProxy { FakeReadN = FileProxyClient.MaxReadLen + 1 };
+        proxy.WaitListeningAsync().GetAwaiter().GetResult();
+        using var client = Connect(proxy);
+        var (h, _) = client.OpenAsync(file.Path).GetAwaiter().GetResult();
+
+        var ex = Trap<FileProxyException>(() => client.ReadAsync(h, 0, 16).GetAwaiter().GetResult(), out _);
+        Assert.Equal(FileProxyErrorCode.Io, ex.Code);
+        Assert.Contains("越界", ex.Message);
+        Assert.Contains((FileProxyClient.MaxReadLen + 1).ToString(), ex.Message);
+
+        // 负值同样拒绝（服务端回异常 n 即断开，另起一条连接）
+        using var proxy2 = new FakeProxy { FakeReadN = -5 };
+        proxy2.WaitListeningAsync().GetAwaiter().GetResult();
+        using var client2 = Connect(proxy2);
+        var (h2, _) = client2.OpenAsync(file.Path).GetAwaiter().GetResult();
+        var ex2 = Trap<FileProxyException>(() => client2.ReadAsync(h2, 0, 16).GetAwaiter().GetResult(), out _);
+        Assert.Equal(FileProxyErrorCode.Io, ex2.Code);
+        Assert.Contains("越界", ex2.Message);
+    }
+
+    [Fact]
+    public void 响应ID与请求不匹配_报Io拒绝()
+    {
+        using var proxy = new FakeProxy { IdOffset = 100 };
+        proxy.WaitListeningAsync().GetAwaiter().GetResult();
+        var ex = Trap<FileProxyException>(() => Connect(proxy), out _);
+        Assert.NotNull(ex);
+        Assert.Equal(FileProxyErrorCode.Io, ex.Code);
+        Assert.Contains("101", ex.Message);   // 期望 1，实际 1+100
+    }
+
+    [Fact]
     public void SpoolAsync_中途取消_目录已删()
     {
         var content = Pattern(Chunk * 3);   // 24MB，至少 3 块，留取消窗口
@@ -421,6 +478,15 @@ public class FileProxyLoopbackTests
             var (p50, _) = FileProxyService.SpoolProgress(expected, expected);
             Assert.Equal(0.5, p50, 6);
 
+            // 边界：实收恰等于期望必须落在正常态文案（「50%」），不得误入追逐态（MB 文案）——
+            // 两条路径 pct 同为 0.5，只有文案能区分
+            var (pe, me) = FileProxyService.SpoolProgress(expected, expected);
+            Assert.Contains("%", me);
+            Assert.DoesNotContain("源文件持续增长", me);
+            // 期望 0：无分母，直接 50%
+            var (p0, _) = FileProxyService.SpoolProgress(0, 0);
+            Assert.Equal(0.5, p0);
+
             // 追逐态（实收 > open.size，分母失效）：pct 驻留 50%，文案含已接收 MB 且逐块变化
             var (c1, cm1) = FileProxyService.SpoolProgress(expected + 8L * 1024 * 1024, expected);
             var (c2, cm2) = FileProxyService.SpoolProgress(expected + 16L * 1024 * 1024, expected);
@@ -432,18 +498,6 @@ public class FileProxyLoopbackTests
             Assert.NotEqual(cm1, cm2);   // 随块刷新（禁静态文案 + 静止进度条组合）
         }
         finally { zh(); }
-    }
-
-    [Fact]
-    public void SpoolProgress_追逐态_p50以上不再上涨_回调序列()
-    {
-        // 回调序列视角：SpoolAsync 内部越过分母时 pct 恰停在 50%（阈值边界）
-        var (a, _) = FileProxyService.SpoolProgress(0, 0);           // 期望 0：无分母，直接 50%
-        Assert.Equal(0.5, a);
-        var (b, _) = FileProxyService.SpoolProgress(1, 1);           // 实收 == 期望：常态 50%
-        Assert.Equal(0.5, b);
-        var (c, _) = FileProxyService.SpoolProgress(2, 1);           // 实收 > 期望：追逐态 50%
-        Assert.Equal(0.5, c);
     }
 
     [Fact]

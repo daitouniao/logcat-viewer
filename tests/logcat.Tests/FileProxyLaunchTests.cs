@@ -88,7 +88,7 @@ public class FileProxyLaunchTests : IDisposable
     [Fact]
     public void ValidatePipeName_非法值拒绝()
     {
-        // tstrun 不支持 Theory（静默跳过），非法值循环展开在单个 Fact 内
+        // 非法值循环展开在单个 Fact 内：失败时断言消息能带出具体是哪个输入
         foreach (var bad in new string?[] { null, "", "   ", "bad\\name", "bad/name" })
             Assert.True(FileProxyService.ValidatePipeName(bad) != null, $"非法值 {bad} 未被拒绝");
     }

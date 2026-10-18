@@ -4,8 +4,8 @@
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
 [![Platform: Windows](https://img.shields.io/badge/platform-Windows-lightgrey)](#环境要求)
 [![CI](https://github.com/daitouniao/logcat-viewer/actions/workflows/ci.yml/badge.svg)](https://github.com/daitouniao/logcat-viewer/actions/workflows/ci.yml)
-[![Tests: 519 passing](https://img.shields.io/badge/tests-519%20passing-green)](docs/TESTING.md)
-[![Coverage: 98.85% lines](https://img.shields.io/badge/coverage-98.85%25%20lines-blue)](docs/TESTING.md)
+[![Tests: 623 passing](https://img.shields.io/badge/tests-623%20passing-green)](docs/TESTING.md)
+[![Coverage: 97.36% lines](https://img.shields.io/badge/coverage-97.36%25%20lines-blue)](docs/TESTING.md)
 
 Windows 桌面端 Android 日志（logcat）查看器。基于 WinForms，使用内存映射文件 + 列式索引，可直接打开并流畅浏览千万行级别的日志文件，同时支持通过 ADB 实时采集设备日志、截图、录屏、文件互传、APK 安装/卸载与分类收藏常用命令。
 
@@ -183,7 +183,7 @@ dotnet test tests/logcat.Tests/logcat.Tests.csproj --collect:"XPlat Code Coverag
 python tests/coverage-report.py     # 输出 tests/coverage-report.html
 ```
 
-当前状态：**519 个用例全部通过**，行覆盖率 **98.85%**（2,937 / 2,971 行），分支覆盖率 **87.79%**（1,230 / 1,401 分支）。
+当前状态：**623 个用例全部通过**，行覆盖率 **97.36%**（3,463 / 3,557 行），分支覆盖率 **88.44%**（1,409 / 1,593 分支）。
 
 覆盖口径见 `tests/logcat.Tests/coverlet.runsettings`，排除两类代码：
 - **UI 层**：`Forms` / `Controls` / `frmMain` / `Program`，以及 `DpiFix` / `DpiDiag` / `Loc`。`Loc`（本地化运行时）与 `DpiFix` 同理——它一半的代码是控件树遍历、字体替换与文本像素测量，没有真实窗体与消息泵无从验证
@@ -276,7 +276,7 @@ Services/
   AppInfo.cs            产品名与版本号（读取程序集 InformationalVersion，标题与关于对话框共用）
 tests/
   coverage-report.py      覆盖率报告生成（coverlet 的 cobertura XML → 可读 HTML）
-  logcat.Tests/           xUnit 测试工程（519 个用例：日志解析 / 列式索引 / 过滤引擎 / 崩溃提取 / 持久化 / 本地化）
+  logcat.Tests/           xUnit 测试工程（623 个用例：日志解析 / 列式索引 / 过滤引擎 / 崩溃提取 / 持久化 / 本地化）
     coverlet.runsettings  覆盖率统计口径（Include / Exclude 规则）
 docs/
   BUILDING.md             怎么编译与发布（两个包各自的命令与产物验证）

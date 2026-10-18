@@ -1,7 +1,7 @@
 # 设计落地与缺陷修复跟踪表
 
 > 目的：跟踪 `docs/design/`（已评审定稿的设计）与 bugfix 报告的落地状态，保证文档与代码不脱节。报告验收后归档至 `docs/archive/bug/`，本表只作状态说明。
-> 维护规则见文末。最近核对：**2026-10-18**（测试基线 **636 用例** = 519 + 114 fileproxy + 3 D15-D17 追加；fileproxy 已归档，主规范 `openspec/specs/fileproxy/spec.md` 27 条需求；tstrun 反射 runner 口径；⚠️ 归档前全量实跑 632 过 / 4 失败，均为 `SingleInstanceTests` 在应用实例运行中被互斥体挡下的环境假红（同批用例今晨无应用运行时 633/0/0；tasks §8.4/§9.5 两条 `SpoolAsync` 本次实跑通过，详见 fileproxy 行）；覆盖率与变异测试口径未更新，沿用 2026-10-16 记录）。
+> 维护规则见文末。最近核对：**2026-10-18**（测试基线 **623 用例全过**（tstrun 反射 runner 口径；经变异测试审计后净 -22 条冗余用例、+6 条缺口用例）；行覆盖率 **97.36%**（3,463 / 3,557 行）、分支 **88.44%**、方法 **95.32%**，详见 [`TESTING.md`](TESTING.md)；变异测试 **103 点 102 KILLED + 1 等价**，详见 [`UT-AUDIT.md`](UT-AUDIT.md)；fileproxy 已归档，主规范 `openspec/specs/fileproxy/spec.md` 27 条需求）。
 
 ## 状态标记
 

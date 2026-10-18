@@ -55,6 +55,18 @@ public class CrashExtractorTests
         Assert.Null(CrashExtractor.TryExtract(text));
     }
 
+    [Fact]
+    public void Java_Process行缺PID标识不提取()
+    {
+        // 「Process: 」行还必须带「, PID」——缺 PID 形态的行不算 Process 行（误报第二道门）
+        var text = string.Join("\n",
+            "FATAL EXCEPTION: main",
+            "Process: com.example.app",
+            "java.lang.IllegalStateException: boom");
+
+        Assert.Null(CrashExtractor.TryExtract(text));
+    }
+
     // ── Native / tombstone ──
 
     [Fact]
@@ -131,6 +143,28 @@ public class CrashExtractorTests
         // 首 token 不是点分包名形态 → 不成立
         Assert.Null(CrashExtractor.TryExtract("ANR in the middle of nowhere"));
         Assert.Null(CrashExtractor.TryExtract("ANR in progress for pid 123"));
+    }
+
+    [Fact]
+    public void ANR_行首ANR但非ANR_in前缀不提取()
+    {
+        // 判据是整段前缀「ANR in 」而非缩写词：行首 ANR 后接其他内容（如多一个空格再接包名形态）不算
+        Assert.Null(CrashExtractor.TryExtract("ANR  com.example.app (main thread)"));
+    }
+
+    [Fact]
+    public void 包名形态_大写字母开头不认()
+    {
+        // 包名形态要求小写字母开头；「Com.Example.App」是类名形态，不是包名
+        Assert.Null(CrashExtractor.TryExtract("ANR in Com.Example.App (Com.Example.App/.MainActivity)"));
+
+        // Java 路径：崩溃事件仍成立（计数不丢），但包名提取留空
+        var m = CrashExtractor.TryExtract(string.Join("\n",
+            "FATAL EXCEPTION: main",
+            "Process: Com.Example.App, PID: 1",
+            "java.lang.IllegalStateException: boom"));
+        Assert.NotNull(m);
+        Assert.Equal("", m!.Value.Pkg);
     }
 
     // ── 空态 / 快筛 ──

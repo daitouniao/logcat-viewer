@@ -19,7 +19,11 @@ namespace logcat.Tests;
 /// 支持注入的行为（init 属性）：
 /// - <see cref="Proto"/> / <see cref="ProxyName"/>：hello 自描述与协议版本（不匹配测试用）
 /// - <see cref="OpenError"/>：open 恒失败并回该错误（代理侧错误透出测试用）
-/// - <see cref="AbortAfterBytes"/>：累计送出这么多字节后暴力断开（模拟中途断线）
+/// - <see cref="AbortAfterBytes"/>：累计送出这么多字节后暴力断开（模拟中途断线，客户端走异常路径）
+/// - <see cref="ServeMaxBytes"/>：累计只送这么多字节后 read 一律回 n=0（干净 EOF）——
+///   模拟「优雅收尾但实收 &lt; open.size」，与暴力断线相对（完整性判定测试用）
+/// - <see cref="FakeReadN"/>：read 响应头回这个 n 且不发负载（越界 n 应在收负载前被拒）
+/// - <see cref="IdOffset"/>：所有回包 id 加此偏移（响应 ID 匹配校验测试用）
 ///
 /// 观测面（字段/属性，供断言）：
 /// - <see cref="ConnectionCount"/> / <see cref="OpenCount"/> / <see cref="ReadCount"/>
@@ -34,6 +38,9 @@ sealed class FakeProxy : IAsyncDisposable, IDisposable
     public string ProxyName { get; init; } = "test-fileproxy/1.0";
     public string? OpenError { get; init; }
     public long AbortAfterBytes { get; init; } = -1;   // <0 = 不断线
+    public long ServeMaxBytes { get; init; } = -1;     // <0 = 不截短
+    public long? FakeReadN { get; init; }              // null = 正常回 n（可空：负值本身是合法注入）
+    public long IdOffset { get; init; }
 
     // ── 观测面 ──
     int _connections;
@@ -143,6 +150,7 @@ sealed class FakeProxy : IAsyncDisposable, IDisposable
                     continue;
                 }
 
+                id += IdOffset;
                 switch (op)
                 {
                     case "hello":
@@ -194,13 +202,16 @@ sealed class FakeProxy : IAsyncDisposable, IDisposable
                         // 与 examples/ 一致：len 按 16MB clamp，off 不得为负
                         long clamped = Math.Clamp(len, 0, FileProxyClient.MaxReadLen);
                         long want = Math.Min(clamped, Math.Max(0, fs.Length - off));
+                        if (ServeMaxBytes >= 0)
+                            want = Math.Min(want, Math.Max(0, ServeMaxBytes - Interlocked.Read(ref _totalSent)));
                         var buf = new byte[want];
                         if (want > 0)
                         {
                             fs.Position = off;
                             fs.ReadExactly(buf, 0, (int)want);   // 本地文件：精确读满，不做短读模拟
                         }
-                        await SendJson(conn, new JsonObject { ["id"] = id, ["ok"] = true, ["n"] = (int)want }).ConfigureAwait(false);
+                        await SendJson(conn, new JsonObject { ["id"] = id, ["ok"] = true, ["n"] = FakeReadN.HasValue ? FakeReadN.Value : (int)want }).ConfigureAwait(false);
+                        if (FakeReadN.HasValue) return;   // 异常 n：不发负载即断开（客户端应在收负载前拒绝）
                         if (want > 0)
                         {
                             await conn.WriteAsync(buf.AsMemory(0, (int)want), _cts.Token).ConfigureAwait(false);
