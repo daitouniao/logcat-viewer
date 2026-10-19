@@ -21,6 +21,10 @@
     <None Include="LICENSE" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <None Include="THIRD-PARTY-NOTICES.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <None Include="DISCLAIMER.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <!-- 文件代理示例（sample/fileproxy/）：随发布包分发，用户解压后按其中 README 即可配置代理 -->
+    <None Include="sample/**" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <!-- README 中的演示动图：按仓库内相对路径 docs/images/ 分发，保证解压后 README 图片链接可解析 -->
+    <None Include="docs/images/main.gif" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 
   <!--
@@ -34,7 +38,7 @@
 
     两种形态的取舍：
     - 自包含（约 120 MB）：目标机只需 Windows，双击即用，面向大多数用户
-    - 框架依赖（约 1.8 MB）：目标机须预装 .NET 10 Desktop Runtime，
+    - 框架依赖（约 2 MB）：目标机须预装 .NET 10 Desktop Runtime，
       面向已装运行时的机器 / 内网分发 / 带宽敏感场景
     注意：装运行时必须是 Desktop Runtime，只装 .NET Runtime 或
     ASP.NET Core Runtime 都起不来。
