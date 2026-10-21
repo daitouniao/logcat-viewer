@@ -22,6 +22,9 @@ artifacts/
 .idea/
 .workbuddy/
 .codebuddy/
+.qoder/
+.trae/
+.dsh/
 *.suo
 *.user
 *.userosscache
