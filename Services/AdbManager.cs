@@ -18,6 +18,17 @@ public sealed class AdbManager : IDisposable
 {
     readonly AdbClient _client;
     readonly ILogger _logger;
+
+    /// <summary>adb server 状态探测（生产实现走 <see cref="AdbServer.Instance"/> 的 GetStatus；测试可注入假实现）。</summary>
+    readonly Func<bool> _statusProbe;
+
+    /// <summary>adb server 拉起（生产实现走 <see cref="RunAdbAsync"/> 的 start-server；测试可注入假实现）。</summary>
+    readonly Func<Task<int>> _startServer;
+
+    /// <summary>设备监控的 socket 工厂（生产实现 new <see cref="AdbSocket"/>——构造即急切连接 5037，
+    /// server 不在时抛 <see cref="System.Net.Sockets.SocketException"/>；测试可注入假 socket）。</summary>
+    readonly Func<IAdbSocket> _socketFactory;
+
     DeviceMonitor? _monitor;
     CancellationTokenSource? _monitorCts;
 
@@ -34,18 +45,49 @@ public sealed class AdbManager : IDisposable
     public event EventHandler<List<DeviceInfo>>? DevicesChanged;
 
     public AdbManager(ILogger logger)
+        : this(logger, ProbeAdbServerStatus, StartAdbServerAsync, StartupStartServer, DefaultSocketFactory)
+    {
+    }
+
+    /// <summary>
+    /// 测试注入构造：以假实现替换四个生产 seam（状态探测 / 自愈拉起 / 构造时拉起 / 监控 socket），
+    /// 单测不触真实 <see cref="AdbServer"/>、不派生 adb 进程、零 5037 连接。
+    /// 公共构造签名不变，生产行为与原实现逐字一致。
+    /// </summary>
+    internal AdbManager(
+        ILogger logger,
+        Func<bool> statusProbe,
+        Func<Task<int>> startServer,
+        Action startupStart,
+        Func<IAdbSocket> socketFactory)
     {
         _logger = logger;
         _client = new AdbClient();
+        _statusProbe = statusProbe;
+        _startServer = startServer;
+        _socketFactory = socketFactory;
         try
         {
-            AdbServer.Instance.StartServer("adb", false);
+            startupStart();
         }
         catch (Exception ex)
         {
             _logger.LogWarning("启动 ADB server 失败: {0}", ex.Message);
         }
     }
+
+    /// <summary>生产状态探测：<see cref="AdbServer.Instance"/> 的 GetStatus 双态均不抛（停止态 IsRunning=false）。</summary>
+    static bool ProbeAdbServerStatus() => AdbServer.Instance.GetStatus().IsRunning;
+
+    /// <summary>生产自愈拉起：<c>adb start-server</c> 子进程；退出码 ≠ 0 或抛异常都算失败
+    /// （比库 StartServer 可靠：有退出码可判，异常自带 PATH 指引）。</summary>
+    static Task<int> StartAdbServerAsync() => RunAdbAsync("start-server", null, CancellationToken.None);
+
+    /// <summary>生产构造时拉起：沿用库原语（幂等，server 在跑时直接返回 OK），失败仅日志。</summary>
+    static void StartupStartServer() => AdbServer.Instance.StartServer("adb", false);
+
+    /// <summary>生产监控 socket：构造即急切连接 5037，server 不在时抛 SocketException（由 StartMonitor 的 catch 接住置空）。</summary>
+    static IAdbSocket DefaultSocketFactory() => new AdbSocket();
 
     // ── 设备枚举 ──
 
@@ -77,6 +119,59 @@ public sealed class AdbManager : IDisposable
             _logger.LogWarning("枚举设备失败: {0}", ex.Message);
         }
         return result;
+    }
+
+    // ── adb server 自愈 ──
+
+    /// <summary>
+    /// 刷新设备前的 adb server 自愈：先探测，未运行则自动拉起，复核仍不可达返回手动处理提示。
+    /// </summary>
+    /// <remarks>
+    /// 本方法 SHALL NOT 触及设备监控——是否重建监控由调用方按
+    /// <see cref="AdbServerSelfHealResult.Restarted"/> 决定（解耦保证单测零触网）。
+    /// 异常消息按仓库约定保持中文原文、不本地化（先例：<see cref="RunAdbAsync"/>）。
+    /// </remarks>
+    public async Task<AdbServerSelfHealResult> EnsureServerRunningAsync()
+    {
+        if (ProbeServerRunning())
+            return new AdbServerSelfHealResult(Prompt: null, Restarted: false);
+
+        string? reason = null;
+        try
+        {
+            var exit = await _startServer();
+            if (exit != 0) reason = $"adb start-server 退出码 {exit}";
+        }
+        catch (Exception ex)
+        {
+            reason = ex.Message;
+        }
+
+        if (reason == null)
+        {
+            // 拉起后复核：进程退出码 0 不等于 server 真的在听 5037
+            if (ProbeServerRunning())
+                return new AdbServerSelfHealResult(Prompt: null, Restarted: true);
+            reason = "拉起后 adb server 仍不可达";
+        }
+
+        return new AdbServerSelfHealResult(
+            Prompt: $"未能启动 adb server（请确认 adb 已加入 PATH，或手动执行 adb start-server）：{reason}",
+            Restarted: false);
+    }
+
+    /// <summary>探测 server 是否在运行；探测本身抛异常按未运行处理（如 adb 不在 PATH 时 GetStatus 失败）。</summary>
+    bool ProbeServerRunning()
+    {
+        try
+        {
+            return _statusProbe();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning("探测 adb server 状态失败: {0}", ex.Message);
+            return false;
+        }
     }
 
     // ── Shell ──
@@ -330,11 +425,22 @@ public sealed class AdbManager : IDisposable
         try
         {
             _monitorCts = new CancellationTokenSource();
-            _monitor = new DeviceMonitor(new AdbSocket());
-            _monitor.DeviceConnected += OnDeviceEvent;
-            _monitor.DeviceDisconnected += OnDeviceEvent;
-            _monitor.DeviceChanged += OnDeviceEvent;
-            _ = _monitor.StartAsync(_monitorCts.Token);
+            var monitor = new DeviceMonitor(_socketFactory());
+            _monitor = monitor;
+            monitor.DeviceConnected += OnDeviceEvent;
+            monitor.DeviceDisconnected += OnDeviceEvent;
+            monitor.DeviceChanged += OnDeviceEvent;
+            var ct = _monitorCts.Token;
+            // fire-and-forget 包 Task.Run：StartAsync 及监控循环的异常进不了上面的同步 catch
+            // （实证：故障要等 Dispose 才抛），不接住就是未观察异常。OCE（StopMonitor 取消）静默；
+            // 其余仅记日志——此处不置空 _monitor：僵尸态（server 被杀）下监控无异常也不再收事件，
+            // 重建只走 RestartMonitor，且 OCE 冒泡时置空会误杀刚重建的新监控
+            _ = Task.Run(async () =>
+            {
+                try { await monitor.StartAsync(ct); }
+                catch (OperationCanceledException) { }
+                catch (Exception ex) { _logger.LogWarning("设备监控运行失败: {0}", ex.Message); }
+            });
         }
         catch (Exception ex)
         {
@@ -351,9 +457,28 @@ public sealed class AdbManager : IDisposable
             _monitor.DeviceConnected -= OnDeviceEvent;
             _monitor.DeviceDisconnected -= OnDeviceEvent;
             _monitor.DeviceChanged -= OnDeviceEvent;
-            _monitor.Dispose();
+            try
+            {
+                // 监控循环已故障时 DeviceMonitor.Dispose 会把故障异常再抛一遍（实证），
+                // 不接住的话 RestartMonitor 将把异常抛进刷新流程
+                _monitor.Dispose();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning("停止设备监控失败: {0}", ex.Message);
+            }
             _monitor = null;
         }
+    }
+
+    /// <summary>
+    /// 无条件重建设备监控（Stop + Start）。server 曾被杀后存量监控进入僵尸态——
+    /// 不抛异常也不再收事件（实证），只能整体重建，不能以异常作为重建触发器。
+    /// </summary>
+    public void RestartMonitor()
+    {
+        StopMonitor();
+        StartMonitor();
     }
 
     async void OnDeviceEvent(object? sender, DeviceDataEventArgs e)

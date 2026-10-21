@@ -1950,6 +1950,19 @@ public partial class frmMain : Form, ILocalizedUi
         ShowStatus("刷新中…");
         try
         {
+            // 先自愈 adb server：未在运行则自动拉起；拉不起给明确提示，不误报「无设备」
+            var heal = await _adbManager.EnsureServerRunningAsync();
+            if (heal.Prompt is { } prompt)
+            {
+                ClearDeviceList();
+                // 运行时数据消息走 ShowStatusRaw（Loc.F 会被异常消息里的花括号炸 FormatException）
+                ShowStatusRaw(prompt);
+                SetAdbButtons(true);   // 刷新按钮保持可用，可重试
+                return;
+            }
+            // 实证：server 被杀后存量监控是僵尸态（不抛异常也不再收事件），自愈拉起成功后无条件重建
+            if (heal.Restarted) _adbManager.RestartMonitor();
+
             var devices = await _adbManager.ListDevicesAsync();
             _adbDevices.Clear();
             _adbDevices.AddRange(devices);
@@ -1962,8 +1975,7 @@ public partial class frmMain : Form, ILocalizedUi
             }
             else
             {
-                // Items.Clear() 后 SelectedIndex 归 -1，但 Text 会残留旧设备序列号，需显式清空
-                _comboDevice.Text = string.Empty;
+                ClearDeviceList();
                 ShowStatus("无设备");
             }
             SetAdbButtons(true);
@@ -1972,6 +1984,17 @@ public partial class frmMain : Form, ILocalizedUi
         {
             ShowStatus("刷新失败: {0}", ex.Message);
         }
+    }
+
+    /// <summary>
+    /// 清空设备列表：缓存、下拉 Items 与残留 Text（Items.Clear 后 SelectedIndex 归 -1，
+    /// 但 Text 会残留旧设备序列号，需显式清空）。自愈失败提示与空列表分支共用。
+    /// </summary>
+    void ClearDeviceList()
+    {
+        _adbDevices.Clear();
+        _comboDevice.Items.Clear();
+        _comboDevice.Text = string.Empty;
     }
 
     void OnDevicesChanged(List<DeviceInfo> devices)

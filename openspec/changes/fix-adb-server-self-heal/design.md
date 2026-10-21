@@ -14,6 +14,7 @@
 4. **监控僵尸态（甲/乙判定的实际答案）**：server 运行中被外部 kill-server，已存活的监控任务**既不抛异常也不退出**（fault=null），server 恢复、设备重连后**永远不再收到事件**——不崩、也不工作。因此自愈拉起成功后必须**无条件重建监控**（StopMonitor + StartMonitor），不能依赖异常触发。
 5. 环境特有发现（本机根因）：`%TEMP%\adb.log` 曾膨胀至 **3.7 GB** 且打开时 Permission denied，导致**任何 adb 都无法启动 server**（`* failed to start daemon`）——这很可能就是原始问题「系统没开 adb server 找不到设备」在本机的真实根因（server 不是没开，是起不来，而旧代码把异常吞成一行日志）。文件删除后恢复正常。另：本机 PATH 存在 4 个 adb.exe（Aibote×2 + SDK platform-tools），多版本共存。
 6. 沙箱注意事项：在 Qoder 会话内，**dotnet 子进程派生的 adb 无法创建 `%TEMP%\adb.log`**（Permission denied），bash 直跑同一命令正常——属父进程相关的沙箱拦截，不影响真实用户环境，但影响在会话内做停止态实验（对策：bash 侧编排 server 启停）。
+7. 实施期补充实证（2026-10-21，`.tmp-test/adbprobe` 假 `IAdbSocket` 驱动 + 真 server 停止态）：`DeviceMonitor.StartAsync(ct)` **返回的是「首批设备列表解析」任务而非循环任务**，循环随后台独立跑；取消可传播到阻塞读（`StopMonitor` 的 `Dispose` 不会挂死）；**监控循环已故障时 `DeviceMonitor.Dispose` 会把故障异常以 `AggregateException` 再抛一遍**——`StopMonitor` 的 `Dispose` 因此加 try/catch，否则 `RestartMonitor` 将把异常抛进刷新流程（async void 链路直接崩）。另证实 `new AdbSocket()` 自身急切连接（server 停止态即抛 `SocketException`），即「监控失败置空」的真实触发点在 socket 构造而非 `DeviceMonitor` 构造。
 
 ## 方案
 
