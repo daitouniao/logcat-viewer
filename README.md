@@ -282,13 +282,9 @@ docs/
   TESTING.md             How to run the suite and produce coverage (single entry point)
   UT-AUDIT.md            Mutation-testing audit — where the tests actually bite
   FEATURES.md            Feature plan — what is being built next and what is deliberately not built
-  IMPLEMENTATION-TRACKER.md  Design ↔ code ↔ bugfix status, tracked item by item
-  bugfixes/             Bug reports not yet accepted; after acceptance they move to `archive/bug/`
-  archive/              Archived snapshots (verified bug reports / completed designs)
-  design/
-    ADB-ROOT-DETECTION.md        ADB root detection (Su / Adbd / None modes, probe timeout)
-    RECENT-FILES-DESIGN.md       Most-recently-opened list (MRU), shipped
+  archive/              Archived snapshots (verified bug reports / completed designs / the retired tracker)
   images/main.gif        The demo animation at the top of this file
+Note: IMPLEMENTATION-TRACKER.md (design ↔ code ↔ bugfix status) was retired on 2026-10-22 — upkeep cost too high; its snapshot sits in `docs/archive/` and is no longer maintained.
 LICENSE                 Apache-2.0 full text
 THIRD-PARTY-NOTICES.md  Third-party licences
 DISCLAIMER.md           Disclaimer full text

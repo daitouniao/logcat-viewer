@@ -156,7 +156,7 @@ AdvancedSharpAdbClient.SyncService (3.6.16)
 3. `FileBrowserDialog.RunTransferAsync`：进度条改 0–100 百分比（`Maximum=100`）；多文件时按**总字节**折算整体进度（上传侧用 `FileInfo.Length`、下载侧用列表里的 `Size`，总量可在传输前算清）；结束前补一次 `Value = Maximum`（现在最后一格永不点亮）；`files.Count == 0` 与外层异常两条路径也走刷新；`CopyLocalFilesAsync` 并入 `_transferring` 守卫并给 `_pbar` 加 try/finally。
 4. shell 阶段 `ProgressBar.Style = Marquee`（滚动），进字节阶段切回 `Blocks`；shell 阶段的具体动作（stat/mkdir/cp/chmod/chown/rm/sync）写进状态栏，文案键进 `LocTable.FileUi.cs`；直连路径全程 Blocks。
 5. i18n：`:272`/`:342` 两处硬编码插值改 `Loc.F`，新增键入 `LocTable.FileUi.cs`。
-6. 文档：`docs/FEATURES.md` 文件浏览条目 + `docs/IMPLEMENTATION-TRACKER.md` 状态同步；进度/刷新行为若要长期约束，另立 spec capability（当前 `openspec/specs/` 只有 `fileproxy`，文件浏览尚无规范条目）。
+6. 文档：`docs/FEATURES.md` 文件浏览条目状态同步；进度/刷新行为若要长期约束，另立 spec capability（当前 `openspec/specs/` 只有 `fileproxy`，文件浏览尚无规范条目）。
 
 
 ## 测试面（tstrun 口径）

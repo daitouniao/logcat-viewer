@@ -112,6 +112,6 @@ perDevice[serial]  ──►  s.LastRemotePath（全局兜底，理论 = /sdcard
 2. `FileBrowserDialog` 持有 serial；`SaveLastPaths` 写按设备记录 + 保留写全局兜底（或改为只在查表 miss 时用）
 3. `DeviceOpsDialog.CreatePage` 改传「按设备查得的起始路径」；补三级回落与静默失败
 4. 若采纳提示：`LocTable.FileUi.cs` 加键 + 状态栏一行
-5. 文档：`docs/FEATURES.md` 功能条目 + TRACKER 状态同步
+5. 文档：`docs/FEATURES.md` 功能条目状态同步
 
 > 第 4 步已按拍板结果 2 取消（静默回落，无提示、无新 i18n 键）。

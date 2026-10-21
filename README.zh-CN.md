@@ -283,13 +283,9 @@ docs/
   TESTING.md              怎么跑测试、怎么出覆盖率（唯一操作入口）
   UT-AUDIT.md             变异测试审计——测试到底咬不咬得住
   FEATURES.md             功能规划——接下来做什么、明确不做什么
-  IMPLEMENTATION-TRACKER.md  设计 ↔ 代码 ↔ bugfix 的状态跟踪（逐项对照）
-  bugfixes/               尚未验收的 bug 报告（验收并归档后移入 archive/bug/）
-  archive/               归档快照（已验收 bug 报告 / 已完成设计）
-  design/
-    ADB-ROOT-DETECTION.md       ADB root 检测（Su / Adbd / None 三态与探测超时）
-    RECENT-FILES-DESIGN.md      最近打开文档（MRU）设计（已落地）
+  archive/               归档快照（已验收 bug 报告 / 已完成设计 / 已停用的跟踪表）
   images/main.gif         README 顶部的演示动图
+说明：IMPLEMENTATION-TRACKER.md（设计 ↔ 代码 ↔ bugfix 状态跟踪）已于 2026-10-22 停用——维护成本过高，快照存于 `docs/archive/`，不再维护。
 LICENSE                 Apache-2.0 全文
 THIRD-PARTY-NOTICES.md  第三方库与工具链的许可声明
 DISCLAIMER.md           免责声明全文
