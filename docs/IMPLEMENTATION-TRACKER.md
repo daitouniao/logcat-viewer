@@ -1,7 +1,7 @@
 # 设计落地与缺陷修复跟踪表
 
 > 目的：跟踪 `docs/design/`（已评审定稿的设计）与 bugfix 报告的落地状态，保证文档与代码不脱节。报告验收后归档至 `docs/archive/bug/`，本表只作状态说明。
-> 维护规则见文末。最近核对：**2026-10-21**（测试基线 **628 用例全过**（tstrun 反射 runner 口径；623 基线 + 5 条暂存目录活性锁用例）；行覆盖率 **97.60%**（3,499 / 3,585 行）、分支 **88.46%**、方法 **95.65%**，详见 [`TESTING.md`](TESTING.md)；变异测试 **103 点 102 KILLED + 1 等价**，详见 [`UT-AUDIT.md`](UT-AUDIT.md)；fileproxy 已归档，主规范 `openspec/specs/fileproxy/spec.md` 27 条需求；`fix-spool-multisession` 已归档（2026-10-18，提交 `5c74470`；手工验收项开放——维护者暂无验证环境，暂定放行）。2026-10-21 复核：`fix-adb-server-self-heal`（adb server 自愈）实施完成，测试基线 628 → **637 用例全过**（tstrun 口径，+9 条 `AdbManagerServerSelfHealTests`，零触网）；手工验收三项开放（见第三节第 6 项）。
+> 维护规则见文末。最近核对：**2026-10-21**（测试基线 **628 用例全过**（tstrun 反射 runner 口径；623 基线 + 5 条暂存目录活性锁用例）；行覆盖率 **97.60%**（3,499 / 3,585 行）、分支 **88.46%**、方法 **95.65%**，详见 [`TESTING.md`](TESTING.md)；变异测试 **103 点 102 KILLED + 1 等价**，详见 [`UT-AUDIT.md`](UT-AUDIT.md)；fileproxy 已归档，主规范 `openspec/specs/fileproxy/spec.md` 27 条需求；`fix-spool-multisession` 已归档（2026-10-18，提交 `5c74470`；手工验收项开放——维护者暂无验证环境，暂定放行）。2026-10-21 复核：`fix-adb-server-self-heal`（adb server 自愈）实施完成，测试基线 628 → **637 用例全过**（tstrun 口径，+9 条 `AdbManagerServerSelfHealTests`，零触网）；手工验收三项开放（见第三节第 6 项）。2026-10-21 再核：`adb-buffer-manual-clear`（采集不清空设备日志缓冲区 + 「清空日志」按钮）实施完成，基线 637 → **638 用例全过**（tstrun 口径，+1 条跨午夜 Append 用例）；手工验收四项开放（见第三节第 7 项）。
 
 ## 状态标记
 
@@ -55,6 +55,12 @@
    - **adb 不在 PATH**（或临时改名模拟）：点刷新 → 状态栏出现手动处理提示、设备下拉被清空、再点刷新可重试（提示不误报「无设备」）。
    - **正常态零变化**：server 正常时刷新行为与改动前一致（枚举设备、root 检测缓存判定、无设备提示），自愈路径零副作用。
    - 验收依据口令：`<仓库根>/openspec/changes/fix-adb-server-self-heal/tasks.md` §3.3 与 design.md「手工验收清单」；bug 报告 `docs/bugfixes/ADB-SERVER-SELF-HEAL.md`。
+7. **adb-buffer-manual-clear 手工验收**（change 在途，2026-10-21 实施，tstrun 全量 638 过 / 0 失败；**BREAKING 行为变更：采集不再自动 `logcat -c`**）——以下四项保持开放：
+   - **清空生效**：连接设备点「清空日志」→ 状态栏「日志缓冲区已清空」，设备端 `logcat -d` 输出为空（仅横幅）。
+   - **可用性跟随**：无设备连接时按钮禁用；拔掉设备（或点刷新清空列表）按钮变灰；有设备恢复。
+   - **采集中禁用**：开始采集后「清空日志」与「开始采集」同灰；停止采集后恢复（有设备时）。
+   - **崩溃情报保留**：设备 crash buffer 有历史崩溃（如 talkback tombstone）时点「开始采集」，采集内容包含该崩溃、崩溃汇总窗可见——本 change 的核心动机场景。
+   - 验收依据口令：`<仓库根>/openspec/changes/adb-buffer-manual-clear/tasks.md` §4.3 与 `specs/adb-capture/spec.md`。
 
 ## 四、维护规则
 

@@ -607,6 +607,24 @@ public class LogDocumentTests
     }
 
     /// <summary>
+    /// 增量批次的跨午夜时间戳：追加行跨过 00:00（不跨年、不跨月边界翻转错误的风险点）。
+    /// 采集不再清空缓冲区后，历史内容（可能属于前一天）会经 Append 灌入文档，
+    /// 「末条 within 延续 vs 跨日重锚」两条编码路径都会被踩到，此用例防回归。
+    /// </summary>
+    [Fact]
+    public void Reload_追加批次跨午夜时时间戳正确推进()
+    {
+        using var tmp = new TempLogFile(Line("09-23 23:59:59.000", 'I', "Tag", "a"));
+        using var doc = LogDocument.Build(tmp.Path);
+
+        tmp.Append(Line("09-24 00:00:01.000", 'I', "Tag", "b"));
+        Assert.Equal("appended", doc.Reload());
+
+        Assert.Equal(2, doc.RowCount);
+        Assert.Equal(2000, doc.Ts[1] - doc.Ts[0]);
+    }
+
+    /// <summary>
     /// 追加的内容**全是空行**时：走完 ScanRange 却一条新记录都没产生、也没有续行
     /// （空行会中断合并）→ 返回 "unchanged"，但 IndexedSize 仍要推进到新长度，
     /// 否则下次 Reload 会拿旧边界重复扫描同一段。

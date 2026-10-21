@@ -37,11 +37,11 @@ public sealed class LogcatStream
         _logger = logger;
     }
 
-    public void Start(bool clearFirst = true)
+    public void Start()
     {
         if (IsRunning) return;
         _cts = new CancellationTokenSource();
-        _task = Task.Run(() => RunAsync(clearFirst, _cts.Token));
+        _task = Task.Run(() => RunAsync(_cts.Token));
     }
 
     public async Task StopAsync()
@@ -56,16 +56,11 @@ public sealed class LogcatStream
         _task = null;
     }
 
-    async Task RunAsync(bool clearFirst, CancellationToken ct)
+    // 不清空设备日志缓冲区：采集从缓冲区现有内容（含历史与崩溃情报）起流，
+    // 随后转实时。清空是显式动作（主界面「清空日志」按钮），采集流程不隐式清除。
+    async Task RunAsync(CancellationToken ct)
     {
-        _logger.LogInformation("LogcatStream 启动: serial={0}, clearFirst={1}", _serial, clearFirst);
-
-        // 可选：清空缓冲区
-        if (clearFirst)
-        {
-            try { await _manager.ShellAsync(_serial, "logcat -c", 5); }
-            catch { /* 忽略 */ }
-        }
+        _logger.LogInformation("LogcatStream 启动: serial={0}", _serial);
 
         string cmd = "logcat -v threadtime";
         var lineCount = 0;

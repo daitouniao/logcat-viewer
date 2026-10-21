@@ -37,6 +37,10 @@ static partial class LocTable
             "Also re-check the root status of each device?\nRe-checking may pop up a root authorization prompt on the device; choose \"No\" to only refresh the device list and keep the cached results.",
         ["▶ 开始采集"] = "▶ Start Capture",
         ["■ 停止采集"] = "■ Stop Capture",
+        ["清空日志"] = "Clear Log",
+        ["日志缓冲区已清空"] = "Log buffer cleared",
+        ["清空日志失败：{0}"] = "Failed to clear log buffer: {0}",
+        ["请先连接设备"] = "Connect a device first",
         ["设备:"] = "Device:",
 
         // ── 第二行工具栏：标记与快速过滤 ──

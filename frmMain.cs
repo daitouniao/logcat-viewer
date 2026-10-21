@@ -78,7 +78,7 @@ public partial class frmMain : Form, ILocalizedUi
     // 采集启停按钮：用字段引用判定身份，不能靠「按钮文本是否包含某个词」——
     // 英文态文本是 "▶ Start Capture"，任何按中文子串的 Contains 判断都会永远为 false，
     // 表现为「开始采集」按钮在英文界面永久灰死、点不动。
-    ToolStripButton _btnAdbStart = null!, _btnAdbStop = null!;
+    ToolStripButton _btnAdbStart = null!, _btnAdbStop = null!, _btnAdbClear = null!;
     CheckBox _chkToolbarMarkedOnly = null!, _chkToolbarFollow = null!;
     bool _syncingFilter;
     Label _lblSpec = null!;
@@ -202,12 +202,14 @@ public partial class frmMain : Form, ILocalizedUi
         var btnRefresh = Loc.Bind(new ToolStripButton("刷新设备", null, (_, _) => _ = AdbRefreshManualAsync()), "刷新设备");
         _btnAdbStart = Loc.Bind(new ToolStripButton("▶ 开始采集", null, (_, _) => AdbStartCapture()) { Enabled = false }, "▶ 开始采集");
         _btnAdbStop = Loc.Bind(new ToolStripButton("■ 停止采集", null, (_, _) => _ = AdbStopCaptureAsync()) { Enabled = false }, "■ 停止采集");
+        _btnAdbClear = Loc.Bind(new ToolStripButton("清空日志", null, (_, _) => _ = AdbClearLogAsync()) { Enabled = false }, "清空日志");
         // 刷新设备紧贴设备列表左侧；开始/停止采集在左侧分组
         ToolStripItem[] adbItems =
         {
             btnDeviceOps,
             _btnAdbStart,
             _btnAdbStop,
+            _btnAdbClear,
             new ToolStripSeparator(),
             btnRefresh,
             Loc.Bind(new ToolStripLabel("设备:"), "设备:"),
@@ -2071,7 +2073,7 @@ public partial class frmMain : Form, ILocalizedUi
         _chkToolbarFollow.Checked = true;
         UpdateAdbCaptureUI();
 
-        _streamThread.Start(clearFirst: true);
+        _streamThread.Start();
 
         // 启动定时刷新和统计
         _adbReloadTimer.Start();
@@ -2103,6 +2105,7 @@ public partial class frmMain : Form, ILocalizedUi
         bool hasDevice = _comboDevice.Items.Count > 0;
         _btnAdbStart.Enabled = hasDevice && !_adbCapturing;
         _btnAdbStop.Enabled = hasDevice && _adbCapturing;
+        _btnAdbClear.Enabled = hasDevice && !_adbCapturing;
         _actSaveLog.Enabled = !_adbCapturing && _adbTempPath != null;
         RefreshChannelState();   // 采集起停改变渠道状态（ADB 在途优先级最高）
     }
@@ -2123,6 +2126,34 @@ public partial class frmMain : Form, ILocalizedUi
         if (dlg.ShowDialog() != DialogResult.OK) return;
         File.Copy(_adbTempPath, dlg.FileName, true);
         ShowStatus("日志已保存 → {0}", dlg.FileName);
+    }
+
+    /// <summary>
+    /// 清空当前选中设备的日志缓冲区（显式动作，logcat -c，不可恢复，不弹确认）。
+    /// 采集期间按钮已禁用；Enabled=false 只防连点重入，完成后按状态机恢复。
+    /// </summary>
+    async Task AdbClearLogAsync()
+    {
+        var serial = SelectedSerial();
+        if (serial == null || _adbManager == null)
+        {
+            ShowStatus("请先连接设备");
+            return;
+        }
+        _btnAdbClear.Enabled = false;
+        try
+        {
+            await _adbManager.ShellAsync(serial, "logcat -c", 5);
+            ShowStatus("日志缓冲区已清空");
+        }
+        catch (Exception ex)
+        {
+            ShowError(Loc.F("清空日志失败：{0}", ex.Message));
+        }
+        finally
+        {
+            UpdateAdbCaptureUI();
+        }
     }
 
     // ── ADB 增量同步 ──
