@@ -4,6 +4,7 @@
 > 归档规则：用户**明确指示「归档 / 可以归档」**才动手（「验收通过」只是验收状态，不是归档指令）；用 `git mv` **移动**（不是复制）到此，文件名加归档日期前缀 `YYYY-MM-DD-`（归档当天本地日期）；同次在下方对应表格追加一行，四列（归档文件名 / 归档日期 / 原位置 / 说明）必填。
 > **归档后不可引用**：本索引及任何文档只以「名称 + 说明」记录条目，不写指向归档文件的链接；原有指向归档文档的引用同步降级为文字说明。
 > **OpenSpec 变更不在此列**（2026-10-17 起）：新功能 / 较大改动的设计留档走 `openspec/` 体系（`openspec archive` 自动归档至 `openspec/changes/archive/`，日期前缀由工具加）；本目录仅存 `docs/` 体系存量快照，上述规则对存量继续有效。
+> **公开侧 design / bugfixes 已停写**（2026-10-21，用户指示）：`docs/design/`、`docs/bugfixes/` 不再写入新文档，存量 5 份已整体移入本目录（见下方两个表格末尾）；此后公开侧新设计一律走 OpenSpec change，bug 修复不再单独维护 `docs/bugfixes/` 报告。
 
 ## bug/（已验收的 bug 修复报告）
 
@@ -12,6 +13,9 @@
 | 2026-10-16-FILEBROWSER-BLANK-LIST.md        | 2026-10-16 | `docs/bugfixes/` | 文件浏览两栏列表全部空白——i18n 改造后列头未挂进 ListView（已验收 2026-10-14）                                                                         |
 | 2026-10-16-EMPTY-LINE-STACK-LOSS.md         | 2026-10-16 | `docs/bugfixes/` | 空行导致崩溃堆栈行在打开文件时丢失（X-A8，已验收 2026-10-15；修复 57ffae8）                                                                           |
 | 2026-10-16-DOC-COMPLIANCE-FIX-2026-10-16.md | 2026-10-16 | `docs/bugfixes/` | 第二轮文档合规实地巡检整改（清 25 处本机绝对路径与私有记忆引用、订正 README 结构清单/分区表、联动 TESTING·UT-AUDIT·BUILDING 口径；已验收 2026-10-16） |
+| 2026-10-21-ADB-SERVER-SELF-HEAL.md           | 2026-10-21 | `docs/bugfixes/` | 刷新设备时 adb server 未运行被误报「无设备」（关联 OpenSpec change `fix-adb-server-self-heal` 已于 2026-10-21 归档至 `openspec/changes/archive/2026-10-21-fix-adb-server-self-heal/`，需求并入主规范；维护者 2026-10-21 验收通过并指示归档） |
+| 2026-10-21-CI-LOCALE-ASSERT-FILEPROXY.md      | 2026-10-21 | `docs/bugfixes/` | CI 本地化断言失败：fileproxy 越界消息（en-US runner 硬编码中文断言；已实施待验收） |
+| 2026-10-21-MULTISESSION-SPOOL-DELETION.md     | 2026-10-21 | `docs/bugfixes/` | 跨 Windows 会话并存下暂存目录被互删（change 已归档 2026-10-18，提交 5c74470；已实施待验收，手工验收项暂定放行、保持开放） |
 
 ## design/（已完成功能的设计文档）
 
@@ -20,6 +24,8 @@
 | 2026-10-16-CRASH-SUMMARY-DESIGN.md     | 2026-10-16 | `docs/design/` | 崩溃一键定位与摘要展示产品设计（已定稿）；阶段⓪①②③ 已落地，阶段④ 暂时关闭（2026-10-16，后续有明确需求再继续开发）                                  |
 | 2026-10-16-FILTER-REFACTOR-PLAN.md     | 2026-10-16 | `docs/design/` | 工具栏过滤与过滤面板解耦改造计划（删 op 副作用 / 输入框颜色提示 / 移除正则三件事）；已执行完毕并验收（2026-10-04，实现 d1a4ffd、6dc2e79、dc4d908） |
 | 2026-10-16-TOOLBAR-FAVORITES-DESIGN.md | 2026-10-16 | `docs/design/` | 工具栏 Tag/Message 输入框星号收藏 + 收藏下拉设计定稿（已落地并验收；实现 622824d，修订 1e235bb）                                                   |
+| 2026-10-21-RECENT-FILES-DESIGN.md      | 2026-10-21 | `docs/design/` | 最近打开文档（MRU）设计（已落地 6f2983d；`docs/design/` 停写时随存量整体移档）                                                                        |
+| 2026-10-21-ADB-ROOT-DETECTION.md       | 2026-10-21 | `docs/design/` | ADB root 检测与初始化调查（RootMode 三态 + 超时探测；已编码 2589f47，真机探测链路手工验收开放）                                                       |
 
 ## 维护规则
 

@@ -57,7 +57,7 @@ logcat.exe（单 exe，net10.0-windows WinForms）
 
 2. **单实例互斥量会撞车**：`Local\logcat-viewer-single-instance`（`Services/SingleInstance.cs`）当前被 logcat 独占持有。安卓 exe 若复用同名互斥量，两个 exe 互相挤掉；需独立命名（如 `Local\logcat-andtools-single-instance`）或不设守卫。
 
-3. **在途 change 正踩着要拆的地基**：`fix-adb-server-self-heal`（1/8 任务）正在改 `AdbManager`（`EnsureServerRunningAsync`、构造注入点）与 `frmMain` 的刷新入口（`ClearDeviceList`、`RestartMonitor` 接入）。与本拆分有先后顺序关系，见待拍板 #6。
+3. **已归档 change 改过要拆的地基**：`fix-adb-server-self-heal`（adb server 自愈，2026-10-21 维护者验收通过并归档）已改 `AdbManager`（`EnsureServerRunningAsync`、internal 四 seam 构造注入、`RestartMonitor`）与 `frmMain` 的刷新入口（`ClearDeviceList`、自愈接入）。`AdbManager` 整体进 Core，其侧改动不受搬迁影响；自愈入口逻辑须落在抽出的 DevicePickerBar 里，两个 exe 才都能受益。
 
 4. **译文表分区已按功能区划好**：`LocTable.DeviceUi/ApkUi/CommandUi/FileUi` 属安卓侧，`MainUi/FilterUi/CrashUi/FileProxyUi` 属 logcat 侧，`Common/RuntimeMsg` 共享 —— 搬迁基本是机械操作。少量混放：`DeviceUi` 里藏着 `RecordDialog` 的「记录 #{0}」（logcat 侧），搬表时需摘出或容忍（共享库被两边引用，容忍亦可）。
 
@@ -102,7 +102,7 @@ logcat.exe（单 exe，net10.0-windows WinForms）
 3. **单实例策略**：安卓 exe 用独立互斥量名（推荐，与 logcat 可同时运行）/ 不设守卫。
 4. **发布形态**：一个 zip 内两 exe 并列（自包含两次 publish 到同一目录，runtime 同名文件互相覆盖，约 120 MB + 数 MB；框架依赖约 4 MB）/ 两个独立 zip。
 5. **logcat 是否保留「设备操作」入口**：保留为启动器（点击后拉起 / 唤出安卓 exe，体验连续）/ 彻底移除（干净断裂，老用户需重新认知）。
-6. **与 `fix-adb-server-self-heal` 的先后**：先完成在途 change 再拆分（推荐：1/8 小改动，先落地免 rebase）/ 拆分 change 吸收其未完成部分（注意：`AdbManager` 整体进 Core，其侧改动不受搬迁影响；自愈入口逻辑须落在抽出的 DevicePickerBar 里，两个 exe 才都能受益）。
+6. **与 `fix-adb-server-self-heal` 的先后**：**已解决**——该 change 已于 2026-10-21 验收归档，拆分可直接进行，无需再等（`AdbManager` 整体进 Core，其侧改动不受搬迁影响；自愈入口逻辑须落在抽出的 DevicePickerBar 里，两个 exe 才都能受益）。
 7. （次要）**跨进程语言实时跟随**：两个 exe 同时运行时，一边切语言另一边不刷新（`Loc` 是进程内静态）—— 接受「重启生效」/ 后续用命名事件做跨进程通知。
 
 ## 下一步
