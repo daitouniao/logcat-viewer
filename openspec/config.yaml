@@ -8,12 +8,14 @@ context: |
   文档红线（公开仓库，双站推送）：产物不得硬编码本机绝对路径或用户名；openspec/ 与 docs/ 公开内容一律视为对克隆者可见；docs/private/** 的内容不进任何产物。
   规范定位：openspec/specs/ 是系统行为的权威描述——只写行为契约（需求 + GIVEN/WHEN/THEN 场景），不写实现细节；类名、库选择、算法取舍归属 design.md。
   联动：docs/FEATURES.md 是「有什么」的公开清单；archive 时必须同批更新受影响的 FEATURES 条目，两者不允许漂移。
+  工作流门禁（AGENTS.md §2.2）：openspec 阶段 explore → propose → apply → archive 仅凭用户明确指令进入与推进，不跳阶段、不自动推进；propose 写完即停、等 apply 指令。探索产物落 openspec/notes/（公开），建 change 时同批归档至 openspec/notes/archive/ 并冻结不再维护，新探索生成新笔记；含机密或不宜公开的探索内容留 docs/private/notes/。apply 在 change 专属的独立 git worktree 中实施，worktree 标识（分支 wt/<change-name>）记入 tasks.md 首条防断链，禁写本机绝对路径。
   易错行为规则（如横幅行不是记录、空行续行处理、索引块起点顺序推进）随相关改动沉淀进 specs/ 对应 capability，不依赖私有文档传递。
 
 rules:
   proposal:
     - 必须显式写出范围与非目标（out of scope）
     - 存量项目：只描述 delta（ADDED/MODIFIED/REMOVED），不重述整个规范
+    - 建立 change 时，同批将 openspec/notes/ 下对应的探索笔记移入 openspec/notes/archive/（git mv + 日期前缀，索引记入 docs/archive/README.md 的 notes/ 表），此后不再维护
   specs:
     - 每条需求至少一个 GIVEN/WHEN/THEN 场景
     - 禁止出现类名、文件路径等实现细节
@@ -22,13 +24,16 @@ rules:
   tasks:
     - 单任务粒度约 1-2 小时、可独立验证
     - 涉及日志解析 / 索引 / 扫描的任务必须附对应测试用例名
+    - 首条记录本次 apply 的 worktree 标识（分支名 wt/<change-name>，路径以 git worktree list 定位；禁写本机绝对路径）
 
 operations:
   apply:
     guidance:
       - 严格按 tasks.md 逐条实现，不夹带任务外改动
       - 每完成一批任务跑一次 dotnet test 并报告口径数字（必要时补跑 tstrun 交叉验证）
+      - 仅在收到用户明确 apply 指令后开始（AGENTS.md §2.2 阶段门禁）；在 change 专属的独立 git worktree 中实施（git worktree add 需当轮授权），worktree 标识记入 tasks.md 首条
   archive:
     guidance:
       - 归档前确认 tasks 全部完成且 dotnet test 全过（相对基线无新增失败）
       - 归档后同批更新 docs/FEATURES.md 受影响条目
+      - 归档时同步清除该 change 的 git worktree（git worktree remove，随「可以归档」指令一并授权，AGENTS.md §2.3）
