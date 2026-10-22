@@ -3,7 +3,8 @@ schema: spec-driven
 context: |
   语言：所有产物（proposal / design / tasks / specs）用简体中文撰写。
   项目：logcat —— C# / .NET 10 WinForms 桌面日志查看器，主打 Android logcat 格式。
-  测试口径：本机 dotnet test 不可用（testhost 加载报 0x80070005）；唯一口径是仓库内 .tmp-test/tstrun 反射 runner（扫 [Fact] + [Theory(InlineData)]），基线数字以 docs/TESTING.md 为唯一权威源。任何「测试通过」的声明必须带口径数字，禁止声称未经验证的通过。
+  测试口径：本机 dotnet test 已可直接运行（2026-10-22 实测 655/655；旧的 testhost 0x80070005 不复现），且它会 await async Task 用例——tstrun 反射 runner 不 await，仓库既有 3 个 async 用例在 tstrun 下从未真跑过，故优先用 dotnet test。tstrun 仍用于覆盖率采集兜底与类名过滤。基线数字以 docs/TESTING.md 为唯一权威源。任何「测试通过」的声明必须带口径数字，禁止声称未经验证的通过。
+  CI 语言环境：界面语言由 Services/Loc.cs 静态构造期按 CurrentUICulture 探测，无 settings.json 时完全由系统区域决定（本地 zh-CN / runner en-US）。故「Loc.* 输出 + 硬编码中文断言」= 本地全绿、CI 必红（历史翻车 4 次）。写这类断言必须用 LangScope.InZh/InEn 双语各「生成+断言」一遍；本地复现 CI 环境用 bash scripts/run-tests-en-us.sh。详见 docs/TESTING.md §3.4。
   文档红线（公开仓库，双站推送）：产物不得硬编码本机绝对路径或用户名；openspec/ 与 docs/ 公开内容一律视为对克隆者可见；docs/private/** 的内容不进任何产物。
   规范定位：openspec/specs/ 是系统行为的权威描述——只写行为契约（需求 + GIVEN/WHEN/THEN 场景），不写实现细节；类名、库选择、算法取舍归属 design.md。
   联动：docs/FEATURES.md 是「有什么」的公开清单；archive 时必须同批更新受影响的 FEATURES 条目，两者不允许漂移。
@@ -26,8 +27,8 @@ operations:
   apply:
     guidance:
       - 严格按 tasks.md 逐条实现，不夹带任务外改动
-      - 每完成一批任务跑一次 tstrun 并报告口径数字
+      - 每完成一批任务跑一次 dotnet test 并报告口径数字（必要时补跑 tstrun 交叉验证）
   archive:
     guidance:
-      - 归档前确认 tasks 全部完成且 tstrun 全过（相对基线无新增失败）
+      - 归档前确认 tasks 全部完成且 dotnet test 全过（相对基线无新增失败）
       - 归档后同批更新 docs/FEATURES.md 受影响条目

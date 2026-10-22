@@ -35,7 +35,21 @@ jobs:
 
       # 不加 --no-restore：让 restore 与 build 的产物保持一致，
       # 避免 ProjectReference 主工程的 assets 与测试工程不同步。
+      #
+      # ── 语言环境：显式钉成 en-US ──
+      # 界面语言由 Services/Loc.cs 静态构造期按 CurrentUICulture 探测，
+      # 无 settings.json 时完全由系统区域决定 → 本地 zh-CN、runner en-US。
+      # 历史上 CI 有 4 次因此翻车（10-09 ×2、10-10、10-18），症状是
+      # 「本地全绿、推送就红」：某些用例把本地化文案硬编码成中文断言。
+      #
+      # windows-latest 本身就是 en-US，这里显式声明是为了把「隐式依赖 runner 区域」
+      # 变成「写明要 en-US」：换 runner / 改系统语言时不会静默变中文而突然红一片。
+      # 本地想复现这套环境：bash scripts/run-tests-en-us.sh
       - name: Test
+        env:
+          LANG: en_US.UTF-8
+          LC_ALL: en_US.UTF-8
+          DOTNET_CLI_UI_LANGUAGE: en-US
         run: >
           dotnet test tests/logcat.Tests/logcat.Tests.csproj
           -c Release --no-build -v normal --logger "console;verbosity=detailed"

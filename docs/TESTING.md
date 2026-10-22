@@ -1,17 +1,18 @@
 # 单元测试与覆盖率实操指南
 
-> 最后更新：2026-10-18
+> 最后更新：2026-10-22
 > 本文是「怎么把测试跑起来、覆盖率怎么出」的**唯一操作入口**。
 > 有效性审计（变异测试）见 [`UT-AUDIT.md`](UT-AUDIT.md)。
+> **CI 语言环境陷阱**（本地全绿、推送就红）见 §3.4。
 
-## 0. 当前基线（2026-10-18）
+## 0. 当前基线（2026-10-22）
 
 | 项         | 值                                                           |
 | ---------- | ------------------------------------------------------------ |
-| 用例数     | **628**，全过（含 `LocTableTests` 的 30 条本地化一致性用例） |
-| 行覆盖率   | **97.60%** (3,499 / 3,585)                                   |
-| 分支覆盖率 | **88.46%** (1,411 / 1,595)                                   |
-| 方法覆盖率 | **95.65%** (374 / 391)                                       |
+| 用例数     | **655**，全过（含 `LocTableTests` 的 30 条本地化一致性用例） |
+| 行覆盖率   | **97.47%** (3,504 / 3,595)                                   |
+| 分支覆盖率 | **88.46%**                                                   |
+| 方法覆盖率 | **95.66%** (375 / 392)                                       |
 | 统计口径   | 仅 Services + Models（UI 与设备/系统集成层已排除，见 §4）    |
 
 > ✅ 空计数回归已查明并解决（2026-10-11），两个独立根因：
@@ -33,7 +34,20 @@
 > 的下滑全部来自新增代码的异常/拉起错误路径（见 §4 未覆盖清单），核心路径经变异
 > 测试验证咬得住（103 个变异点 102 KILLED + 1 个确认等价变异）。
 >
-> 用例数 628 可信（2026-10-18 实测；tstrun 口径 `[Fact]` 443 + `[InlineData]` 185 = 628 与之相符）。
+> 2026-10-22 增量：638 → 655（+17 条），三项内容——
+> ① adb server 自愈提示本地化的双语断言（+3，另把 2 条既有断言改成双语）；
+> ②「清空日志」按钮状态机与设备下拉框清理的覆盖（+12）；
+> ③ CI 语言回归防线扫描器（+2）。
+> **双环境验证**：zh-CN 与 en-US（CI 实际环境）各跑 655/0/0，en-US 连跑 3 次无偶发。
+>
+> 2026-10-22 **重采覆盖率**（Debug + coverlet collector，TMP 指向 `.tmp-test/covtemp`）：
+> 行覆盖率 97.60% → **97.47%**（3,499/3,585 → 3,504/3,595）、分支 88.46% **持平**、
+> 方法 95.65% → **95.66%**（374/391 → 375/392，净 +1 个方法且被覆盖）。
+> **下滑归因（实测核实，勿凭印象改）**：分母 3,585 → 3,595（+10 行）来自**排除项之外**的
+> 既有代码在上一轮重采之后又长过；本轮改动的三个生产文件 `AdbManager.cs` / `frmMain.cs` /
+> `LocTable.RuntimeMsg.cs` 中，前两个在 coverlet 排除项内（实测零未覆盖行），
+> 只有 `LocTable.RuntimeMsg.cs` 的 +5 行译文进分母且**全部被覆盖**。
+> 换言之本次改动**未拉低覆盖率**，0.13 个百分点是分母自然增长所致。
 >
 > 2026-10-18 二次重采（`fix-spool-multisession` 落地后）：用例 623 → 628（+5 条暂存目录活性锁
 > 用例，全部是 `[Fact]`）；行覆盖率 97.36% → 97.60%（分母 +28 行 = 活性锁原语，其中 3 行未覆盖：
@@ -48,7 +62,8 @@
 > 与它同目录的 `LocTable.*`（纯数据译文表）**不排除**，是 i18n 的核心验证面。
 >
 > `frmMain` 同样在排除范围内，但其中的**纯函数**（`IsNetworkPath` / `EllipsizeMiddle` /
-> `HumanSize`）已改为 `internal static` 并由 `frmMainHelperTests` 直接覆盖——
+> `HumanSize` / `CanStartCapture` / `CanClearLog` / `ClearDeviceCombo`）已改为
+> `internal static` 并由 `frmMainHelperTests` / `AdbClearLogButtonTests` 直接覆盖——
 > 判据是「能否在无窗体条件下被有意义地验证」，能验证就不该只靠排除项蒙混。
 >
 > 覆盖率是「代码被执行过」的证明，**不等于**「断言咬得住」。
@@ -60,7 +75,7 @@
 - 用 tstrun 报告结果必须带口径声明：**tstrun 口径 N 条**（`[Fact]` 全部 + `[Theory]` 按 `[InlineData]` 展开），
   并声明已知跳过类别——`MemberData` / `ClassData` 驱动的 Theory 会被 runner **静默跳过**（§3.2 坑 3），
   汇总行里看不到它们。
-- 交叉验证：tstrun 口径条数应与上表基线（**628**）一致；不一致先怀疑 runner 漏扫，
+- 交叉验证：tstrun 口径条数应与上表基线（**655**）一致；不一致先怀疑 runner 漏扫，
   **不要改数字迁就 runner**。
 - 两条路径都跑不了时（如沙箱故障），如实写「**未验证**」——禁止声称「通过」。
 
@@ -68,19 +83,38 @@
 
 ## 1. 两条路径，先选对再往下看
 
-|          | 路径 A：人终端                  | 路径 B：智能体沙箱                        |
-| -------- | ------------------------------- | ----------------------------------------- |
-| 跑测试   | `dotnet test`（直接可用）       | `tstrun` 反射 runner（§3）                |
-| 出覆盖率 | `dotnet test --collect`（§2.1） | `coverlet.console` 驱动 tstrun（§2.2）    |
-| 为什么   | 正常路径                        | **`dotnet test` 在沙箱里起不来**，见 §1.1 |
+|          | 路径 A：`dotnet test`                    | 路径 B：tstrun 反射 runner              |
+| -------- | --------------------------------------- | --------------------------------------- |
+| 跑测试   | `dotnet test`（**首选**）               | `dotnet .tmp-test/tstrun/bin/Debug/net10.0-windows/tstrun.dll` |
+| 出覆盖率 | `dotnet test --collect`（§2.1）         | `coverlet.console` 驱动 tstrun（§2.2）  |
+| 适合谁   | 人终端 + **智能体沙箱（2026-10-22 起可用）** | 覆盖率采集的沙箱兜底 / 定制过滤         |
 
-### 1.1 为什么有两条路径
+### 1.1 两条路径的关系（2026-10-22 更新）
 
-`dotnet test` 会拉起 `testhost.exe`（apphost），它在沙箱里加载 `hostfxr.dll` 时报 **`0x80070005`**（拒绝访问）。
-沙箱开关、`TEMP` 指向、进程位数、目录 ACL、是否管理员 —— 全部试过并排除，**不再深挖**。
+**历史**：`dotnet test` 会拉起 `testhost.exe`（apphost），它在当时的沙箱里加载 `hostfxr.dll`
+时报 **`0x80070005`**（拒绝访问）。沙箱开关、`TEMP` 指向、进程位数、目录 ACL、是否管理员
+—— 全部试过并排除，于是改用反射 runner（§3）绕开 testhost。
 
-连带影响：`dotnet test --collect:"XPlat Code Coverage"` 走的是同一个 testhost，所以**覆盖率也一起起不来**。
-解法不是修 testhost，而是**换掉执行器**（§2.2 / §3）。你自己在终端跑则不受影响，走路径 A。
+**现状（2026-10-22 实测）**：本机 `dotnet test` **已可直接运行**，实测通过 655/655：
+
+```bash
+dotnet test tests/logcat.Tests/logcat.Tests.csproj -c Release --no-build -v minimal
+```
+
+且**多语言用例在 `dotnet test` 下会被真正执行**——这与 tstrun 有个关键差异：
+tstrun 反射调用不 `await` 返回 `Task` 的方法，仓库既有 3 个 `async Task` 用例
+（`FilterEngineTests` 2 个 + `LogDocumentTests` 1 个）在 tstrun 下**从未真正跑过**（假绿），
+而 `dotnet test` 会 `await` 它们。**故现在优先用路径 A。**
+
+tstrun 仍保留的价值：
+
+1. **覆盖率采集**：`dotnet test --collect` 走同一个 testhost，若某台机器上仍起不来，
+   改用 §2.2 的 coverlet console 驱动 tstrun；
+2. **类名过滤**：`tstrun <类名子串>` 快速只跑一类（`dotnet test` 需 `--filter`）；
+3. **控制台输出**更干净，排查单条用例时好用。
+
+> ⚠️ tstrun 口径与 `dotnet test` 口径**可能不一致**：tstrun 不支持 `MemberData`/`ClassData`
+> 驱动的 Theory（会静默跳过），也不 `await` async 用例。**报告结果时务必声明用的是哪条路径**。
 
 ---
 
@@ -275,7 +309,7 @@ dotnet run FilterEngine    # 只跑类名含 FilterEngine 的
 2. **插值表达式里内嵌 `"null"` 会提前闭合字符串**：`$"...{string.Join(", ", data)}..."` 在某些参数下
    会被解析成 `string.Join(", ", data) + "..."` 之类，`string.Join` 的结果要**先提到变量**再插值。
 3. **只匹配 `FactAttribute` 会漏掉全部 Theory** —— 所以要么同时匹配 `TheoryAttribute` 并按
-   `[InlineData]` 展开（上面的代码已做），要么**必须**拿「用例总数」与已知基线（当前 **628**）交叉验证
+   `[InlineData]` 展开（上面的代码已做），要么**必须**拿「用例总数」与已知基线（当前 **655**）交叉验证
    runner 本身没漏。这个交叉验证是每次改 runner 后的必做动作。
 
 ### 3.3 本地化相关的两个特殊坑（2026-10-07）
@@ -297,6 +331,78 @@ Assert.True(scanned > 300, $"只找到 {scanned} 个调用点，解析逻辑大�
 **② `LocTableTests` 只扫 `Loc.*` 调用点，不扫所有字面量**
 
 诊断日志（`StartupLog` / `DpiDiag` / `_logger`）与 `ArgumentException` 消息按约定**保持中文不翻译**。全量扫字面量会把它们误判成漏翻，测试与设计直接冲突。
+
+### 3.4 CI 语言环境：本地全绿、推送就红 ⚠️
+
+**这是本项目最坑的一类 CI 失败，已经翻车 4 次**（2026-10-09 ×2、10-10、10-18）。
+
+#### 机制
+
+界面语言由 `Services/Loc.cs` 的**静态构造期**按 `CultureInfo.CurrentUICulture` 探测；
+仓库根没有 `settings.json` 时完全由**系统区域**决定：
+
+| 环境       | CurrentUICulture | 界面语言 |
+| ---------- | ---------------- | -------- |
+| 本地开发机 | zh-CN            | 中文     |
+| GitHub runner | en-US         | 英文     |
+
+于是：**被测输出走 `Loc.T`/`Loc.F` 的用例，若把期望值硬编码成中文，本地全绿、CI 必红。**
+本地反复跑也复现不出（因为本机就是中文），只有推送后才炸。
+
+历史记录：
+
+- 10-09 ×2、10-10：412 条里挂 9 条（7 条是语言），典型是 `CommandStore` 内置分类
+- 10-18：623 条里挂 1 条，fileproxy 越界消息（异常消息走 `Loc.F`，断言找中文「越界」，
+  实际消息是英文 "out-of-range"）
+
+#### 三道防线（2026-10-22 起）
+
+**① 写用例时锁语言**（治本）
+
+用 `LangScope.InZh` / `LangScope.InEn` **双语各「生成 + 断言」一遍**：
+
+```csharp
+LangScope.InZh(() => Assert.Contains("越界", ex.Message));
+LangScope.InEn(() => Assert.Contains("out-of-range", ex.Message));
+```
+
+三条硬要求：
+
+1. **必须双语**——只测一种语言的话，被测代码退回硬编码中文仍然全绿，抓不住回归；
+2. **生成必须在语言作用域内**——消息是抛出那一刻按当时语言算出来的，事后切语言拿到的是旧语言的串；
+3. **用到语言 helper 的测试类必须打 `[Collection(LangCollection.Name)]`**——
+   `Loc._lang` 是进程级静态，xUnit 默认按类并行，不串行就会互相抢语言。
+
+**② 扫描器测试**（预防，已入库）
+
+`tests/logcat.Tests/CiLocaleAssertionTests.cs` 扫测试源码，找出
+「硬编码中文断言 + 该字面量**恰好是本地化资源键** + 所在方法未锁语言」的高危组合并报错。
+已实测：注入一个 CI 会挂的写法后，该测试立刻变红；同一个变异在 en-US 环境下也确实失败
+（`Expected "（无过滤）"` vs `Actual "(no filter)"`）——**防线与 CI 真实故障同源**。
+
+> 判据里的「恰好是资源键」很关键：普通数据字面量（如 "别名"、"正文"）与界面语言无关，
+> 不该被拦。豁免清单在 `KnownLocaleSensitiveAssertions`，每条都要写理由。
+
+**③ 本地用 en-US 跑一遍**（兜底）
+
+```bash
+bash scripts/run-tests-en-us.sh
+```
+
+脚本设 `LANG` / `LC_ALL` / `DOTNET_CLI_UI_LANGUAGE` 为 en-US 再跑 `dotnet test`。
+已实测有效（临时探针打印实际区域）：
+
+| 环境         | CurrentUICulture | Loc.Current |
+| ------------ | ---------------- | ----------- |
+| 不设环境变量 | zh-CN            | ZhCn        |
+| 设了环境变量 | en-US            | En          |
+
+> ⚠️ 这条对 **`dotnet test`** 有效（testhost 继承环境变量）。
+> 若用 §3 的 tstrun 反射 runner，它在**你自己的进程**里跑，父 shell 的 locale 会被
+> `CultureInfo` 直接读到，同样有效；但 tstrun 需自己设 `CultureInfo.CurrentUICulture`。
+>
+> CI 里 `.github/workflows/ci.yml` 的 Test 步骤已显式声明 en-US 环境变量，
+> 把「隐式依赖 runner 区域」变成「写明要 en-US」——换 runner 时不会静默失效。
 
 ---
 
