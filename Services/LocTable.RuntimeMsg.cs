@@ -26,6 +26,11 @@ static partial class LocTable
         ["采集异常：{0}"] = "Capture error: {0}",
         ["采集过程中发生异常"] = "An error occurred during capture",
 
+        // ── adb server 自愈（刷新设备时自动拉起失败）──
+        // 引导语本地化，尾部 {0} 是运行时原因（异常原文 / 退出码），按设计保持原文不翻译
+        ["未能启动 adb server（请确认 adb 已加入 PATH，或手动执行 adb start-server）：{0}"] =
+            "Failed to start adb server (make sure adb is in PATH, or run adb start-server manually): {0}",
+
         // ── 列表截断提示 ──
         // 键含前导空格：调用点是 `msg + Loc.F(" …(+{0} 字符)", n)`，
         // 空格属于拼接分隔符，必须一起进键，否则查不到译文

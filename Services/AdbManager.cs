@@ -129,7 +129,16 @@ public sealed class AdbManager : IDisposable
     /// <remarks>
     /// 本方法 SHALL NOT 触及设备监控——是否重建监控由调用方按
     /// <see cref="AdbServerSelfHealResult.Restarted"/> 决定（解耦保证单测零触网）。
-    /// 异常消息按仓库约定保持中文原文、不本地化（先例：<see cref="RunAdbAsync"/>）。
+    /// <para>
+    /// 提示串<b>引导语走本地化</b>（<see cref="Loc.F"/>），英文界面下不能显示中文；
+    /// 尾部的<b>原因</b>（异常原文 / 退出码）按仓库约定保持原文不翻译——
+    /// 那是 adb 自己抛的话，翻译它等于伪造上游信息。
+    /// </para>
+    /// <para>
+    /// 原因里可能含花括号（如路径 <c>{0}</c>）：它是 <c>string.Format</c> 的<b>实参</b>而非格式串，
+    /// 实参不做格式解析，故不会炸 <see cref="FormatException"/>。
+    /// 调用方仍须走 <c>ShowStatusRaw</c> 而非 <c>ShowStatus</c>：后者会把整条提示当格式串再格式化一次。
+    /// </para>
     /// </remarks>
     public async Task<AdbServerSelfHealResult> EnsureServerRunningAsync()
     {
@@ -156,7 +165,7 @@ public sealed class AdbManager : IDisposable
         }
 
         return new AdbServerSelfHealResult(
-            Prompt: $"未能启动 adb server（请确认 adb 已加入 PATH，或手动执行 adb start-server）：{reason}",
+            Prompt: Loc.F("未能启动 adb server（请确认 adb 已加入 PATH，或手动执行 adb start-server）：{0}", reason),
             Restarted: false);
     }
 

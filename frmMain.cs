@@ -1995,8 +1995,29 @@ public partial class frmMain : Form, ILocalizedUi
     void ClearDeviceList()
     {
         _adbDevices.Clear();
-        _comboDevice.Items.Clear();
-        _comboDevice.Text = string.Empty;
+        ClearDeviceCombo(_comboDevice);
+    }
+
+    /// <summary>
+    /// 清空设备下拉框：先清 Items 再显式清 Text。
+    ///
+    /// <para>
+    /// <b>为何必须显式清 Text</b>：<c>ComboBox.Items.Clear()</c> 只清条目，
+    /// <c>SelectedIndex</c> 随之归 -1，但 <c>Text</c> <b>仍残留旧设备序列号</b>
+    /// （实测：加过 "SERIAL123" 后 Items.Clear，Text 仍是 "SERIAL123"）。
+    /// 用户会看到一个「列表里没有、但框里有」的幽灵设备——自愈失败时尤其误导：
+    /// 明明要提示「adb 不可用」，框里却还挂着旧序列号。
+    /// </para>
+    /// <para>
+    /// 提取成静态方法是为了能脱离窗体验证这个 WinForms 行为（控件可在测试中构造）。
+    /// </para>
+    /// </summary>
+    /// <param name="combo">设备下拉框（<c>ToolStripComboBox</c>，继承自 <c>ToolStripItem</c>，
+    /// <b>不是</b> <see cref="ComboBox"/>——两者无继承关系，故须按真实类型收参）。</param>
+    internal static void ClearDeviceCombo(ToolStripComboBox combo)
+    {
+        combo.Items.Clear();
+        combo.Text = string.Empty;
     }
 
     void OnDevicesChanged(List<DeviceInfo> devices)
@@ -2103,12 +2124,31 @@ public partial class frmMain : Form, ILocalizedUi
     void UpdateAdbCaptureUI()
     {
         bool hasDevice = _comboDevice.Items.Count > 0;
-        _btnAdbStart.Enabled = hasDevice && !_adbCapturing;
+        _btnAdbStart.Enabled = CanStartCapture(hasDevice, _adbCapturing);
         _btnAdbStop.Enabled = hasDevice && _adbCapturing;
-        _btnAdbClear.Enabled = hasDevice && !_adbCapturing;
+        _btnAdbClear.Enabled = CanClearLog(hasDevice, _adbCapturing);
         _actSaveLog.Enabled = !_adbCapturing && _adbTempPath != null;
         RefreshChannelState();   // 采集起停改变渠道状态（ADB 在途优先级最高）
     }
+
+    /// <summary>
+    /// 「开始采集」按钮的可用性：有已连接设备且当前未在采集。
+    /// </summary>
+    internal static bool CanStartCapture(bool hasDevice, bool capturing) => hasDevice && !capturing;
+
+    /// <summary>
+    /// 「清空日志」按钮的可用性：有已连接设备且当前未在采集。
+    ///
+    /// <para>
+    /// 与 <see cref="CanStartCapture"/> <b>同一条状态机</b>：清空缓冲区与开始采集都是
+    /// 对设备缓冲区的独占操作，采集进行中清空会与采集流抢缓冲区，故同样禁用。
+    /// </para>
+    /// <para>
+    /// 提取成纯函数是为了能脱离窗体验证——spec「清除入口的可用性状态机」列了
+    /// 「无设备时禁用 / 采集中禁用 / 停止后恢复」三个场景，此前零自动化覆盖。
+    /// </para>
+    /// </summary>
+    internal static bool CanClearLog(bool hasDevice, bool capturing) => hasDevice && !capturing;
 
     void AdbSaveLog()
     {
