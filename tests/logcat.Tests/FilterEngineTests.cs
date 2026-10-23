@@ -1037,4 +1037,117 @@ public class FilterEngineTests
         Assert.Equal(new[] { 0, 1, 2, 3, 5, 6, 7, 8, 9, 10, 11 },
             Apply(doc, new FilterSpec { Msg = new[] { "CAFÉ" }, MsgExclude = true }));
     }
+
+    // ── 修复回归：每行只扫自身字节 ──
+    // 历史缺陷：调用点把整行拷入只增不减的复用缓冲 scratch 后按「整个容量」折叠，
+    // 残留字节 ≥ 0x80 会让纯 ASCII 行误走 Unicode 回退、单行扫描量退化为 O(缓冲容量)。
+    // 折叠函数改为按行切片后，这里用 internal 直测 + 扫描字节计数器把不变式钉成契约。
+
+    [Fact]
+    public void FoldLowerAscii_纯ASCII就地折叠为小写()
+    {
+        var buf = "MiXeD 123 _-."u8.ToArray();
+        Assert.True(FilterEngine.FoldLowerAsciiInPlace(buf.AsSpan()));
+        Assert.Equal("mixed 123 _-."u8.ToArray(), buf);
+    }
+
+    /// <summary>
+    /// 含非 ASCII 时返回 false；语义是「扫到非 ASCII 即停」，此前扫过的 ASCII 字节
+    /// 已就地折叠——调用方在 false 时弃用折叠缓冲、改用原始 msgBuf 回退，故无害。
+    /// </summary>
+    [Fact]
+    public void FoldLowerAscii_含非ASCII返回false且弃用缓冲()
+    {
+        var buf = new byte[] { (byte)'a', (byte)'B', 0xC3, 0x84 };
+        Assert.False(FilterEngine.FoldLowerAsciiInPlace(buf.AsSpan()));
+        // 'B' 已折叠成 'b'（扫描到 0xC3 才停）；0xC3/0x84 非 ASCII 区原样
+        Assert.Equal(new byte[] { (byte)'a', (byte)'b', 0xC3, 0x84 }, buf);
+    }
+
+    [Fact]
+    public void FoldLowerAscii_空切片返回true()
+    {
+        Assert.True(FilterEngine.FoldLowerAsciiInPlace(Span<byte>.Empty));
+    }
+
+    /// <summary>0x7F 是可折叠路径上的最后一个非字母字节，0x80 起即非 ASCII。</summary>
+    [Fact]
+    public void FoldLowerAscii_单字节边界_7F视为ASCII_80视为非ASCII()
+    {
+        var buf = new byte[] { 0x7F };
+        Assert.True(FilterEngine.FoldLowerAsciiInPlace(buf.AsSpan()));
+        Assert.Equal(new byte[] { 0x7F }, buf);
+
+        var buf2 = new byte[] { 0x80 };
+        Assert.False(FilterEngine.FoldLowerAsciiInPlace(buf2.AsSpan()));
+        Assert.Equal(new byte[] { 0x80 }, buf2);
+    }
+
+    /// <summary>byte[] 重载是对切片重载的转发，两者结论必须一致（逻辑单源）。</summary>
+    [Fact]
+    public void FoldLowerAscii_数组重载与切片重载结论一致()
+    {
+        var buf = new byte[] { (byte)'A', (byte)'b' };
+        Assert.True(FilterEngine.FoldLowerAsciiInPlace(buf));
+        Assert.Equal(new byte[] { (byte)'a', (byte)'b' }, buf);
+
+        var buf2 = new byte[] { (byte)'A', 0xFF };
+        Assert.False(FilterEngine.FoldLowerAsciiInPlace(buf2));
+        // 同样是「扫到即停」：'A' 在撞上 0xFF 前已折叠
+        Assert.Equal(new byte[] { (byte)'a', 0xFF }, buf2);
+    }
+
+    /// <summary>
+    /// 先长中文行把 scratch 扩到 4 KB 并在残留区铺满 ≥ 0x80 字节，再处理短 ASCII 行：
+    /// 切片折叠必须让短行走 ASCII 快速路径，命中结论与大小写敏感路径、
+    /// Unicode 回退路径全等；残留字节不得造成任何假命中 / 漏命中。
+    /// </summary>
+    [Fact]
+    public void MsgFilter_ResidualBytes_AsciiLineStillMatches()
+    {
+        // 行 0 正文 ≈ 3.9 KB（1300 个中文字符，UTF-8 每字 3 字节），远超初始 1 KB
+        var big = new string('中', 1300);
+        var data =
+            "09-23 18:00:00.000  1  2 I BigTag: " + big + "\n" +
+            "09-23 18:00:01.000  1  3 I SmallTag: plain ASCII NEEDLE here\n";
+        using var tmp = new TempLogFile(data);
+        using var doc = LogDocument.Build(tmp.Path);
+
+        // 大小写不敏感路径：短 ASCII 行命中，大小写各写法等价
+        Assert.Equal(new[] { 1 }, Apply(doc, new FilterSpec { Msg = new[] { "needle" } }));
+        Assert.Equal(new[] { 1 }, Apply(doc, new FilterSpec { Msg = new[] { "NEEDLE" } }));
+        Assert.Equal(new[] { 1 }, Apply(doc, new FilterSpec { Msg = new[] { "NeEdLe" } }));
+
+        // 大小写敏感路径：同一行的命中结论一致
+        Assert.Equal(new[] { 1 }, Apply(doc, new FilterSpec { Msg = new[] { "NEEDLE" }, MsgCase = true }));
+
+        // Unicode 回退路径：长中文行仍走回退且能命中；残留中文不得让行 1 假命中
+        Assert.Equal(new[] { 0 }, Apply(doc, new FilterSpec { Msg = new[] { "中" } }));
+        Assert.Equal(new[] { 0 }, Apply(doc, new FilterSpec { Msg = new[] { "中中" } }));
+
+        // 排除语义在混合场景下同样成立
+        Assert.Equal(new[] { 0 }, Apply(doc, new FilterSpec { Msg = new[] { "needle" }, MsgExclude = true }));
+    }
+
+    /// <summary>
+    /// 「每行只扫自身字节」不变式的主钉：一次多行过滤的扫描总字节必须等于
+    /// Σ 各行正文长度。若调用点退回传整个 scratch（历史缺陷），每行扫描量
+    /// 变成缓冲容量（远大于行内字节），本用例立即变红。
+    /// </summary>
+    [Fact]
+    public void MsgFilter_ScanBytes_EqualSumOfLineBytes()
+    {
+        using var tmp = new TempLogFile(Data);   // 6 行样本，正文全 ASCII
+        using var doc = LogDocument.Build(tmp.Path);
+
+        long expected = 0;
+        for (int i = 0; i < doc.RowCount; i++)
+            expected += doc.MessageBytes(i).Length;
+
+        long before = FilterEngine.FoldScanBytesForTest;
+        Apply(doc, new FilterSpec { Msg = new[] { "zzz-no-such-term" } });
+        long scanned = FilterEngine.FoldScanBytesForTest - before;
+
+        Assert.Equal(expected, scanned);
+    }
 }

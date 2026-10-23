@@ -120,7 +120,7 @@ public static class FilterEngine
     /// 已用 11190 组输入（含 ßẞ、İı、Σσς、非法 UTF-8 序列）验证与
     /// <c>GetBytes(GetString(x).ToLowerInvariant())</c> 逐字节一致。
     /// </summary>
-    static bool FoldLowerAsciiInPlace(byte[] buf)
+    internal static bool FoldLowerAsciiInPlace(Span<byte> buf)
     {
         for (int i = 0; i < buf.Length; i++)
         {
@@ -128,8 +128,17 @@ public static class FilterEngine
             if (b >= 0x80) return false;      // 非 ASCII：交给调用方回退，不做部分折叠
             if (b >= (byte)'A' && b <= (byte)'Z') buf[i] = (byte)(b + 32);
         }
+        _foldScanBytes += buf.Length;
         return true;
     }
+
+    /// <summary>对切片的转发，逻辑单源；调用方持有数组时避免维护第二份折叠实现。</summary>
+    internal static bool FoldLowerAsciiInPlace(byte[] buf) => FoldLowerAsciiInPlace(buf.AsSpan());
+
+    // ASCII 折叠路径累计「完整扫描并折叠」的字节数；internal 只读，仅供测试观测（钉住
+    // 「每行只扫自身字节」不变式），测试间用差值比较，不参与任何过滤行为。
+    private static long _foldScanBytes;
+    internal static long FoldScanBytesForTest => _foldScanBytes;
 
     // ── Message 过滤 ──
     static int[] MsgFilter(LogDocument doc, int[] cand, Models.FilterSpec spec,
@@ -165,7 +174,7 @@ public static class FilterEngine
                     if (msgBuf.Length > scratch.Length)
                         scratch = new byte[Math.Max(msgBuf.Length, scratch.Length * 2)];
                     Array.Copy(msgBuf, scratch, msgBuf.Length);
-                    if (FoldLowerAsciiInPlace(scratch))
+                    if (FoldLowerAsciiInPlace(scratch.AsSpan(0, msgBuf.Length)))
                     {
                         // ASCII 折叠不改变长度，直接按 msgBuf.Length 切片即可
                         ok = MatchAny(scratch.AsSpan(0, msgBuf.Length), keys, opAnd);
