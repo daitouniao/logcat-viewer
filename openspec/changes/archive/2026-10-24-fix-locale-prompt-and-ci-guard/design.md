@@ -106,31 +106,32 @@
 **理由**：`LocTableTests` 已有同类教训（§3.3 坑①）—— 扫描逻辑写错时会返回 0 条，
 而"没发现问题"照样成立。**假绿比报错危险**。
 
-**验证**：注入一个 CI 会挂的写法后该测试立刻变红；同一变异在 en-US 环境下确实失败
+**验证**：注入一个 CI 会挂的写法后该测试立刻变红；同一变异在英文界面下确实失败
 （`Expected "（无过滤）"` vs `Actual "(no filter)"`）—— 防线与 CI 真实故障**同源**。
+（注：区域切换方式已于 2026-10-24 更正，见 D6。）
 
-### D6：本地复现 CI 环境靠环境变量（已实测有效）
+### D6：本地复现 CI 语言由测试进程内强制区域（2026-10-24 更正）
 
-**决策**：`scripts/run-tests-en-us.sh` 设 `LANG` / `LC_ALL` / `DOTNET_CLI_UI_LANGUAGE` 为 en-US
-再跑 `dotnet test`。
+**决策**：`scripts/run-tests-en-us.sh` 设 `LOGCAT_FORCE_UI_CULTURE=en-US` 后跑 `dotnet test`；
+测试程序集 `TestCultureBootstrap`（`[ModuleInitializer]`）在**测试进程内**把
+`CurrentCulture` / `CurrentUICulture` 与默认线程区域钉到该值，设置后立即自检，不一致就抛错。
 
-**实测**（临时探针打印实际区域）：
+**实测更正**：2026-10-24 探针证实，Windows 上 `LANG` / `LC_ALL` / `DOTNET_CLI_UI_LANGUAGE`
+**都不改变** `CultureInfo.CurrentUICulture`（不设 zh-CN，设了仍 zh-CN）；这些变量只在 Unix 生效。
+原「设环境变量即可」的方案在 Windows 上是**假绿**（跑的是中文却显示全绿），故改为进程内强制。
+脚本与 CI 仍保留 `LANG` / `LC_ALL`，仅供 Unix runner 使用。
 
-| 环境         | CurrentUICulture | Loc.Current |
-| ------------ | ---------------- | ----------- |
-| 不设环境变量 | zh-CN            | ZhCn        |
-| 设了环境变量 | en-US            | En          |
+**硬断言**：`CiLocaleAssertionTests.强制界面语言已生效` 在声明了该变量时比对实际区域，
+不一致立即红——防止初始化器失效后脚本重新退化成假绿。
 
-.NET 运行时在**进程启动时**读这些变量定默认区域，环境变量被 testhost 继承 → 生效。
-（曾误以为 testhost 是独立进程会无视父进程环境变量，实测证明会继承。）
+### D7：CI 声明真正生效的强制区域变量
 
-### D7：CI 里只声明 en-US，不做双跑
-
-**决策**：`.github/workflows/ci.yml` 的 Test 步骤加 env 声明 en-US，**不**加第二次测试运行。
+**决策**：`.github/workflows/ci.yml` 的 Test 步骤声明 `LOGCAT_FORCE_UI_CULTURE: en-US`
+（保留 `LANG` 等供 Unix runner），**不**加第二次测试运行。
 
 **理由**：`windows-latest` 本身就是 en-US，双跑只是把 CI 时长翻倍而无新增信息量。
-显式声明的价值在于：把「隐式依赖 runner 区域」变成「写明要 en-US」——
-将来换 runner 镜像或改系统语言时不会静默变中文而突然红一片。
+但 Windows runner 上 `LANG` 等不生效、只是字面声明；`LOGCAT_FORCE_UI_CULTURE` 经测试
+程序集在进程内生效并由用例硬校验，才真正把「隐式依赖 runner 区域」变成「可验证的显式契约」。
 
 ### D8：纯函数提取用仓库既有模式
 

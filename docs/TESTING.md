@@ -1,15 +1,15 @@
 # 单元测试与覆盖率实操指南
 
-> 最后更新：2026-10-22
+> 最后更新：2026-10-24
 > 本文是「怎么把测试跑起来、覆盖率怎么出」的**唯一操作入口**。
 > 有效性审计（变异测试）见 [`UT-AUDIT.md`](UT-AUDIT.md)。
 > **CI 语言环境陷阱**（本地全绿、推送就红）见 §3.4。
 
-## 0. 当前基线（2026-10-23）
+## 0. 当前基线（2026-10-24）
 
 | 项         | 值                                                           |
 | ---------- | ------------------------------------------------------------ |
-| 用例数     | **662**，全过（含 `LocTableTests` 的 30 条本地化一致性用例） |
+| 用例数     | **663**，全过（含 `LocTableTests` 的 30 条本地化一致性用例） |
 | 行覆盖率   | **97.47%** (3,507 / 3,598)                                   |
 | 分支覆盖率 | **88.46%**                                                   |
 | 方法覆盖率 | **95.69%** (377 / 394)                                       |
@@ -33,6 +33,12 @@
 > 被完全包含的冗余用例、+6 条缺口用例，外加 fileproxy 增量）。行覆盖率 98.85%→97.36%
 > 的下滑全部来自新增代码的异常/拉起错误路径（见 §4 未覆盖清单），核心路径经变异
 > 测试验证咬得住（103 个变异点 102 KILLED + 1 个确认等价变异）。
+>
+> 2026-10-24 增量：662 → 663（+1），新增 `强制界面语言已生效`——声明
+> `LOGCAT_FORCE_UI_CULTURE` 时校验测试进程实际界面语言。区域强制机制见 §3.4：
+> Windows 上 `LANG` 无效，此前「设环境变量即可」的结论已更正。
+>
+> ⚠️ 若在智能体沙箱里看到 spool / 临时目录清理相关 7 条红，先读 §3.5（伪失败）。
 >
 > 2026-10-23 增量：655 → 662（+7 条），`fix-msgfilter-capacity-scan` 修复回归——
 > 折叠函数 internal 直测 5 条（纯 ASCII 折叠 / 含非 ASCII 返回 false 且弃用缓冲 / 空切片 /
@@ -86,7 +92,7 @@
 - 用 tstrun 报告结果必须带口径声明：**tstrun 口径 N 条**（`[Fact]` 全部 + `[Theory]` 按 `[InlineData]` 展开），
   并声明已知跳过类别——`MemberData` / `ClassData` 驱动的 Theory 会被 runner **静默跳过**（§3.2 坑 3），
   汇总行里看不到它们。
-- 交叉验证：tstrun 口径条数应与上表基线（**662**）一致；不一致先怀疑 runner 漏扫，
+- 交叉验证：tstrun 口径条数应与上表基线（**663**）一致；不一致先怀疑 runner 漏扫，
   **不要改数字迁就 runner**。
 - 两条路径都跑不了时（如沙箱故障），如实写「**未验证**」——禁止声称「通过」。
 
@@ -106,7 +112,8 @@
 时报 **`0x80070005`**（拒绝访问）。沙箱开关、`TEMP` 指向、进程位数、目录 ACL、是否管理员
 —— 全部试过并排除，于是改用反射 runner（§3）绕开 testhost。
 
-**现状（2026-10-23 实测）**：本机 `dotnet test` **已可直接运行**，实测通过 662/662：
+**现状（2026-10-24 实测）**：本机 `dotnet test` **已可直接运行**，当前 663 条中 656 条通过、
+7 条为沙箱伪失败（§3.5）；2026-10-23 首测时 662/662 全过：
 
 ```bash
 dotnet test tests/logcat.Tests/logcat.Tests.csproj -c Release --no-build -v minimal
@@ -320,7 +327,7 @@ dotnet run FilterEngine    # 只跑类名含 FilterEngine 的
 2. **插值表达式里内嵌 `"null"` 会提前闭合字符串**：`$"...{string.Join(", ", data)}..."` 在某些参数下
    会被解析成 `string.Join(", ", data) + "..."` 之类，`string.Join` 的结果要**先提到变量**再插值。
 3. **只匹配 `FactAttribute` 会漏掉全部 Theory** —— 所以要么同时匹配 `TheoryAttribute` 并按
-   `[InlineData]` 展开（上面的代码已做），要么**必须**拿「用例总数」与已知基线（当前 **662**）交叉验证
+   `[InlineData]` 展开（上面的代码已做），要么**必须**拿「用例总数」与已知基线（当前 **663**）交叉验证
    runner 本身没漏。这个交叉验证是每次改 runner 后的必做动作。
 
 ### 3.3 本地化相关的两个特殊坑（2026-10-07）
@@ -388,8 +395,9 @@ LangScope.InEn(() => Assert.Contains("out-of-range", ex.Message));
 
 `tests/logcat.Tests/CiLocaleAssertionTests.cs` 扫测试源码，找出
 「硬编码中文断言 + 该字面量**恰好是本地化资源键** + 所在方法未锁语言」的高危组合并报错。
-已实测：注入一个 CI 会挂的写法后，该测试立刻变红；同一个变异在 en-US 环境下也确实失败
+已实测：注入一个 CI 会挂的写法后，该测试立刻变红；同一个变异在英文界面下也确实失败
 （`Expected "（无过滤）"` vs `Actual "(no filter)"`）——**防线与 CI 真实故障同源**。
+（区域切换方式已于 2026-10-24 更正，见 ③。）
 
 > 判据里的「恰好是资源键」很关键：普通数据字面量（如 "别名"、"正文"）与界面语言无关，
 > 不该被拦。豁免清单在 `KnownLocaleSensitiveAssertions`，每条都要写理由。
@@ -400,20 +408,35 @@ LangScope.InEn(() => Assert.Contains("out-of-range", ex.Message));
 bash scripts/run-tests-en-us.sh
 ```
 
-脚本设 `LANG` / `LC_ALL` / `DOTNET_CLI_UI_LANGUAGE` 为 en-US 再跑 `dotnet test`。
-已实测有效（临时探针打印实际区域）：
+脚本设 `LOGCAT_FORCE_UI_CULTURE=en-US`，由测试程序集 `TestCultureBootstrap`
+（`[ModuleInitializer]`）在**测试进程内**把 `CurrentCulture` / `CurrentUICulture`
+钉成 en-US，再跑 `dotnet test`。
 
-| 环境         | CurrentUICulture | Loc.Current |
-| ------------ | ---------------- | ----------- |
-| 不设环境变量 | zh-CN            | ZhCn        |
-| 设了环境变量 | en-US            | En          |
-
-> ⚠️ 这条对 **`dotnet test`** 有效（testhost 继承环境变量）。
-> 若用 §3 的 tstrun 反射 runner，它在**你自己的进程**里跑，父 shell 的 locale 会被
-> `CultureInfo` 直接读到，同样有效；但 tstrun 需自己设 `CultureInfo.CurrentUICulture`。
+> ⚠️ **不要靠 `LANG` / `LC_ALL` / `DOTNET_CLI_UI_LANGUAGE`**（2026-10-24 实测更正）：
+> Windows 上这三个变量**都不改变** `CultureInfo.CurrentUICulture`——不设是 zh-CN，
+> 设了仍是 zh-CN；它们只在 Unix 生效。此前「设了环境变量 → en-US」的结论是错的，
+> 会让 Windows 上的英文复现实际跑中文却显示全绿。
 >
-> CI 里 `.github/workflows/ci.yml` 的 Test 步骤已显式声明 en-US 环境变量，
-> 把「隐式依赖 runner 区域」变成「写明要 en-US」——换 runner 时不会静默失效。
+> 硬断言：`CiLocaleAssertionTests.强制界面语言已生效` 校验测试进程的实际区域；
+> 初始化器失效时立即红，不会静默退回中文。
+>
+> CI 的 Test 步骤同时声明 `LOGCAT_FORCE_UI_CULTURE`（真正生效）与 `LANG` 等
+> （仅供 Unix runner），把「隐式依赖 runner 区域」变成「可验证的显式契约」。
+
+### 3.5 智能体沙箱：`Directory.Delete` 静默失效（2026-10-24 实测）
+
+在部分 IDE 托管的执行沙箱里，.NET 子进程的目录删除会**返回成功但目录仍在**：
+
+- `Directory.Delete(dir, recursive: true)` 不抛异常，随后 `Directory.Exists(dir)` 仍为 true，
+  进程退出后目录依然存在；
+- 同一路径用 PowerShell `Remove-Item` 能删掉；往 `%TEMP%` 创建目录则直接抛
+  `UnauthorizedAccessException`（沙箱限制）；
+- 后果：spool / 临时目录清理相关 **7 条**「删完断言目录不存在」的用例会伪失败
+  （`SpoolCleanupTests` / `SpoolLivenessTests` / `FileProxyLoopbackTests` /
+  `LogDocumentProxiedTests` 等）。
+
+**不是仓库缺陷**：普通终端与 CI 不受影响。看到这批红先确认是否在沙箱里跑，
+必要时换本机普通终端复跑；不要据沙箱结果改代码。
 
 ---
 

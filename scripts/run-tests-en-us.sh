@@ -13,8 +13,19 @@
 # 历史上有 4 次 CI 因此翻车（2026-10-09 ×2、10-10、10-18），最近一次是
 # fileproxy 越界消息断言硬编码中文。**本地全绿、推送就红**，且本地反复跑也复现不出。
 #
-# 本脚本把 CI 的语言环境搬到本地：把当前线程与默认线程的区域都钉成 en-US，
-# 再跑 dotnet test。凡是「本地绿、CI 红」的语言类问题，在这里就会当场红。
+# 本脚本把 CI 的语言环境搬到本地：设 LOGCAT_FORCE_UI_CULTURE=en-US，由测试程序集
+# TestCultureBootstrap（ModuleInitializer）在**测试进程内**把 CurrentCulture /
+# CurrentUICulture 钉成 en-US，再跑 dotnet test。凡是「本地绿、CI 红」的语言类问题，
+# 在这里就会当场红。
+#
+# ── 为什么不用 LANG / LC_ALL ──
+# 2026-10-24 实测：Windows 上 LANG / LC_ALL / DOTNET_CLI_UI_LANGUAGE 都**不改变**
+# .NET 的 CurrentUICulture（不设 zh-CN，设了仍 zh-CN）；这些变量只在 Unix 生效。
+# 沿用环境变量方案会让 Windows 上的「英文复现」实际跑中文却显示全绿——正是本
+# change 要消灭的假绿。脚本保留它们仅供 Unix runner 使用。
+#
+# 硬断言：CiLocaleAssertionTests.强制界面语言已生效 校验测试进程实际区域；
+# 初始化器失效或变量未生效时立即红，不会再静默退回中文。
 #
 # 与 tests/logcat.Tests/CiLocaleAssertionTests.cs 的分工：
 #   - 那条**扫描器测试**在提交前就拦住「硬编码中文断言本地化文案」的写法（预防）；
@@ -26,20 +37,14 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(dirname "$SCRIPT_DIR")"
 cd "$REPO_DIR"
 
-# dotnet test 派生的 testhost 是独立进程，改父进程 shell 的 locale 无效；
-# 但 .NET 运行时在**进程启动时**会读 LANG / LC_ALL 来定默认区域，
-# 环境变量会被 testhost 继承，故设这三个即可。
-#
-# 已实测（2026-10-22，临时探针打印实际区域）：
-#   不设 → CurrentUICulture=zh-CN  Loc.Current=ZhCn
-#   设了 → CurrentUICulture=en-US  Loc.Current=En
-# 即 testhost 确实被切成了英文界面，与 GitHub runner 同环境。
+# 真正生效的开关：测试程序集在进程内设置区域（LANG 在 Windows 上是无效的）。
+export LOGCAT_FORCE_UI_CULTURE=en-US
 export LANG=en_US.UTF-8
 export LC_ALL=en_US.UTF-8
 export DOTNET_CLI_UI_LANGUAGE=en-US
 
 echo "=== 环境 ==="
-echo "LANG=$LANG"
+echo "LOGCAT_FORCE_UI_CULTURE=$LOGCAT_FORCE_UI_CULTURE （测试进程内强制 en-US）"
 echo ""
 
 echo "=== 重建（Release，对齐 CI）==="

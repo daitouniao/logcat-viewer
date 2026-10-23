@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.RegularExpressions;
 using Xunit;
 
@@ -294,6 +295,25 @@ public class CiLocaleAssertionTests
             sb.Append(c);
         }
         return sb.ToString();
+    }
+
+    /// <summary>
+    /// 声明了 <c>LOGCAT_FORCE_UI_CULTURE</c> 时，校验测试进程实际区域确实是指定值。
+    ///
+    /// <para>
+    /// 这是 <see cref="TestCultureBootstrap"/> 的硬断言：Windows 上 <c>LANG</c>/<c>LC_ALL</c>
+    /// 不改变 <c>CurrentUICulture</c>（2026-10-24 实测），若只设环境变量而不在进程内强制，
+    /// 英文环境跑法会静默退回中文并显示全绿。初始化器失效时本用例立即红。
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void 强制界面语言已生效()
+    {
+        var expected = Environment.GetEnvironmentVariable(TestCultureBootstrap.CultureVariable);
+        if (string.IsNullOrWhiteSpace(expected))
+            return; // 未声明强制区域（普通本地跑）时不约束，保持系统默认行为。
+
+        Assert.Equal(expected.Trim(), CultureInfo.CurrentUICulture.Name);
     }
 
     /// <summary>

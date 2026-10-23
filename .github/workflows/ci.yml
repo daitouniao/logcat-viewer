@@ -42,11 +42,15 @@ jobs:
       # 历史上 CI 有 4 次因此翻车（10-09 ×2、10-10、10-18），症状是
       # 「本地全绿、推送就红」：某些用例把本地化文案硬编码成中文断言。
       #
-      # windows-latest 本身就是 en-US，这里显式声明是为了把「隐式依赖 runner 区域」
-      # 变成「写明要 en-US」：换 runner / 改系统语言时不会静默变中文而突然红一片。
+      # windows-latest 本身就是 en-US。注意：LANG / LC_ALL 只在 Unix 生效，
+      # Windows 上不改变 .NET 的 CurrentUICulture（2026-10-24 实测），故不能靠它们
+      # 真正钉住语言；真正生效的是 LOGCAT_FORCE_UI_CULTURE——测试程序集的
+      # TestCultureBootstrap（ModuleInitializer）在进程内设置区域并由
+      # CiLocaleAssertionTests.强制界面语言已生效 硬校验。
       # 本地想复现这套环境：bash scripts/run-tests-en-us.sh
       - name: Test
         env:
+          LOGCAT_FORCE_UI_CULTURE: en-US
           LANG: en_US.UTF-8
           LC_ALL: en_US.UTF-8
           DOTNET_CLI_UI_LANGUAGE: en-US
