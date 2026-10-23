@@ -7,15 +7,19 @@ context: |
   CI 语言环境：界面语言由 Services/Loc.cs 静态构造期按 CurrentUICulture 探测，无 settings.json 时完全由系统区域决定（本地 zh-CN / runner en-US）。故「Loc.* 输出 + 硬编码中文断言」= 本地全绿、CI 必红（历史翻车 4 次）。写这类断言必须用 LangScope.InZh/InEn 双语各「生成+断言」一遍；本地复现 CI 环境用 bash scripts/run-tests-en-us.sh。详见 docs/TESTING.md §3.4。
   文档红线（公开仓库，双站推送）：产物不得硬编码本机绝对路径或用户名；openspec/ 与 docs/ 公开内容一律视为对克隆者可见；docs/private/** 的内容不进任何产物。
   规范定位：openspec/specs/ 是系统行为的权威描述——只写行为契约（需求 + GIVEN/WHEN/THEN 场景），不写实现细节；类名、库选择、算法取舍归属 design.md。
-  联动：docs/FEATURES.md 是「有什么」的公开清单；archive 时必须同批更新受影响的 FEATURES 条目，两者不允许漂移。
-  工作流门禁（AGENTS.md §2.2）：openspec 阶段 explore → propose → apply → archive 仅凭用户明确指令进入与推进，不跳阶段、不自动推进；propose 写完即停、等 apply 指令。探索产物落 openspec/notes/（公开），建 change 时同批归档至 openspec/notes/archive/ 并冻结不再维护，新探索生成新笔记；含机密或不宜公开的探索内容留 docs/private/notes/。apply 在 change 专属的独立 git worktree 中实施，worktree 标识（分支 wt/<change-name>）记入 tasks.md 首条防断链，禁写本机绝对路径。
+  文档口径：docs/FEATURES.md 不再维护（之后统一删除），archive 时不再更新它；docs/archive/、docs/bugfixes/、docs/design/、docs/private/** 均不再维护（之后统一删除），不需要更新和关注，存量内容仅作历史参考、不作为依据。
+  工作流门禁（AGENTS.md §2.2）：openspec 阶段 explore → propose → apply → archive 仅凭用户明确指令进入与推进，不跳阶段、不自动推进；propose 写完即停、等 apply 指令。探索产物落 openspec/notes/（公开），change 归档时同批将关联探索笔记归档至 openspec/notes/archive/ 并冻结不再维护，新探索生成新笔记。apply 在 change 专属的独立 git worktree 中实施，worktree 标识（分支 wt/<change-name>）记入 tasks.md 首条防断链，禁写本机绝对路径。
+  探索规范（AGENTS.md §2.4）：探索阶段结果生成文档，放到 openspec/notes/，以代码或 Log 为事实，可以跑探针测试，不猜测；有猜测的内容显式标注为猜测；需要澄清的问题写清——为什么需要澄清、有哪些方案、当前偏向哪个。
   易错行为规则（如横幅行不是记录、空行续行处理、索引块起点顺序推进）随相关改动沉淀进 specs/ 对应 capability，不依赖私有文档传递。
 
 rules:
+  explore:
+    - 探索结果生成文档，放到 openspec/notes/
+    - 以代码或 Log 为事实，可以跑探针测试，不猜测；猜测内容显式标注
+    - 需要澄清的问题写清：为什么需要澄清、有哪些方案、偏向哪个
   proposal:
     - 必须显式写出范围与非目标（out of scope）
     - 存量项目：只描述 delta（ADDED/MODIFIED/REMOVED），不重述整个规范
-    - 建立 change 时，同批将 openspec/notes/ 下对应的探索笔记移入 openspec/notes/archive/（git mv + 日期前缀，索引记入 docs/archive/README.md 的 notes/ 表），此后不再维护
   specs:
     - 每条需求至少一个 GIVEN/WHEN/THEN 场景
     - 禁止出现类名、文件路径等实现细节
@@ -35,5 +39,5 @@ operations:
   archive:
     guidance:
       - 归档前确认 tasks 全部完成且 dotnet test 全过（相对基线无新增失败）
-      - 归档后同批更新 docs/FEATURES.md 受影响条目
+      - 归档时同批将关联探索笔记移入 openspec/notes/archive/（git mv + 归档日期前缀），此后不再维护
       - 归档时同步清除该 change 的 git worktree（git worktree remove，随「可以归档」指令一并授权，AGENTS.md §2.3）
