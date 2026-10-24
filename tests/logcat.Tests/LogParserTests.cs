@@ -131,6 +131,31 @@ public class LogParserTests
         Assert.Equal(2026, b.Year);
     }
 
+    /// <summary>
+    /// 分钟字段透传（分钟列的数据源）：三条时间路径都按行内原始分钟透出；
+    /// 闰秒容忍行（s=60）按原始分钟（59）归属而非溢出到的下一分钟；
+    /// 无时间 / 解析失败为 -1。缓存命中路径同样要透出——分钟不进缓存键值。
+    /// </summary>
+    [Fact]
+    public void ParseLine_透传分钟字段()
+    {
+        Assert.Equal(6, Parse("09-23 18:06:48.123  1234  5678 I Tag: m").Minute);       // mm-dd 快路
+        Assert.Equal(6, Parse("2026-09-23 18:06:48.123  1  2 I Tag: m").Minute);        // yyyy-mm-dd 快路
+        Assert.Equal(6, Parse("[ 09-23 18:06:48.123  1: 2 I/Tag ] m").Minute);          // 方括号正则慢路
+        Assert.Equal(59, Parse("09-23 23:59:60.500  1  2 I Tag: m").Minute);            // 闰秒容忍行 → 原始分钟 59
+        Assert.Equal(-1, Parse("I/Tag(1234): msg").Minute);                             // brief 无时间
+        Assert.Equal(-1, Parse("garbage line").Minute);                                 // 无法解析
+
+        var slow = Parse("[ 09-23 25:06:48.123  1: 2 I/Tag ] msg");                     // 慢路时间越界
+        Assert.Equal(-1, slow.Minute);
+        Assert.Equal(LogParser.LVL_I, slow.Level);   // 其余字段仍解析出来
+
+        // 缓存命中路径：同一时刻第二次解析走 _tsCache 早退，分钟必须照样透出
+        const string cached = "09-23 18:07:48.123  1  2 I Tag: m";
+        Assert.Equal(7, Parse(cached).Minute);
+        Assert.Equal(7, Parse(cached).Minute);
+    }
+
     // ── threadtime 里 tag 采用「L/Tag」写法的变体 ──
 
     [Fact]

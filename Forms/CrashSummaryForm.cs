@@ -13,7 +13,7 @@ public class CrashSummaryForm : Form, ILocalizedUi
     readonly ListView _list;
     readonly Label _empty;
     List<CrashGroup> _groups = new();
-    int _baseYear = DateTime.Now.Year;
+    LogDocument? _doc;
 
     /// <summary>点击汇总行 → 主窗口定位到该组首次发生的文档行号。</summary>
     public event Action<int>? RowActivate;
@@ -73,7 +73,7 @@ public class CrashSummaryForm : Form, ILocalizedUi
     /// <summary>用文档的崩溃清单重建汇总。文档为 null 或无崩溃时显示空态。</summary>
     public void RefreshFrom(LogDocument? doc)
     {
-        _baseYear = doc?.BaseYear ?? DateTime.Now.Year;
+        _doc = doc;
         _groups = doc == null
             ? new List<CrashGroup>()
             : CrashAggregator.Aggregate(doc.Crashes, doc.ExcTypes, doc.Pkgs);
@@ -90,7 +90,9 @@ public class CrashSummaryForm : Form, ILocalizedUi
         if (i >= 0 && i < _groups.Count)
         {
             var g = _groups[i];
-            string first = TimeText(g.FirstTs), last = TimeText(g.LastTs);
+            // 首/末次时间文本取自行首原始时间戳（到秒）；行首无时间戳显示 "-"
+            string first = CrashTime.GroupText(_doc!, g.FirstRow) ?? "-";
+            string last = CrashTime.GroupText(_doc!, g.LastRow) ?? "-";
             item.Text = CrashKind.Name(g.Kind);                                    // 类别
             item.SubItems[1].Text = g.ExcType.Length > 0 ? g.ExcType : "-";        // 异常类型
             item.SubItems[2].Text = g.Pkg.Length > 0 ? g.Pkg : "-";                // 包名
@@ -99,13 +101,6 @@ public class CrashSummaryForm : Form, ILocalizedUi
             item.SubItems[5].Text = last;                                          // 末次
         }
         e.Item = item;
-    }
-
-    /// <summary>时间戳 → "MM-dd HH:mm:ss"（跨天日志必须带日期）；未知显示 "-"。</summary>
-    string TimeText(long ts)
-    {
-        var s = LogDocument.TsToText(ts, _baseYear, withMs: false);
-        return s.Length > 0 ? s : "-";
     }
 
     void OnItemSelected(object? sender, ListViewItemSelectionChangedEventArgs e)

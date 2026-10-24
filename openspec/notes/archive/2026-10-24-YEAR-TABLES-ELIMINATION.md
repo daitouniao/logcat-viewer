@@ -1,6 +1,6 @@
 # 探索结论：消除 YearTables 与「时间列转 byte[]」评估
 
-- 状态：探索结论，待用户确认后走 OpenSpec change
+- 状态：已转化为 OpenSpec change `minute-byte-column`（proposal / specs / design / tasks 四件套已定稿；2026-10-24 用户授权 apply，worktree 分支 `wt/minute-byte-column`）
 - 日期：2026-10-21
 - 关联提交：无（探索阶段，未改动代码）
 - 验收结论：待定

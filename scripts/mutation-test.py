@@ -19,11 +19,16 @@
     python scripts/mutation-test.py FilterEngine   # 只跑路径/描述含该关键词的
 
 ⚠️ 纪律（踩过的坑）：
-  1. 运行前确认 `git status` 干净——本脚本只回滚自己改的那一个文件，
-     但如果你正在编辑仓库，并发写入会让结果失真（曾出现 BUILD-FAIL 误报）。
-  2. 本脚本对每个变异执行 `git checkout -- <单个文件>`，不会碰你的其他改动。
-  3. SURVIVED 必须逐条甄别，别直接下结论——先确认「变异本身真的改了行为」。
+  1. 运行前确认 `git status` 干净——脏树上同文件的其他未提交改动会被变异期间的
+     读写覆盖（本脚本按「内存保存变异前内容 → 跑完原地写回」恢复，不再用
+     `git checkout`：那条路会把未提交改动打回 HEAD，2026-10-24 实测两次丢失）。
+     若确实需要在脏树上跑，先自行备份。
+  2. SURVIVED 必须逐条甄别，别直接下结论——先确认「变异本身真的改了行为」。
      用探针打印中间状态，别只静态推理。
+     另注意：tstrun runner 的 ProjectReference 指哪个仓库就测哪个仓库的代码，
+     在 worktree 里跑之前先核对 runner 指向（指错则全部假 SURVIVED）。
+  3. 换行符：工作树是 CRLF（.gitattributes `eol=crlf`），变异串按 LF 写，
+     脚本内部统一「读入归一化 LF → 替换 → 写回转 CRLF」，不会改变文件行尾。
 """
 import argparse
 import os
@@ -93,10 +98,6 @@ TEXT_MUTATIONS = [
 
     # ── LogDocument：续行合并规则 ──
     ("Services/LogDocument.cs",
-     "const long HALF_DAY = LogParser.DAY_MS / 2;",
-     "const long HALF_DAY = LogParser.DAY_MS * 30;",
-     "跨年回退阈值从半天改成 30 天"),
-    ("Services/LogDocument.cs",
      "                prev = -1;\n                prevHead = false;\n                joined = 0;\n                pos = nl >= 0 ? nl + 1 : data.Length;\n                continue;",
      "                prev = 0;\n                pos = nl >= 0 ? nl + 1 : data.Length;\n                continue;",
      "空行不再重置合并状态（回退修法 A）"),
@@ -157,23 +158,39 @@ TEXT_MUTATIONS = [
      "        if (false)",
      "Reload：去掉「头部变化则重建」判定（单测无法构造，见用例注释）"),
 
-    # ── LogDocument：定位 / 时间戳 ──
+    # ── LogDocument：分钟列 / 行首原文（2026-10-24 minute-byte-column）──
     ("Services/LogDocument.cs",
-     "        return diffLo < diffPrev ? lo : lo - 1;",
-     "        return lo;",
-     "NearestPos：不再比较左右距离"),
+     "    public const byte MINUTE_NONE = 255;",
+     "    public const byte MINUTE_NONE = 0;",
+     "分钟哨兵 255 → 0（无时间戳行反被分钟 0 过滤命中）"),
     ("Services/LogDocument.cs",
-     "        if (!LogParser.IsLeap(now.Year) && now.DayOfYear > 59) todayWithin += LogParser.DAY_MS;",
-     "",
-     "GuessYear：去掉非闰年 3 月后的闰日序修正"),
+     "            minutes.Add(pr.Minute < 0 ? MINUTE_NONE : (byte)pr.Minute);",
+     "            minutes.Add(pr.Minute < 0 ? (byte)0 : (byte)pr.Minute);",
+     "ScanRange：无时间戳行分钟列存 0 而非哨兵 255"),
     ("Services/LogDocument.cs",
-     "        if (within >= LogParser.LEAP_BOUNDARY) result -= adj[yi];\n        return result;",
-     "        return result;",
-     "TsFromParts：去掉非闰年闰日序修正 adj"),
-    ("Services/LogDocument.cs",
-     "            adj[i] = LogParser.IsLeap(baseYear + y) ? 0 : LogParser.DAY_MS;",
-     "            adj[i] = 0;",
-     "YearTables：adj 全置 0（去掉非闰年修正）"),
+     "        int s = len >= 2 && buf[0] == 91 && buf[1] == 32 ? 2 : 0;",
+     "        int s = 0;",
+     "HeaderBytes：不再识别 '[ ' 前缀（方括号 long 格式 Time 列变空）"),
+
+    # ── LogParser：分钟透传 ──
+    ("Services/LogParser.cs",
+     "            try { (within, year) = MsOf(y, mo, d, h, mi, s, ms); minute = mi; }",
+     "            try { (within, year) = MsOf(y, mo, d, h, mi, s, ms); minute = 0; }",
+     "ParseSlow：慢路分钟恒 0（方括号行分钟过滤全错）"),
+    ("Services/LogParser.cs",
+     "            catch { within = -1; year = -1; minute = -1; }",
+     "            catch { within = -1; year = -1; minute = 0; }",
+     "ParseSlow：解析失败行分钟 0 化（越界行反被分钟 0 命中）"),
+
+    # ── CrashAggregator：行序化（2026-10-24）──
+    ("Services/CrashAggregator.cs",
+     "        return order.OrderByDescending(g => g.Count).ThenBy(g => g.FirstRow).ToList();",
+     "        return order.OrderByDescending(g => g.Count).ToList();",
+     "崩溃分组排序：去掉首次行号升序（同次数组间顺序不定）"),
+    ("Services/CrashAggregator.cs",
+     "                order[i] = g with { Count = g.Count + 1, LastRow = Math.Max(g.LastRow, ce.Row) };",
+     "                order[i] = g with { Count = g.Count + 1, LastRow = Math.Min(g.LastRow, ce.Row) };",
+     "崩溃组内末次行号改取最小（行序最后失效）"),
 
     # ── FilterEngine：匹配语义 ──
     ("Services/FilterEngine.cs",
@@ -453,39 +470,40 @@ TEXT_MUTATIONS = [
 ]
 
 # ── 行号型变异（解决同构代码的 str.replace 歧义）────────────────────────────
-# FilterEngine 里 ApplyFilter(301/308/315) 与 FilterTail(372/377/382) 的
+# FilterEngine 里 ApplyFilter(263/270/277) 与 FilterTail(332/337/342) 的
 # pid/tid 排除、分钟守卫是逐字符相同的代码，文本替换会匹配到 2 处而跳过。
 # 改用「行号 + 该行内容片段」双重校验定位。
 #
 # (相对路径, 1-based 行号, 该行须含的片段, 变异后内容, 说明)
 LINE_MUTATIONS = [
-    # 行号会随FilterEngine.cs 增删漂移（2026-10-04 移除正则后下移约 47 行）。
+    # 行号会随 FilterEngine.cs 增删漂移（2026-10-04 移除正则后下移约 47 行；
+    # 2026-10-24 minute-byte-column 分钟守卫改写后 pid/tid 各下移 9/7 行）。
     # 脚本按「行号 + 该行内容」双重校验，内容不符会 SKIP 而非误改，所以漂移是安全失败、
     # 但会静默漏掉一半变异点 —— 改完引擎记得回来核对行号。
-    ("Services/FilterEngine.cs", 254,
+    ("Services/FilterEngine.cs", 263,
      "if (spec.PidExclude ? hit : !hit) continue;",
      "if (hit) continue;",
-     "ApplyFilter(254)：pid 排除退化为包含"),
-    ("Services/FilterEngine.cs", 261,
+     "ApplyFilter(263)：pid 排除退化为包含"),
+    ("Services/FilterEngine.cs", 270,
      "if (spec.TidExclude ? hit : !hit) continue;",
      "if (spec.TidExclude ? !hit : hit) continue;",
-     "ApplyFilter(261)：tid 排除/包含语义整体反转（对照组）"),
-    ("Services/FilterEngine.cs", 268,
-     "if (ts < 0) continue;",
-     "if (ts < 0 && minSet.Count == int.MaxValue) continue;",
-     "ApplyFilter(268)：分钟过滤不再跳过无时间戳行"),
-    ("Services/FilterEngine.cs", 325,
+     "ApplyFilter(270)：tid 排除/包含语义整体反转（对照组）"),
+    ("Services/FilterEngine.cs", 277,
+     "if (!minSet.Contains(doc.Minute[i])) continue;",
+     "if (!minSet.Contains(doc.Minute[i]) && doc.Minute[i] != 255) continue;",
+     "ApplyFilter(277)：分钟守卫放行哨兵行（无时间戳行反被分钟过滤命中）"),
+    ("Services/FilterEngine.cs", 332,
      "if (spec.PidExclude ? hit : !hit) continue;",
      "if (spec.PidExclude ? !hit : hit) continue;",
-     "FilterTail(325)：pid 排除/包含语义整体反转（对照组）"),
-    ("Services/FilterEngine.cs", 330,
+     "FilterTail(332)：pid 排除/包含语义整体反转（对照组）"),
+    ("Services/FilterEngine.cs", 337,
      "if (spec.TidExclude ? hit : !hit) continue;",
      "if (spec.TidExclude ? !hit : hit) continue;",
-     "FilterTail(330)：tid 排除/包含语义整体反转"),
-    ("Services/FilterEngine.cs", 335,
-     "if (ts < 0) continue;",
-     "if (ts < 0 && minSet.Count == int.MaxValue) continue;",
-     "FilterTail(335)：分钟过滤不再跳过无时间戳行"),
+     "FilterTail(337)：tid 排除/包含语义整体反转"),
+    ("Services/FilterEngine.cs", 342,
+     "if (!minSet.Contains(doc.Minute[i])) continue;",
+     "if (!minSet.Contains(doc.Minute[i]) && doc.Minute[i] != 255) continue;",
+     "FilterTail(342)：分钟守卫放行哨兵行（无时间戳行反被分钟过滤命中）"),
     # 2026-10-18 核对：RenameCategory 空名校验从 280 漂到 336（X-A8 后多次增删）。
     ("Services/CommandStore.cs", 336,
      "if (oldName.Length == 0 || newName.Length == 0) return false;",
@@ -499,7 +517,8 @@ LINE_MUTATIONS = [
      "const int MAX_JOIN = 200;",
      "const int MAX_JOIN = 1;",
      "MAX_JOIN 200 → 1（续行合并上限）"),
-    ("Services/LogDocument.cs", 243,
+    # 2026-10-24 核对：TagOf 从 243 漂到 246（分钟列字段/视图插入）。
+    ("Services/LogDocument.cs", 246,
      'if (row < 0 || row >= _n) return "";',
      'if (row < 0) return "";',
      "TagOf：去掉上界检查（只挡负数）"),
@@ -525,8 +544,24 @@ def run_tests():
     return None, None, (detail or "无输出/编译失败（可能是并发编辑导致）")
 
 
-def revert(path):
-    subprocess.run(["git", "checkout", "--", path], cwd=REPO, capture_output=True)
+def revert(path, original_lf):
+    """把文件写回变异前内容。不用 git checkout——那会打回 HEAD，抹掉该文件上
+    所有未提交改动（2026-10-24 在 worktree 上实测两次丢失，靠 tar 备份才救回）。
+    original_lf 是 read_normalized 得到的 LF 文本，写回时统一转 CRLF。"""
+    full = os.path.join(REPO, path)
+    with open(full, "w", encoding="utf-8", newline="") as f:
+        f.write(original_lf.replace("\n", "\r\n"))
+
+
+def read_normalized(full):
+    """读入并归一化为 LF（工作树 CRLF，变异串按 LF 维护）。"""
+    with open(full, "r", encoding="utf-8", newline="") as f:
+        return f.read().replace("\r\n", "\n")
+
+
+def write_crlf(full, text):
+    with open(full, "w", encoding="utf-8", newline="") as f:
+        f.write(text.replace("\n", "\r\n"))
 
 
 def apply_text_mutation(keyword):
@@ -535,20 +570,18 @@ def apply_text_mutation(keyword):
         if keyword and keyword not in desc and keyword not in path:
             continue
         full = os.path.join(REPO, path)
-        with open(full, "r", encoding="utf-8") as f:
-            src = f.read()
-        n = src.count(old)
+        original = read_normalized(full)
+        n = original.count(old)
         if n != 1:
             # 同构代码有 2 处匹配 → 改用行号型变异（见 LINE_MUTATIONS）
             results.append((desc, f"SKIP-匹配数={n}（同构代码，请用行号型变异）"))
             print(f"[SKIP] {desc}  匹配数={n}", flush=True)
             continue
-        with open(full, "w", encoding="utf-8", newline="") as f:
-            f.write(src.replace(old, new))
+        write_crlf(full, original.replace(old, new))
 
         t0 = time.time()
         failed, summary, err = run_tests()
-        revert(path)
+        revert(path, original)
 
         if failed is None:
             v, d = "BUILD-FAIL", err
@@ -566,8 +599,8 @@ def apply_line_mutation(keyword):
         if keyword and keyword not in desc and keyword not in path:
             continue
         full = os.path.join(REPO, path)
-        with open(full, "r", encoding="utf-8") as f:
-            lines = f.readlines()
+        original = read_normalized(full)
+        lines = original.split("\n")
         if lineno > len(lines) or expect not in lines[lineno - 1]:
             results.append((desc, "SKIP-行内容不符"))
             print(f"[SKIP] {desc}  第{lineno}行: "
@@ -575,12 +608,11 @@ def apply_line_mutation(keyword):
                   flush=True)
             continue
         lines[lineno - 1] = lines[lineno - 1].replace(expect, mutate)
-        with open(full, "w", encoding="utf-8", newline="") as f:
-            f.writelines(lines)
+        write_crlf(full, "\n".join(lines))
 
         t0 = time.time()
         failed, summary, err = run_tests()
-        revert(path)
+        revert(path, original)
 
         if failed is None:
             v, d = "BUILD-FAIL", err

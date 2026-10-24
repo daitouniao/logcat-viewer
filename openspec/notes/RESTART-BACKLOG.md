@@ -65,7 +65,7 @@
 
 - 文档：`docs/private/design/DIRECTORY-TIMELINE-DESIGN.md`
 - 状态：待评审（2026-10-13）；需求来自维护者口述使用画像（300–500MB 日志、SMB、同目录多文件高频）
-- 关联：与 B1（M1 时间覆盖扫描 / YearTables 修复）、B3 有交叉
+- 关联：与 B1（M1 时间覆盖扫描 / ~~YearTables 修复~~）、B3 有交叉（2026-10-24：YearTables 随 minute-byte-column 删除，B1 的「YearTables 修复」部分已作废，B1 重启时按分钟列重新评估该项）
 - 重启条件：维护者排期 → 转 OpenSpec change
 
 ### B3. MCP 服务与多格式日志支持（DLT 优先）

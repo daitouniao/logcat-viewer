@@ -321,10 +321,11 @@ public class FilterEngineTests
     }
 
     /// <summary>
-    /// 增量路径的同一守卫：无时间戳的行（ts &lt; 0）必须被跳过。
+    /// 增量路径的同一守卫：无时间戳的行必须被跳过。
     /// FilterTail 与 ApplyFilter 是两份独立实现（重复代码），守卫也各写了一份，
     /// 只测 ApplyFilter 会让 FilterTail 的那份成为无人看管的盲区 ——
-    /// 变异测试实测「不再跳过 ts&lt;0」在 ApplyFilter 被 KILLED、在 FilterTail SURVIVED。
+    /// 变异测试实测「不再跳过无时间戳行」在 ApplyFilter 被 KILLED、在 FilterTail SURVIVED。
+    /// 现在守卫由分钟列哨兵（255）天然承担：无时间戳行根本不进任何分钟集合。
     /// </summary>
     [Fact]
     public void 分钟过滤跳过无时间戳的行_增量路径同样成立()
@@ -333,13 +334,27 @@ public class FilterEngineTests
         using var doc = LogDocument.Build(tmp.Path);
 
         var spec = new FilterSpec { Minutes = new[] { 0 } };
-        // 第0 行无时间戳，第 1 行是 18:00 的正常行
+        // 第0 行无时间戳（分钟列哨兵 255），第 1 行是 18:00 的正常行
         var full = Apply(doc, spec);
         Assert.Equal(new[] { 1 }, full);
         for (int start = 0; start <= doc.RowCount + 1; start++)
-            // ts<0 的行若不跳过，(ts/60000)%60 会算成 0 而被误纳入
             Assert.Equal(full.Where(r => r >= start).ToArray(),
                          FilterEngine.FilterTail(doc, spec, start));
+    }
+
+    /// <summary>
+    /// 闰秒容忍行（23:59:60.500）按原始分钟 59 命中（spec 专场景）：
+    /// 改前绝对毫秒把 :60 溢出到下一分钟，过滤命中分钟 0、Time 列显示 :60，割裂；
+    /// 分钟列取行内原始字段后过滤与显示一致。
+    /// </summary>
+    [Fact]
+    public void 分钟过滤_闰秒行按59命中()
+    {
+        using var tmp = new TempLogFile("09-23 23:59:60.500  1  2 I Tag: leap\n");
+        using var doc = LogDocument.Build(tmp.Path);
+
+        Assert.Equal(new[] { 0 }, Apply(doc, new FilterSpec { Minutes = new[] { 59 } }));
+        Assert.Empty(Apply(doc, new FilterSpec { Minutes = new[] { 0 } }));
     }
 
     [Fact]

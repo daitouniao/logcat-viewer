@@ -4,7 +4,7 @@
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
 [![Platform: Windows](https://img.shields.io/badge/platform-Windows-lightgrey)](#环境要求)
 [![CI](https://github.com/daitouniao/logcat-viewer/actions/workflows/ci.yml/badge.svg)](https://github.com/daitouniao/logcat-viewer/actions/workflows/ci.yml)
-[![Tests: 663 passing](https://img.shields.io/badge/tests-663%20passing-green)](docs/TESTING.md)
+[![Tests: 650 passing](https://img.shields.io/badge/tests-650%20passing-green)](docs/TESTING.md)
 [![Coverage: 97.47% lines](https://img.shields.io/badge/coverage-97.47%25%20lines-blue)](docs/TESTING.md)
 
 Windows 桌面端 Android 日志（logcat）查看器。基于 WinForms，使用内存映射文件 + 列式索引，可直接打开并流畅浏览千万行级别的日志文件，同时支持通过 ADB 实时采集设备日志、截图、录屏、文件互传、APK 安装/卸载与分类收藏常用命令。
@@ -183,7 +183,7 @@ dotnet test tests/logcat.Tests/logcat.Tests.csproj --collect:"XPlat Code Coverag
 python tests/coverage-report.py     # 输出 tests/coverage-report.html
 ```
 
-当前状态：**663 个用例全部通过**，行覆盖率 **97.47%**（3,507 / 3,598 行），分支覆盖率 **88.46%**。
+当前状态：**650 个用例全部通过**，行覆盖率 **97.47%**（3,507 / 3,598 行），分支覆盖率 **88.46%**。
 
 覆盖口径见 `tests/logcat.Tests/coverlet.runsettings`，排除两类代码：
 - **UI 层**：`Forms` / `Controls` / `frmMain` / `Program`，以及 `DpiFix` / `DpiDiag` / `Loc`。`Loc`（本地化运行时）与 `DpiFix` 同理——它一半的代码是控件树遍历、字体替换与文本像素测量，没有真实窗体与消息泵无从验证
@@ -276,12 +276,13 @@ Services/
   AppInfo.cs            产品名与版本号（读取程序集 InformationalVersion，标题与关于对话框共用）
 tests/
   coverage-report.py      覆盖率报告生成（coverlet 的 cobertura XML → 可读 HTML）
-  logcat.Tests/           xUnit 测试工程（663 个用例：日志解析 / 列式索引 / 过滤引擎 / 崩溃提取 / 持久化 / 本地化）
+  logcat.Tests/           xUnit 测试工程（650 个用例：日志解析 / 列式索引 / 过滤引擎 / 崩溃提取 / 持久化 / 本地化）
     coverlet.runsettings  覆盖率统计口径（Include / Exclude 规则）
 docs/
   BUILDING.md             怎么编译与发布（两个包各自的命令与产物验证）
   TESTING.md              怎么跑测试、怎么出覆盖率（唯一操作入口）
   UT-AUDIT.md             变异测试审计——测试到底咬不咬得住
+  memory/                 跨 change 实战经验与工作纪律——被证明会出事的做法
   FEATURES.md             功能规划——接下来做什么、明确不做什么
   archive/               归档快照（已验收 bug 报告 / 已完成设计 / 已停用的跟踪表）
   images/main.gif         README 顶部的演示动图
@@ -298,6 +299,7 @@ DISCLAIMER.md           免责声明全文
 | [docs/BUILDING.md](docs/BUILDING.md)             | 要编译或发版——两个包各自的 `dotnet publish` 命令、产物结构验证、踩坑速查 |
 | [docs/TESTING.md](docs/TESTING.md)               | 要跑测试或出覆盖率——含「智能体沙箱里 `dotnet test` 起不来」的绕法        |
 | [docs/UT-AUDIT.md](docs/UT-AUDIT.md)             | 想知道测试到底咬不咬得住——变异测试审计结论                               |
+| [docs/memory/](docs/memory/)                     | 跨 change 的项目经验——实操踩过的坑与定下来的纪律                          |
 | [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) | 关心依赖与许可——逐个包的版本、许可、版权与分发检查项                     |
 | [DISCLAIMER.md](DISCLAIMER.md)                   | 使用前必读的完整免责条款                                                 |
 

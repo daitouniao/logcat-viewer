@@ -1482,10 +1482,9 @@ public partial class frmMain : Form, ILocalizedUi
             if (pid >= 0) menu.Items.Add(Loc.F("按此 PID 过滤：{0}", pid), null, (_, _) => { _edPid.Text = pid.ToString(); _ = ApplyFilter(); });
             if (tid >= 0) menu.Items.Add(Loc.F("按此 TID 过滤：{0}", tid), null, (_, _) => { _edTid.Text = tid.ToString(); _ = ApplyFilter(); });
 
-            long ts = _doc.Ts[docRow];
-            if (ts >= 0)
+            int minute = _doc.Minute[docRow];
+            if (minute != LogDocument.MINUTE_NONE)
             {
-                int minute = (int)((ts / 60000) % 60);
                 menu.Items.Add(Loc.F("按此分钟过滤：{0:D2}", minute), null, (_, _) => { _edMin.Text = minute.ToString(); _ = ApplyFilter(); });
             }
         }

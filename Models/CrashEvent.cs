@@ -36,8 +36,6 @@ public struct CrashEvent
     /// <summary>崩溃父行自带的 PID / TID（logcat 头部，-1 = 未知）。</summary>
     public int Pid;
     public int Tid;
-    /// <summary>父行时间戳（绝对毫秒，-1 = 无时间），用于汇总窗口首/末次排序。</summary>
-    public long Ts;
     /// <summary>崩溃类别，见 <see cref="CrashKind"/>。</summary>
     public byte Kind;
     /// <summary>合并行数 = joined 计数 + 1；「+N 行」展示 LineCount-1。</summary>

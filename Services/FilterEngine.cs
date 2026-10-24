@@ -273,10 +273,8 @@ public static class FilterEngine
             // Minutes
             if (minSet != null)
             {
-                long ts = doc.Ts[i];
-                if (ts < 0) continue;
-                int minute = (int)((ts / 60000) % 60);
-                if (!minSet.Contains(minute)) continue;
+                // 分钟列哨兵 255 不可能是分钟集合成员，无时间戳行天然不命中
+                if (!minSet.Contains(doc.Minute[i])) continue;
             }
 
             // Marked only
@@ -340,10 +338,8 @@ public static class FilterEngine
             }
             if (minSet != null)
             {
-                long ts = doc.Ts[i];
-                if (ts < 0) continue;
-                int minute = (int)((ts / 60000) % 60);
-                if (!minSet.Contains(minute)) continue;
+                // 分钟列哨兵 255 不可能是分钟集合成员，无时间戳行天然不命中
+                if (!minSet.Contains(doc.Minute[i])) continue;
             }
             if (tagIds != null)
             {

@@ -5,7 +5,7 @@ using Xunit;
 namespace logcat.Tests;
 
 /// <summary>
-/// LogDocument：mmap 列式索引的构建、增量追加、多行合并、跨年时间戳推算。
+/// LogDocument：mmap 列式索引的构建、增量追加、多行合并。
 /// 行文本统一用 TestData.Threadtime 生成，字段偏移量在注释里标注，便于核对。
 /// </summary>
 // 本类会改动 Loc 的全局语言状态，必须与其它改语言的类串行（见 LangCollection）
@@ -43,35 +43,11 @@ public class LogDocumentTests
         Assert.Equal("Tag", doc.TagOf(0));
         Assert.False(doc.IsMultiline(0));
 
-        // Ts 是含年份偏移的绝对毫秒，直接断言还原出的时间文本更贴近语义
-        Assert.Equal("09-23 18:00:00.000", LogDocument.TsToText(doc.Ts[0], doc.BaseYear));
+        // 时间文本由 HeaderBytes（行首原文）还原，分钟列取行内原始分钟
+        Assert.Equal("09-23 18:00:00.000", Text(doc.HeaderBytes(0)));
+        Assert.Equal(0, doc.Minute[0]);
         Assert.Equal(0, doc.Offs[0]);
         Assert.Equal("09-23 18:00:00.000  1  2 E Tag: crash", Text(doc.LineBytes(0)));
-    }
-
-    [Fact]
-    public void Build_mmdd格式行内无年份时HasYear为假()
-    {
-        // 样本行必须用「今天」的日期：GuessYear 会把落在「今天 +1 天以上」将来
-        // 的时间戳推定为去年，写死日期的话这个测试一年里只有部分时期能通过
-        var today = DateTime.Now.ToString("MM-dd");
-        using var tmp = new TempLogFile(TestData.Threadtime($"{today} 18:00:00.000", 1, 2, 'I', "Tag", "a"));
-        using var doc = LogDocument.Build(tmp.Path);
-
-        Assert.False(doc.HasYear);
-        Assert.Equal(DateTime.Now.Year, doc.BaseYear);   // 当天时间戳 → 推定为今年
-    }
-
-    [Fact]
-    public void Build_带年份时HasYear为真且基准年取自行内()
-    {
-        using var tmp = new TempLogFile("2026-09-23 18:00:00.000  1  2 I Tag: a\n");
-        using var doc = LogDocument.Build(tmp.Path);
-
-        Assert.True(doc.HasYear);
-        Assert.Equal(2026, doc.BaseYear);
-        // 时间列文本由 ts + BaseYear 还原，应回到行内原始日期
-        Assert.Equal("09-23 18:00:00.000", LogDocument.TsToText(doc.Ts[0], doc.BaseYear));
     }
 
     [Fact]
@@ -188,6 +164,27 @@ public class LogDocumentTests
         Assert.Equal(LogParser.LVL_I, doc.Lvl[1]);
     }
 
+    /// <summary>
+    /// 分钟列（spec「分钟列与分钟过滤语义」的存储侧契约）：三种时间格式取行内原始分钟，
+    /// 闰秒容忍行（s=60）按原始分钟 59 归属；无时间戳行存哨兵 255。
+    /// </summary>
+    [Fact]
+    public void Build_分钟列各值正确()
+    {
+        using var tmp = new TempLogFile(
+            "09-23 18:06:48.123  1  2 I Tag: a\n" +          // mm-dd 快路 → 6
+            "2026-09-23 09:30:00.000  1  2 I Tag: b\n" +     // yyyy-mm-dd 快路 → 30
+            "[ 09-23 23:59:60.500  1: 2 I/Tag ] c\n" +       // 方括号正则慢路 + 闰秒 → 59
+            "I/Tag(1234): no time\n");                        // brief 无时间 → 哨兵
+        using var doc = LogDocument.Build(tmp.Path);
+
+        Assert.Equal(4, doc.RowCount);
+        Assert.Equal(6, doc.Minute[0]);
+        Assert.Equal(30, doc.Minute[1]);
+        Assert.Equal(59, doc.Minute[2]);                     // 闰秒容忍行按原始分钟，不溢出到 0
+        Assert.Equal(LogDocument.MINUTE_NONE, doc.Minute[3]);
+    }
+
     // ── 多行合并 ──
 
     [Fact]
@@ -287,10 +284,23 @@ public class LogDocumentTests
         Assert.Equal("2026-09-23 18:00:00.000", Text(doc.HeaderBytes(0)));
     }
 
+    /// <summary>
+    /// 方括号 long 格式（-v long）行首是 "[ "：HeaderBytes 跳过 2 字节前缀后
+    /// 按既有日期形态判定，Time 列才能显示时间戳（绝对毫秒兜底移除后这是唯一来源）。
+    /// </summary>
+    [Fact]
+    public void HeaderBytes_方括号long格式跳过前缀()
+    {
+        using var tmp = new TempLogFile("[ 09-23 18:06:48.123  1234: 5678 I/ActivityManager ] msg\n");
+        using var doc = LogDocument.Build(tmp.Path);
+
+        Assert.Equal("09-23 18:06:48.123", Text(doc.HeaderBytes(0)));
+    }
+
     [Fact]
     public void HeaderBytes保留高精度小数秒()
     {
-        // usec/nsec 格式的小数秒超出 TsToText 的 3 位毫秒，须原样返回
+        // usec/nsec 格式的小数秒须原样返回（Time 列显示行首原文，不重排为 3 位）
         using var tmp = new TempLogFile("09-23 18:00:00.000123  1  2 I Tag: a\n");
         using var doc = LogDocument.Build(tmp.Path);
 
@@ -386,200 +396,6 @@ public class LogDocumentTests
             LogDocument.Build(tmp.Path, ct: cts.Token));
     }
 
-    // ── 跨年时间戳 ──
-
-    [Fact]
-    public void 时间戳回退超过半天判定为跨年()
-    {
-        using var tmp = new TempLogFile(
-            "12-31 23:59:59.000  1  2 I Tag: a\n" +
-            "01-01 00:00:01.000  1  2 I Tag: b\n");
-        using var doc = LogDocument.Build(tmp.Path);
-
-        // 跨年没被识别的话，第二条会被算成同一年，两行相差将近 -365 天
-        Assert.Equal(2000, doc.Ts[1] - doc.Ts[0]);
-    }
-
-    [Fact]
-    public void 时间戳回退不足半天视为同一天内乱序()
-    {
-        using var tmp = new TempLogFile(
-            "09-23 18:00:00.000  1  2 I Tag: a\n" +
-            "09-23 06:00:00.000  1  2 I Tag: b\n");
-        using var doc = LogDocument.Build(tmp.Path);
-
-        // 同一年的乱序：仍在同一年内，差值就是 -12 小时
-        Assert.Equal(-12 * 3_600_000L, doc.Ts[1] - doc.Ts[0]);
-    }
-
-    /// <summary>
-    /// 跨年判定的阈值是「回退超过半天」（HALF_DAY = DAY_MS / 2）。
-    /// 上面两个用例一个测 -12 小时、一个测跨年，都落在阈值的**远端**，
-    /// 把 HALF_DAY 从半天改成 30 天后它们照样通过（变异实测全绿）。
-    /// 这里贴着阈值测：-20 小时必须判跨年（改成 30 天就抓到了）。
-    /// </summary>
-    [Fact]
-    public void 时间戳回退接近半天时按跨年处理()
-    {
-        using var tmp = new TempLogFile(
-            "09-23 18:00:00.000  1  2 I Tag: a\n" +
-            "09-22 22:00:00.000  1  2 I Tag: b\n");      // 回退 20 小时 > 半天
-        using var doc = LogDocument.Build(tmp.Path);
-
-        // 判为跨年 → 第二行落到上一年，差值变成「一年减去 20 小时」（约 +364 天），
-        // 而不是同一年内的 -20 小时。
-        long diff = doc.Ts[1] - doc.Ts[0];
-        Assert.True(diff > 300 * LogParser.DAY_MS, $"应判跨年（差值约 +364 天），实际 {diff} ms");
-    }
-
-    /// <summary>
-    /// 阈值另一侧：回退 11 小时（不足半天）必须**不**判跨年。
-    /// 与上一条成对，锁住「半天」这个具体取值，而不是「某个很大的值」。
-    /// </summary>
-    [Fact]
-    public void 时间戳回退十一个小时不判跨年()
-    {
-        using var tmp = new TempLogFile(
-            "09-23 18:00:00.000  1  2 I Tag: a\n" +
-            "09-23 07:00:00.000  1  2 I Tag: b\n");      // 回退 11 小时 < 半天
-        using var doc = LogDocument.Build(tmp.Path);
-
-        Assert.Equal(-11 * 3_600_000L, doc.Ts[1] - doc.Ts[0]);
-    }
-
-    // ── 静态时间工具 ──
-
-    [Fact]
-    public void TsToText基本格式()
-    {
-        Assert.Equal("", LogDocument.TsToText(-1, 2026));
-        Assert.Equal("01-01 00:00:00.000", LogDocument.TsToText(0, 2026));
-        Assert.Equal("01-01 00:00:00", LogDocument.TsToText(0, 2026, withMs: false));
-        Assert.Equal("01-01 00:00:01.500", LogDocument.TsToText(1500, 2026));
-    }
-
-    [Fact]
-    public void TsToText超范围时返回空串()
-    {
-        Assert.Equal("", LogDocument.TsToText(long.MaxValue, 1));
-    }
-
-    [Fact]
-    public void TsFromParts基本换算()
-    {
-        Assert.Equal(0, LogDocument.TsFromParts(2026, 1, 1, 0, 0, 0, 0, 2026));
-        // 2026 非闰年：3 月 1 日距 1 月 1 日 59 天
-        Assert.Equal(59 * LogParser.DAY_MS, LogDocument.TsFromParts(2026, 3, 1, 0, 0, 0, 0, 2026));
-        Assert.Equal(3_723_004, LogDocument.TsFromParts(2026, 1, 1, 1, 2, 3, 4, 2026));
-    }
-
-    [Fact]
-    public void TsFromParts年份为零时回退到基准年()
-    {
-        Assert.Equal(0, LogDocument.TsFromParts(0, 1, 1, 0, 0, 0, 0, 2026));
-    }
-
-    /// <summary>
-    /// 混合年份的日志：首行是 mm-dd（无年份），后面才出现 ymd（带年份）。
-    /// 这会走 FinalizeTs 里「第一个已知年份之前的行」那条分支——
-    /// 那些行的年份用「锚点年份 + 跨年回退量」推算，而不是简单全填同一个年份。
-    /// 该分支此前无覆盖。
-    ///
-    /// 实测语义（探针验证）：
-    /// 锚点年份取首个已知年份（2027），无年份的行按 `roll` 里的跨年计数递增年份。
-    /// 第 1 行回退 1 天 > HALF_DAY → roll=1 → 年份 2028，
-    /// 于是 ts 差值是「2028 年表偏移 + 09-22 日序」减「2027 年表偏移 + 09-23 日序」
-    /// ≈ +364 天。**不是** -1 天——`roll`（跨年次数）与 `within`（年内日序）是两套编码，不能混算。
-    /// </summary>
-    [Fact]
-    public void 首个带年份的行之前用锚点年份加跨年回退量()
-    {
-        using var tmp = new TempLogFile(
-            "09-23 18:00:00.000  1  2 I Tag: a\n" +          // 无年份，且在锚点之前
-            "09-22 18:00:00.000  1  2 I Tag: b\n" +          // 回退 1 天 → 触发一次跨年计数
-            "2027-01-05 10:00:00.000  1  2 I Tag: c\n");     // 锚点：已知年份 2027
-        using var doc = LogDocument.Build(tmp.Path);
-        Assert.Equal(3, doc.RowCount);
-
-        int baseYear = DateTime.Now.Year;
-        // 锚点之前的行不参与年份传播，日序原样保留
-        Assert.Equal("09-23 18:00:00", LogDocument.TsToText(doc.Ts[0], baseYear, withMs: false));
-
-        // 回退超过半天 → 判一次跨年，年份被推到锚点 +1
-        Assert.True(doc.Ts[1] - doc.Ts[0] > 300 * LogParser.DAY_MS,
-            $"回退 1 天应判跨年，差值应为正且约 364 天，实际 {(doc.Ts[1] - doc.Ts[0]) / 86400000.0:F1} 天");
-
-        // 带年份的锚点行不受基准年影响
-        Assert.Equal("01-05 10:00:00", LogDocument.TsToText(doc.Ts[2], baseYear, withMs: false));
-    }
-
-    [Fact]
-    public void TsFromParts月份为负一时按参考时间取当天()
-    {
-        long refTs = 10 * LogParser.DAY_MS;
-        long actual = LogDocument.TsFromParts(2026, -1, 0, 1, 2, 3, 4, 2026, refTs);
-        Assert.Equal(refTs + 3_723_004, actual);
-    }
-
-    [Fact]
-    public void TsFromParts缺少参考时间时抛异常()
-    {
-        Assert.Throws<ArgumentException>(() =>
-            LogDocument.TsFromParts(2026, -1, 0, 0, 0, 0, 0, 2026));
-        Assert.Throws<ArgumentException>(() =>
-            LogDocument.TsFromParts(2026, -1, 0, 0, 0, 0, 0, 2026, refTs: -1));
-    }
-
-    [Theory]
-    [InlineData(24, 0, 0, 0)]     // 小时越界
-    [InlineData(0, 60, 0, 0)]     // 分钟越界
-    [InlineData(0, 0, 61, 0)]     // 秒越界
-    [InlineData(0, 0, 0, 1000)]   // 毫秒越界
-    public void TsFromParts时间字段越界抛异常(int h, int mi, int s, int ms)
-    {
-        Assert.Throws<ArgumentException>(() =>
-            LogDocument.TsFromParts(2026, 1, 1, h, mi, s, ms, 2026));
-    }
-
-    [Theory]
-    [InlineData(13, 1)]   // 月越界
-    [InlineData(0, 1)]    // 月下界
-    [InlineData(1, 32)]   // 日越界
-    [InlineData(1, 0)]    // 日下界
-    public void TsFromParts日期字段越界抛异常(int month, int day)
-    {
-        Assert.Throws<ArgumentException>(() =>
-            LogDocument.TsFromParts(2026, month, day, 0, 0, 0, 0, 2026));
-    }
-
-    // ── 定位 ──
-
-    [Fact]
-    public void NearestPos_空集合返回零()
-    {
-        using var tmp = new TempLogFile(Line(T1, 'I', "Tag", "a"));
-        using var doc = LogDocument.Build(tmp.Path);
-
-        Assert.Equal(0, doc.NearestPos(ReadOnlySpan<int>.Empty, 0));
-    }
-
-    [Fact]
-    public void NearestPos_取时间上最接近的行()
-    {
-        using var tmp = new TempLogFile(
-            Line(T1, 'I', "Tag", "a") + Line(T3, 'I', "Tag", "b") + Line(T4, 'I', "Tag", "c"));
-        using var doc = LogDocument.Build(tmp.Path);
-
-        ReadOnlySpan<int> rows = stackalloc int[] { 0, 1, 2 };
-        long ts0 = doc.Ts[0];
-
-        Assert.Equal(0, doc.NearestPos(rows, ts0 + 1_000));       // 离第 0 行更近
-        Assert.Equal(1, doc.NearestPos(rows, ts0 + 9_000));       // 离第 1 行更近
-        Assert.Equal(2, doc.NearestPos(rows, ts0 + 19_000));      // 离第 2 行更近
-        Assert.Equal(0, doc.NearestPos(rows, ts0 - 999_999));     // 早于全部 → 第一行
-        Assert.Equal(2, doc.NearestPos(rows, ts0 + 999_999));     // 晚于全部 → 最后一行
-    }
-
     // ── 增量：Reload / Append ──
 
     [Fact]
@@ -603,16 +419,18 @@ public class LogDocumentTests
 
         Assert.Equal(2, doc.RowCount);
         Assert.Equal("09-23 18:00:01.000  1  2 I Tag: b", Text(doc.LineBytes(1)));
-        Assert.Equal(1000, doc.Ts[1] - doc.Ts[0]);
+        Assert.Equal("09-23 18:00:01.000", Text(doc.HeaderBytes(1)));   // 追加行的时间原文
+        Assert.Equal(0, doc.Minute[1]);
     }
 
     /// <summary>
-    /// 增量批次的跨午夜时间戳：追加行跨过 00:00（不跨年、不跨月边界翻转错误的风险点）。
-    /// 采集不再清空缓冲区后，历史内容（可能属于前一天）会经 Append 灌入文档，
-    /// 「末条 within 延续 vs 跨日重锚」两条编码路径都会被踩到，此用例防回归。
+    /// 增量批次跨午夜：追加行跨过 00:00（不跨年、不跨月边界翻转错误的风险点）。
+    /// 采集不再清空缓冲区后，历史内容（可能属于前一天）会经 Append 灌入文档。
+    /// 绝对毫秒列删除后，此处改钉分钟列：跨日滚动不得泄漏进分钟值
+    /// （23:59 → 59、00:00 → 0；旧口径的 ts 差 2000ms 验证的是同一件事）。
     /// </summary>
     [Fact]
-    public void Reload_追加批次跨午夜时时间戳正确推进()
+    public void Reload_追加批次跨午夜时分钟列正确推进()
     {
         using var tmp = new TempLogFile(Line("09-23 23:59:59.000", 'I', "Tag", "a"));
         using var doc = LogDocument.Build(tmp.Path);
@@ -621,7 +439,8 @@ public class LogDocumentTests
         Assert.Equal("appended", doc.Reload());
 
         Assert.Equal(2, doc.RowCount);
-        Assert.Equal(2000, doc.Ts[1] - doc.Ts[0]);
+        Assert.Equal(59, doc.Minute[0]);
+        Assert.Equal(0, doc.Minute[1]);
     }
 
     /// <summary>
@@ -862,7 +681,7 @@ public class LogDocumentTests
         {
             Assert.Equal(Text(docFull.LineBytes(i)), Text(docInc.LineBytes(i)));
             Assert.Equal(docFull.IsMultiline(i), docInc.IsMultiline(i));
-            Assert.Equal(docFull.Ts[i], docInc.Ts[i]);
+            Assert.Equal(docFull.Minute[i], docInc.Minute[i]);
             Assert.Equal(docFull.Lvl[i], docInc.Lvl[i]);
             Assert.Equal(docFull.TagOf(i), docInc.TagOf(i));
         }
@@ -928,7 +747,7 @@ public class LogDocumentTests
         {
             Assert.Equal(Text(docFull.LineBytes(i)), Text(docInc.LineBytes(i)));
             Assert.Equal(docFull.IsMultiline(i), docInc.IsMultiline(i));
-            Assert.Equal(docFull.Ts[i], docInc.Ts[i]);
+            Assert.Equal(docFull.Minute[i], docInc.Minute[i]);
             Assert.Equal(docFull.Lvl[i], docInc.Lvl[i]);
             Assert.Equal(docFull.TagOf(i), docInc.TagOf(i));
         }
@@ -1146,7 +965,7 @@ public class LogDocumentTests
         Assert.Equal(doc.RowCount, doc.Lens.Length);
         Assert.Equal(doc.RowCount, doc.Moff.Length);
         Assert.Equal(doc.RowCount, doc.Flags.Length);
-        Assert.Equal(doc.RowCount, doc.Ts.Length);
+        Assert.Equal(doc.RowCount, doc.Minute.Length);
     }
 
     /// <summary>
@@ -1233,5 +1052,28 @@ public class LogDocumentTests
         Assert.Equal("09-23 18:00:00.000  1  2 I Tag: line0", Text(doc.LineBytes(0)));      // 扩容前的旧数据
         Assert.Equal("09-23 18:00:01.000  1  2 I Tag: line1", Text(doc.LineBytes(1)));      // 扩容后的新数据
         Assert.Equal("09-23 18:00:01.000  1  2 I Tag: line1100", Text(doc.LineBytes(extra)));
+    }
+
+    /// <summary>
+    /// 分钟列增量对齐：1 行 Build + 一次追加 1100 行（越过初始容量触发 EnsureCap 扩容），
+    /// 逐行比对分钟值——扩容路径下分钟列若漏拷或错位都会在这里暴露。
+    /// 分钟按 i % 60 轮转，0-59 每个值都会落到多次。
+    /// </summary>
+    [Fact]
+    public void Append_分钟列增量对齐()
+    {
+        using var tmp = new TempLogFile(Line(T1, 'I', "Tag", "line0"));   // 18:00 → 分钟 0
+        using var doc = LogDocument.Build(tmp.Path);
+
+        var sb = new StringBuilder();
+        for (int i = 1; i <= 1100; i++)
+            sb.Append(Line($"09-23 18:{i % 60:D2}:{i % 60:D2}.000", 'I', "Tag", "line" + i));
+        tmp.Append(sb.ToString());
+        Assert.Equal("appended", doc.Reload());
+
+        Assert.Equal(1101, doc.RowCount);
+        Assert.Equal(0, doc.Minute[0]);
+        for (int i = 1; i <= 1100; i++)
+            Assert.Equal(i % 60, doc.Minute[i]);
     }
 }

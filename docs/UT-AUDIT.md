@@ -12,6 +12,11 @@
 > **2026-10-18 第二轮：fileproxy / 崩溃汇总 / root 检测首次纳入变异，再发现并修掉 7 处缺口。**
 > 用例数 379 → 623，变异点 71 → 103，结果 **102 KILLED + 1 等价**（详见 §0b）。
 >
+> **2026-10-24 第三轮：minute-byte-column（分钟 byte 列替代绝对毫秒列、删除年份机制）。**
+> 变异点 103 → 105（TEXT 95 + LINE 10）：下架 5 条年份机制锚点、新增 9 条分钟列/行序化锚点，
+> 本 change 新增 9 条**全部 KILLED**。测试侧删 23 条年份机制用例、新增 10 条分钟列用例
+> （663 → 673 → 650）。另修掉变异脚本 revert 机制缺陷，详见 §0c。
+>
 > 跑测试与出覆盖率的完整流程见 [`TESTING.md`](TESTING.md)。
 >
 > ⚠️ **口径说明**：下表（§0）是 **2026-10-05 审计时点**的数值，不是当前基线。现行基线（用例数 / 行覆盖率 / 分支覆盖率）以 [`TESTING.md`](TESTING.md) 为准。
@@ -35,7 +40,7 @@
 |---|---|---|---|
 | N1 | `LogParser.IsBanner(string)` | TAB 分支从未被测（用例只调了 byte[] 重载） | KILLED |
 | N2 | `FavoritesStore` 收藏目录上限 | 只断言数量，淘汰方向反了测不出 | KILLED |
-| N3 | `LogDocument` 跨年阈值 `HALF_DAY` | 原用例都落在阈值远端，改成 30 天全绿 | KILLED |
+| N3 | `LogDocument` 跨年阈值 `HALF_DAY` | 原用例都落在阈值远端，改成 30 天全绿 | KILLED（2026-10-24：随年份机制删除，变异点已下架） |
 | N4 | `LooksLikeNewRecord` 9 连横线 | 用例的 13 横线横幅被前置 `IsBanner` 提前命中 | KILLED |
 | N5 | `MatchAny` 空 needle | and 模式「跳过 vs 不命中」无人验证 | KILLED |
 | N6 | `FavoritesStore` 冗余用例 | `过滤词数量不超过上限` 被另一条完全包含 | 已删 |
@@ -48,14 +53,14 @@
 | C2 | `FavoritesStore.ToggleMsgFilter` | 「不存在则新增」分支未覆盖（`ToggleTagFilter` 有，msg 侧缺失） |
 | C3 | `FilterEngine` scratch 缓冲区扩容 | 消息 > 1 KB 时才进入的分支；且要验**复用时不带残留** |
 | C4 | `LogDocument.Reload` | 「追加全是空行」分支：`IndexedSize` 必须推进否则重复扫描 |
-| C5 | `LogDocument.FinalizeTs` | 「首个已知年份之前的行」分支（混合年份格式） |
+| C5 | `LogDocument.FinalizeTs` | 「首个已知年份之前的行」分支（混合年份格式）（2026-10-24：FinalizeTs 随年份机制删除，本条已作废） |
 
 **剩余 10 行未覆盖，已逐一确认不该补**（不要为了数字去构造）：
 
 | 行 | 内容 | 为什么不补 |
 |---|---|---|
 | 127-132 | `OpenMap` 的 `catch` + 资源清理 | mmap 创建失败的资源异常路径，构造代价远大于收益 |
-| 518-519 | `FinalizeTs` 的 `n == 0` 短路 | **防御性死代码**——`Assemble` 在 `part.Offs.Length == 0` 时提前 return，永远到不了这里 |
+| 518-519 | `FinalizeTs` 的 `n == 0` 短路 | **防御性死代码**——`Assemble` 在 `part.Offs.Length == 0` 时提前 return，永远到不了这里（2026-10-24：FinalizeTs 已随年份机制删除，本条作废） |
 | 662-663 | `Reload` 的「头部变化则重建」 | 需在 mmap 期间改写文件头，单测无法稳定构造（见 §4.3） |
 | 769 | `catch { }` 吞异常 | 纯防御 |
 
@@ -106,6 +111,60 @@
 
 ---
 
+## 0c. 2026-10-24 第三轮：minute-byte-column
+
+| 指标 | 第二轮（10-18） | 第三轮（10-24） |
+|---|---|---|
+| 用例数 | 623 | **650** |
+| 变异点总数 | 103 | **105**（TEXT 95 + LINE 10） |
+| 本 change 新增变异点 | — | **9，全部 KILLED** |
+| 年份机制变异点 | 5 | **0（随机制删除下架）** |
+
+本 change 用 byte 分钟列（0-59，哨兵 255）替代 8B/row 绝对毫秒列，删除整套年份机制
+（`FinalizeTs` 跨年检测 / `GuessYear` / `YearTables` / `TsToText` / `TsFromParts` / `NearestPos`）。
+变异清单同步：
+
+- **下架 5 条失效锚点**：`HALF_DAY` 跨年阈值、`NearestPos`、`GuessYear`、`TsFromParts-adj、
+  `YearTables-adj`（对应代码已删）。
+- **改写 6 条 LINE 锚点**：分钟守卫从 `if (ts < 0) continue;` 改为
+  `if (!minSet.Contains(doc.Minute[i])) continue;`，行号 268/335 → 277/342；
+  pid/tid 同构块随之下移（254/261/325/330 → 263/270/332/337），`TagOf` 243 → 246。
+- **新增 9 条锚点**（全部 KILLED，每条抓住 1~3 个用例）：
+
+| # | 变异 | 抓住它的用例 |
+|---|---|---|
+| M1 | 分钟哨兵 `MINUTE_NONE` 255 → 0 | 分钟过滤跳过无时间戳的行（主路 + 增量路） |
+| M2 | ScanRange 无时间戳行分钟列存 0 而非哨兵 | 同上 |
+| M3 | `ParseSlow` 慢路分钟恒 0 | `ParseLine_透传分钟字段` |
+| M4 | `ParseSlow` 解析失败行分钟 0 化 | 同上（越界行 → -1 断言） |
+| M5 | `HeaderBytes` 不再识别 `[ ` 前缀 | `HeaderBytes_方括号long格式跳过前缀` |
+| M6 | 崩溃分组排序去掉首次行号升序 | `多组崩溃按首次行号排序` |
+| M7 | 崩溃组内末次行号改取最小 | `组内时间乱序时末次取行序最后` 等 3 条 |
+| M8 | ApplyFilter 分钟守卫放行哨兵行 | 分钟过滤跳过无时间戳的行 |
+| M9 | FilterTail 分钟守卫放行哨兵行 | 分钟过滤跳过无时间戳的行_增量路径同样成立 |
+
+**测试侧删改**：删除年份机制用例 23 条（`HasYear`/`BaseYear` 2、跨年回退 4、
+`TsToText` 2、`TsFromParts` 全部含 Theory、`NearestPos` 2、混合年份锚点 1，
+Theory 展开后合计 23），新增 10 条（`ParseLine_透传分钟字段`、`Build_分钟列各值正确`、
+`Append_分钟列增量对齐`、`分钟过滤_闰秒行按59命中`、`HeaderBytes_方括号long格式跳过前缀`、
+崩溃行序化/时间文本 5 条）。净变化 663 → 673 → **650**，`dotnet test` 全绿。
+
+### 0c.1 本轮踩的两个新坑（都已修）
+
+1. **tstrun runner 的 ProjectReference 指错仓库 → 全部假 SURVIVED**。
+   runner 在 `%TEMP%/tstrun`，`ProjectReference` 硬编码指向**主仓** `logcat/tests/...`。
+   在 worktree 里跑变异脚本，变异打在 worktree 文件上，runner 编译运行的却是主仓旧代码——
+   本 change 新增变异一度 3/9 假存活。**在 worktree 跑变异前，先核对 runner 的指向**；
+   指错时改 csproj + `dotnet restore`，跑完改回。
+2. **脚本 revert 用 `git checkout -- <file>`，在未提交改动的树上会打回 HEAD**。
+   docstring 原话「不会碰你的其他改动」是错的：未提交时 checkout 恢复的是 HEAD 而非当前内容，
+   worktree 上实测两次丢失改动（靠 tar 备份救回）。连带原实现的读写还会把 CRLF 文件写成 LF
+   （只是被 checkout 掩盖）。已改为「内存保存变异前内容 → 跑完原地写回」+ 读写统一
+   「CRLF 归一化 LF → 替换 → 写回转 CRLF」，并在 docstring 纪律里写明。
+   修后复跑「分钟」6 条全部 KILLED、零 SKIP/BUILD-FAIL，工作树无损。
+
+---
+
 ## 1. 为什么不能用覆盖率判断测试有效性
 
 行覆盖率 98.56% 只证明「代码被执行过」，不证明「断言咬得住」。本次审计实测：
@@ -122,9 +181,10 @@
 
 ## 2. 变异测试怎么跑
 
-`dotnet test` 在本机环境跑不起来（testhost 加载 `hostfxr.dll` 报 `0x80070005`），
-但可以用反射 runner 绕过：仓库内 `.tmp-test/tstrun` 控制台工程反射调用 `[Fact]` / `[Theory]`。
-完整做法见 [`TESTING.md`](TESTING.md)。本次的变异脚本已入库：
+日常测试用 `dotnet test`（2026-10-22 起本机已可直接跑，见 [`TESTING.md`](TESTING.md)）；
+变异脚本 historically 用反射 runner `%TEMP%/tstrun`（`ProjectReference` 指向被测测试工程，
+反射调用 `[Fact]` / `[Theory]`）。**注意 runner 的指向决定测哪个仓库的代码**——
+在 worktree 里跑前必须核对（§0c.1 第 1 条）。本次的变异脚本已入库：
 
 | 脚本 | 用途 |
 |---|---|
@@ -137,8 +197,9 @@ python scripts/mutation-test.py            # 跑全部变异
 python scripts/mutation-test.py FilterEngine # 只跑匹配到该关键词的变异
 ```
 
-脚本对每个变异点独立执行：改文件 → 编译 → 跑全量 → `git checkout -- <该文件>` 回滚。
-判定：
+脚本对每个变异点独立执行：改文件 → 编译 → 跑全量 → **把该文件写回变异前内容**
+（2026-10-24 前用 `git checkout -- <该文件>`；那条路在未提交改动的树上会打回 HEAD，
+已改为内存内容写回，见 §0c.1）。判定：
 
 - **KILLED** —— 有用例抓到，测试有效
 - **SURVIVED** —— 全绿，该处无有效断言。**但需逐条甄别**，见 §4
@@ -309,35 +370,14 @@ SURVIVED 里**多数不是问题**。这部分同样重要——避免下次重�
 > **判等价的快捷法**：先问「这个变量/条件在**下游**还有没有被读」。
 > 被读了才有区分度；像 `prev` 这样只用于记录位置而不参与控制流的，改它天然等价。
 
-### 4.5探针实测：`roll` 与 `within` 是两套编码，不能混算
+### 4.5 （已移除）探针实测：`roll` 与 `within` 是两套编码，不能混算
 
-写`FinalizeTs` 的「首个已知年份之前的行」用例时，我一度断言
-「无年份行回退 1 天 → 差值 -1 天」，**实测是 +364 天**，错了。
-探针（`ProjectReference` 主工程 + 打印 `doc.Ts` / `TsToText`）实测四类输入：
-
-| 场景 | 输入 | `diff(1-0)` |
-|---|---|---|
-| A | 纯 mm-dd，回退 1 天 | **+364 天**（判了跨年） |
-| B | 纯 mm-dd，顺序递增 | +1 天 |
-| C | 首行 ymd2027，次行 mm-dd 09-23 | +261 天 |
-| D | 首行 mm-dd 09-23，次行 ymd 2027 | -261 天 |
-
-原因（`FinalizeTs` 末尾）：
-
-```csharp
-for (int i = 0; i < first; i++)
-    yAbs[i] = anchorYear + roll[i];       // ← 锚点年份 + 跨年计数
-...
-ts[i] = within[i] + offs[yi];             // within 是「年内日序」
-```
-
-`roll` 是**跨年次数**、`within` 是**年内日序**，两套编码。回退 1 天触发 `roll=1`
-→ 年份被推到 `anchorYear + 1` → 差值变成「一年表偏移之差 + 日序之差」≈ +364 天。
-场景 A 同样如此，且与已有用例 `-12 小时不判跨年`（未超 `HALF_DAY`）不矛盾。
-
-> **教训**：跨年/时间戳这类**编码换算**逻辑，凭直觉推断几乎必错。
-> 先写探针打印中间值，再决定断言什么。跟 UT-AUDIT §4.2 的「探针推翻误判」是同一个道理，
-> 只是这次探针推翻的是**我自己**。
+> **2026-10-24 移除说明**：本节原记录 `FinalizeTs` 跨年推算的探针实测（回退 1 天
+> 差值 +364 天等四类场景）。minute-byte-column 删除整套年份机制后，`roll`/`within`
+> 两套编码已不存在，对应探针与方法论失去对象，整段移除。
+> 仍有效的教训并入 §5.5 通法：**跨年/时间戳这类编码换算逻辑，凭直觉推断几乎必错，
+> 先写探针打印中间值，再决定断言什么**——本轮分钟列等价性论证
+> （`(ts/60000)%60 ≡ (within/60000)%60`）即是先证后删的同类操作。
 
 ---
 
@@ -345,12 +385,18 @@ ts[i] = within[i] + offs[yi];             // within 是「年内日序」
 
 ### 5.1 同构代码导致 `str.replace` 匹配歧义
 
-`FilterEngine` 里 `ApplyFilter`（254/261/268）与 `FilterTail`（325/330/335）的
+`FilterEngine` 里 `ApplyFilter`（263/270/277）与 `FilterTail`（332/337/342）的
 pid/tid 排除、分钟守卫是**逐字符相同**的代码块：
 
 ```csharp
 bool hit = pidSet.Contains(doc.Pid[i]);
 if (spec.PidExclude ? hit : !hit) continue;
+```
+
+分钟守卫则从 2026-10-24 起是同一形态的两份：
+
+```csharp
+if (!minSet.Contains(doc.Minute[i])) continue;
 ```
 
 `src.count(old) != 1` 的保护会直接跳过（`匹配数=2`），静默漏掉一半变异点。
@@ -364,6 +410,11 @@ if (spec.PidExclude ? hit : !hit) continue;
 > **2026-10-05 复核**：`FilterEngine` 那 6 个行号（254/261/268/325/330/335）**未漂移**，
 > 全部 KILLED。但 `CommandStore` 的两个变异点从 **281 漂到了 280**
 > （`RenameCategory` 上方多了两行 `Trim` 防御），一度被静默跳过。已修正。
+>
+> **2026-10-24 核对（minute-byte-column）**：分钟守卫改写为集合成员判定后，6 个行号
+> 整体变为 263/270/277/332/337/342（pid/tid 各下移 9/7 行），`LogDocument.TagOf` 243 → 246。
+> 已同步修正并复验全部 KILLED。**教训复述**：改 `FilterEngine.cs` 后不核行号 =
+> 静默丢失一半变异点。
 
 ### 5.2 并发编辑会污染审计结果
 
@@ -373,7 +424,8 @@ if (spec.PidExclude ? hit : !hit) continue;
 **纪律**：
 
 1. 变异前 `git status` 确认工作区干净（把自己的改动先提交或 stash）
-2. 回滚时**只 `git checkout -- <被改的那一个文件>`**，绝不用整体 checkout（会丢自己的改动）
+2. 回滚由脚本「内存保存变异前内容 → 写回」完成（2026-10-24 起）；**若要手动还原，
+   绝不要对未提交改动的文件用 `git checkout --`**——它恢复的是 HEAD 而非你的改动
 3. 每次变异后核对基线用例数没变（10-03 全程 354，10-05 全程 366~372）
 
 ### 5.3 ⚠️ 变异运行期间不能碰仓库任何文件（10-05 连续踩了两次）
@@ -394,7 +446,7 @@ if (spec.PidExclude ? hit : !hit) continue;
 
 ```bash
 git diff --stat Services/ Models/       # 看有没有残留
-git checkout -- Services/LogDocument.cs # 逐个还原
+# 还原残留变异：从备份/编辑器历史恢复该文件，不要 git checkout --（未提交时会被打回 HEAD）
 grep -n "if (false)" Services/*.cs Models/*.cs   # 找残留的变异特征
 ```
 
