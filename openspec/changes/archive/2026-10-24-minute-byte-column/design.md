@@ -7,7 +7,7 @@
 - 列存储为「定长列（内存）+ mmap 文本本体（磁盘）」结构；`_ts` 为 `long[]`，8 B/row，由 `FinalizeTs` 从扫描期的 `within`（年内毫秒，闰年日序编码）+ 行内年份 + 跨年回退检测 + `YearTables` 查表终算。
 - `_ts` 的生产消费仅三处：分钟过滤（每行）、frmMain 右键「按此分钟过滤」（单行）、`CrashEvent.Ts`（稀疏，供聚合排序与两处 UI 显示）。`NearestPos` / `TsFromParts` / `HasYear` 无生产调用方（仅测试）。
 - Time 列显示本来就走 `HeaderBytes`（mmap 行首原始字节），`TsToText` 仅是方括号 long 格式行（`HeaderBytes` 不识别 `[ ` 前缀）的兜底。
-- 约束：后台 Reload / Append 与 UI 渲染并发（列存储沿用「引用整体替换、不原位改」模式）；测试唯一口径为 tstrun 反射 runner；公开 API 可破（应用非库，无仓库外消费方）。
+- 约束：后台 Reload / Append 与 UI 渲染并发（列存储沿用「引用整体替换、不原位改」模式）；测试口径 = `dotnet test`（路径 A；tstrun 反射 runner 不 await async 用例，本 change 主改的 `FilterEngineTests` / `LogDocumentTests` 各有 async 用例在 tstrun 下从未真跑，故 tstrun 仅留覆盖率兜底 / 类名过滤，不作验收口径）；公开 API 可破（应用非库，无仓库外消费方）。
 
 ## Goals / Non-Goals
 
@@ -32,7 +32,7 @@
 
 ### D2：分钟列用 byte，无时间行哨兵 255
 
-分钟 0-59 占一个字节；无有效时间戳的行存 255。分钟集合只含 0-59，哨兵天然不命中，过滤处省去原 `ts < 0` 分支。备选：sbyte 存 -1——需符号处理且集合判定要额外排除负值，哨兵方案与集合成员判定完全同构，取哨兵。
+分钟 0-59 占一个字节；无有效时间戳的行存 255。分钟集合只含 0-59，哨兵天然不命中，过滤处省去原 `ts < 0` 分支。命名与既有列存储同构：字段 `_min`（byte[]），公开只读视图 `Minute`（`ReadOnlySpan<byte>`，取 `_min.AsSpan(0, _n)`），与 `_ts`/`Ts`、`_lvl`/`Lvl`、`_flags`/`Flags` 模式一致；消费点（FilterEngine 两处、frmMain 右键）由 `doc.Ts[i]` 变为 `doc.Minute[i]`，索引访问形状不变。备选：sbyte 存 -1——需符号处理且集合判定要额外排除负值，哨兵方案与集合成员判定完全同构，取哨兵；备选名 `Min` / `Minutes`——与 `Pid`/`Tid` 单数模式不符或不必要，否。
 
 ### D3：等价性论证与 `s=60` 显式修正
 
@@ -44,8 +44,9 @@
 
 崩溃事件的绝对年份依赖「从头至此的跨年回退顺序扫描」，无法只给稀疏的崩溃行计算——只要崩溃还要绝对时间，整套机制必须保留（此为评估中的变体 A，已否决）。改后契约：
 
+- `CrashGroup` 字段：删 `FirstTs` / `LastTs`，新增 `LastRow`（组内末次事件的行号，与既有 `FirstRow` 对称）；`CrashEvent.Ts` 删除（`CrashEvent.Row` 已存在，无需新增）。
 - `CrashGroup` 排序：次数降序 + 首次行号升序（原为首次时间戳升序；两者仅在时钟回跳文件上有差异）。
-- 组内末次：行序最后的事件（原为组内最大时间戳）。
+- 组内末次：行序最后的事件（原为组内最大时间戳），由 `LastRow` 承载；展示侧经 `HeaderBytes(LastRow)` 取该行原文。
 - 时间文本：取该行行首原始时间戳——汇总行到秒、列表摘要取时分秒；行首无时间戳显示 `-`。
 
 备选：文件相对时间（距首行天数 + 日内毫秒）——仍需跨年计数，显示仍需日历映射，只删掉一半机制，否。
@@ -69,7 +70,7 @@
 
 ## Migration Plan
 
-无数据迁移：文档索引在装载时重建，磁盘上无持久化时间数据。实施顺序见 tasks.md，每步完成后跑受影响测试（tstrun 口径，声明数字）。回滚策略：revert 本 change 的全部改动。
+无数据迁移：文档索引在装载时重建，磁盘上无持久化时间数据。实施顺序见 tasks.md，每步完成后跑受影响测试（`dotnet test` 口径，声明数字）。回滚策略：revert 本 change 的全部改动。
 
 ## Open Questions
 

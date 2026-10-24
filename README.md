@@ -4,7 +4,7 @@
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
 [![Platform: Windows](https://img.shields.io/badge/platform-Windows-lightgrey)](#requirements)
 [![CI](https://github.com/daitouniao/logcat-viewer/actions/workflows/ci.yml/badge.svg)](https://github.com/daitouniao/logcat-viewer/actions/workflows/ci.yml)
-[![Tests: 663 passing](https://img.shields.io/badge/tests-663%20passing-green)](docs/TESTING.md)
+[![Tests: 650 passing](https://img.shields.io/badge/tests-650%20passing-green)](docs/TESTING.md)
 [![Coverage: 97.47% lines](https://img.shields.io/badge/coverage-97.47%25%20lines-blue)](docs/TESTING.md)
 
 A Windows desktop viewer for Android logs (`logcat`). Built with WinForms on .NET 10, it opens **tens of millions of log lines instantly** using memory-mapped files and a columnar index — and it also drives your device over ADB: live capture, screenshots, screen recording, two-pane file transfer, and APK install/uninstall.
@@ -183,7 +183,7 @@ dotnet test tests/logcat.Tests/logcat.Tests.csproj --collect:"XPlat Code Coverag
 python tests/coverage-report.py     # writes tests/coverage-report.html
 ```
 
-Current status: **663 tests, all passing**; **97.47%** line coverage (3,507 / 3,598 lines), **88.46%** branch coverage.
+Current status: **650 tests, all passing**; **97.47%** line coverage (3,507 / 3,598 lines), **88.46%** branch coverage.
 
 The scope is defined in `tests/logcat.Tests/coverlet.runsettings` and excludes two groups:
 
@@ -275,12 +275,13 @@ Services/
   AppInfo.cs            Product name and version (reads Assembly InformationalVersion)
 tests/
   coverage-report.py    Coverage report generation (coverlet cobertura XML → readable HTML)
-  logcat.Tests/         xUnit test project (663 tests: log parsing / columnar index / filter engine / crash extraction / persistence / localization)
+  logcat.Tests/         xUnit test project (650 tests: log parsing / columnar index / filter engine / crash extraction / persistence / localization)
     coverlet.runsettings Coverage scope (Include / Exclude rules)
 docs/
   BUILDING.md            How to build and publish — the two `dotnet publish` commands, artifact verification, pitfall table
   TESTING.md             How to run the suite and produce coverage (single entry point)
   UT-AUDIT.md            Mutation-testing audit — where the tests actually bite
+  memory/                Cross-change lessons and working discipline — the pitfalls worth not repeating
   FEATURES.md            Feature plan — what is being built next and what is deliberately not built
   archive/              Archived snapshots (verified bug reports / completed designs / the retired tracker)
   images/main.gif        The demo animation at the top of this file
@@ -297,6 +298,7 @@ DISCLAIMER.md           Disclaimer full text
 | [docs/BUILDING.md](docs/BUILDING.md)             | Building or publishing — the two `dotnet publish` commands, artifact verification, pitfall table                        |
 | [docs/TESTING.md](docs/TESTING.md)               | Running the suite or producing coverage — includes the workaround for `dotnet test` failing inside a restricted sandbox |
 | [docs/UT-AUDIT.md](docs/UT-AUDIT.md)             | Whether the tests actually bite — the mutation-testing audit                                                            |
+| [docs/memory/](docs/memory/)                     | Cross-change experience — the pitfalls and discipline that came out of real operations                                   |
 | [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) | Dependencies and licences — per-package versions, licences, copyright lines and distribution checklist                  |
 | [DISCLAIMER.md](DISCLAIMER.md)                   | The full terms to read before using the tool                                                                            |
 
