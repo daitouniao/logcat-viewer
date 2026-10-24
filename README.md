@@ -1,6 +1,6 @@
 # logcat viewer
 
-[![Version: V0.1.5](https://img.shields.io/badge/version-V0.1.5-green)](logcat.csproj)
+[![Version: V0.1.6](https://img.shields.io/badge/version-V0.1.6-green)](logcat.csproj)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
 [![Platform: Windows](https://img.shields.io/badge/platform-Windows-lightgrey)](#requirements)
 [![CI](https://github.com/daitouniao/logcat-viewer/actions/workflows/ci.yml/badge.svg)](https://github.com/daitouniao/logcat-viewer/actions/workflows/ci.yml)
@@ -13,10 +13,13 @@ A Windows desktop viewer for Android logs (`logcat`). Built with WinForms on .NE
 
 Repositories:
 
-- GitCode (primary): <https://gitcode.com/gcw_WDXl5paK/logcat-viewer>
+- Gitee (primary): <https://gitee.com/dyugao/logcat-viewer>
 - GitHub (mirror): <https://github.com/daitouniao/logcat-viewer>
+- GitCode (mirror): <https://gitcode.com/gcw_WDXl5paK/logcat-viewer>
 
-> Current version **V0.1.5**. The single source of truth is `<Version>` in [logcat.csproj](logcat.csproj) — the window title, the about dialog and the exe's file properties all read from it.
+> Mirrors (GitHub / GitCode) lag behind the primary — pushes are synced there with a delay, so the latest commits and releases always land on Gitee first.
+
+> Current version **V0.1.6**. The single source of truth is `<Version>` in [logcat.csproj](logcat.csproj) — the window title, the about dialog and the exe's file properties all read from it.
 >
 > The UI speaks **both Chinese and English** and switches at runtime — `Help → Language`, no restart. First launch follows your system locale; the choice is remembered in `settings.json`.
 
@@ -162,9 +165,12 @@ dotnet publish -c Release   # publish (framework-dependent, ~1.8 MB; see docs/BU
 
 You can also open `logcat.slnx` / `logcat.csproj` directly in Visual Studio.
 
-> Pre-built binaries are shipped alongside every release. Download them from either Release page:
-> - GitCode: <https://gitcode.com/gcw_WDXl5paK/logcat-viewer/releases>
-> - GitHub: <https://github.com/daitouniao/logcat-viewer/releases>
+> Pre-built binaries are shipped alongside every release. Download them from the Release pages:
+> - Gitee (primary): <https://gitee.com/dyugao/logcat-viewer/releases>
+> - GitHub (mirror): <https://github.com/daitouniao/logcat-viewer/releases>
+> - GitCode (mirror): <https://gitcode.com/gcw_WDXl5paK/logcat-viewer/releases>
+>
+> Mirrors sync with a delay — if a release is not there yet, get it from Gitee.
 >
 > Build from source only when you need a custom configuration (trim dependencies, change default paths, sign the binary, etc.).
 

@@ -1,6 +1,6 @@
 # logcat viewer
 
-[![Version: V0.1.5](https://img.shields.io/badge/version-V0.1.5-green)](logcat.csproj)
+[![Version: V0.1.6](https://img.shields.io/badge/version-V0.1.6-green)](logcat.csproj)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
 [![Platform: Windows](https://img.shields.io/badge/platform-Windows-lightgrey)](#环境要求)
 [![CI](https://github.com/daitouniao/logcat-viewer/actions/workflows/ci.yml/badge.svg)](https://github.com/daitouniao/logcat-viewer/actions/workflows/ci.yml)
@@ -13,10 +13,13 @@ Windows 桌面端 Android 日志（logcat）查看器。基于 WinForms，使用
 
 项目地址：
 
-- GitCode（主仓库）：<https://gitcode.com/gcw_WDXl5paK/logcat-viewer>
+- Gitee（主仓库）：<https://gitee.com/dyugao/logcat-viewer>
 - GitHub（镜像）：<https://github.com/daitouniao/logcat-viewer>
+- GitCode（镜像）：<https://gitcode.com/gcw_WDXl5paK/logcat-viewer>
 
-> 当前版本 **V0.1.5**。版本号以 [logcat.csproj](logcat.csproj) 的 `<Version>` 为唯一来源，发布时只改该处，程序标题、关于对话框与 exe 文件属性会自动同步。
+> 镜像仓库（GitHub / GitCode）的更新会稍慢于主仓库——提交与 Release 同步到镜像有延迟，最新内容以 Gitee 为准。
+
+> 当前版本 **V0.1.6**。版本号以 [logcat.csproj](logcat.csproj) 的 `<Version>` 为唯一来源，发布时只改该处，程序标题、关于对话框与 exe 文件属性会自动同步。
 >
 > 界面**中英双语**，`帮助 → 语言` 运行时即时切换，选择记在 `settings.json`；首次启动跟随系统区域。
 
@@ -165,8 +168,11 @@ dotnet publish -c Release   # 发布（框架依赖，约 1.8 MB；自包含见 
 也可直接用 Visual Studio 打开 `logcat.slnx` / `logcat.csproj`。
 
 > 二进制发行版会随每个版本一同发布，可在以下 Release 页面下载现成构建：
-> - GitCode：<https://gitcode.com/gcw_WDXl5paK/logcat-viewer/releases>
-> - GitHub：<https://github.com/daitouniao/logcat-viewer/releases>
+> - Gitee（主仓库）：<https://gitee.com/dyugao/logcat-viewer/releases>
+> - GitHub（镜像）：<https://github.com/daitouniao/logcat-viewer/releases>
+> - GitCode（镜像）：<https://gitcode.com/gcw_WDXl5paK/logcat-viewer/releases>
+>
+> 镜像同步有延迟，若某个版本在镜像上还没有，请到 Gitee 下载。
 >
 > 如需自行定制（裁剪依赖、改默认路径、加签名等），按上方命令从源码构建。
 
