@@ -189,11 +189,11 @@ public class CrashExtractorTests
     }
 }
 
-/// <summary>崩溃事件聚合测试：分组、计数、首末时间、排序与字典解引用。</summary>
+/// <summary>崩溃事件聚合测试：分组、计数、首末行号、排序与字典解引用。</summary>
 public class CrashAggregatorTests
 {
-    static CrashEvent E(int row, int excId, int pkgId, long ts, byte kind) => new()
-    { Row = row, ExcId = excId, PkgId = pkgId, Ts = ts, Kind = kind, Pid = 869, Tid = 869, LineCount = 2 };
+    static CrashEvent E(int row, int excId, int pkgId, byte kind) => new()
+    { Row = row, ExcId = excId, PkgId = pkgId, Kind = kind, Pid = 869, Tid = 869, LineCount = 2 };
 
     [Fact]
     public void 空清单聚合为空()
@@ -209,66 +209,119 @@ public class CrashAggregatorTests
         var pkgs = new List<string> { "com.example.app", "com.example.pay" };
         var crashes = new List<CrashEvent>
         {
-            E(5,  0, 0, 100, CrashKind.Java),    // ISE × app
-            E(50, 0, 0, 200, CrashKind.Java),    // ISE × app（同组）
-            E(60, 0, 1, 150, CrashKind.Java),    // ISE × pay
-            E(70, 1, -1, 300, CrashKind.Native), // SIGSEGV（native 无包名）
-            E(80, 1, -1, 400, CrashKind.Native),
+            E(5,  0, 0, CrashKind.Java),    // ISE × app
+            E(50, 0, 0, CrashKind.Java),    // ISE × app（同组）
+            E(60, 0, 1, CrashKind.Java),    // ISE × pay
+            E(70, 1, -1, CrashKind.Native), // SIGSEGV（native 无包名）
+            E(80, 1, -1, CrashKind.Native),
         };
 
         var groups = CrashAggregator.Aggregate(crashes, exc, pkgs);
 
         Assert.Equal(3, groups.Count);
-        // 次数降序；同次数按首见时间升序（app 首见 100 早于 native 首见 300）
+        // 次数降序；同次数按首次行号升序（app 首见行 5 早于 native 首见行 70）
         Assert.Equal(2, groups[0].Count);
         Assert.Equal("java.lang.IllegalStateException", groups[0].ExcType);
         Assert.Equal("com.example.app", groups[0].Pkg);
-        Assert.Equal(100, groups[0].FirstTs);
-        Assert.Equal(200, groups[0].LastTs);
         Assert.Equal(5, groups[0].FirstRow);
+        Assert.Equal(50, groups[0].LastRow);     // 组内末次 = 行序最后的事件
 
         Assert.Equal(2, groups[1].Count);
         Assert.Equal(CrashKind.Native, groups[1].Kind);
         Assert.Equal("SIGSEGV", groups[1].ExcType);
         Assert.Equal("", groups[1].Pkg);
         Assert.Equal(70, groups[1].FirstRow);
+        Assert.Equal(80, groups[1].LastRow);
 
         Assert.Equal(1, groups[2].Count);
         Assert.Equal("com.example.pay", groups[2].Pkg);
+        Assert.Equal(60, groups[2].FirstRow);
+        Assert.Equal(60, groups[2].LastRow);
     }
 
     /// <summary>
-    /// 组内时间<b>乱序</b>时 <c>LastTs = Math.Max(...)</c> 仍取最大时间。
-    /// 前面唯一分组用例的组内 ts 是升序（100→200），把实现变异成
-    /// <c>LastTs = ce.Ts</c>（取后到事件）或 <c>LastTs = g.LastTs</c>（首见后不再更新）
-    /// 断言都不会红——这条用 100→300→200→-1 的序列把两种变异都钉死：
-    /// 正确 300，前者给 -1，后者给 100。-1（时间未知）排最后还顺带验证
-    /// 未知时间不会把 LastTs 拖没。FirstTs 保持「首个事件的 ts」语义，不是 min。
+    /// 组内时间乱序（时钟回跳）时，末次事件取<b>行序最后</b>的那条，而非时间最大的那条
+    /// （spec「组内时间乱序时末次取行序最后」）。
+    /// 旧口径按组内最大绝对时间取末次，原用例数据是 Ts 100→300→200→-1（期望 300）；
+    /// 改行序后同数据改写为行号落位——末次为行序最后的事件（原 ts=200 的那条），
+    /// 「时间未知排最后」的旧语义随之消失。
     /// </summary>
     [Fact]
-    public void 组内时间乱序时LastTs取最大时间而非末事件()
+    public void 组内时间乱序时末次取行序最后()
     {
         var exc = new List<string> { "E" };
         var pkgs = new List<string> { "p" };
         var crashes = new List<CrashEvent>
         {
-            E(10, 0, 0, 100, CrashKind.Java),
-            E(20, 0, 0, 300, CrashKind.Java),
-            E(30, 0, 0, 200, CrashKind.Java),
-            E(40, 0, 0, -1,  CrashKind.Java),   // 时间未知
+            E(10, 0, 0, CrashKind.Java),   // 旧口径 ts 100
+            E(20, 0, 0, CrashKind.Java),   // 旧口径 ts 300（旧实现的「末次」：时间最大）
+            E(30, 0, 0, CrashKind.Java),   // 旧口径 ts -1（时间未知）
+            E(40, 0, 0, CrashKind.Java),   // 旧口径 ts 200 → 行序最后，新口径的「末次」
         };
 
         var g = Assert.Single(CrashAggregator.Aggregate(crashes, exc, pkgs));
 
         Assert.Equal(4, g.Count);
-        Assert.Equal(100, g.FirstTs);   // 首见 = 第一个事件的时间
-        Assert.Equal(300, g.LastTs);    // 末次 = 组内最大时间
+        Assert.Equal(10, g.FirstRow);
+        Assert.Equal(40, g.LastRow);
+    }
+
+    /// <summary>
+    /// 输入未按行序排时末次仍取行号最大的那条（Math.Max 容忍乱序输入）：
+    /// 生产路径 crashes 恒按 Row 升序，这里钉死的是「末次 = 行序最后」这个语义本身
+    /// 而非输入顺序。FirstRow 与旧口径 FirstTs 一致，是「首个遇到的事件」而非最小行号。
+    /// </summary>
+    [Fact]
+    public void 末次取行序最后_输入乱序也正确()
+    {
+        var exc = new List<string> { "E" };
+        var pkgs = new List<string> { "p" };
+        var crashes = new List<CrashEvent>
+        {
+            E(40, 0, 0, CrashKind.Java),
+            E(10, 0, 0, CrashKind.Java),
+            E(30, 0, 0, CrashKind.Java),
+            E(20, 0, 0, CrashKind.Java),
+        };
+
+        var g = Assert.Single(CrashAggregator.Aggregate(crashes, exc, pkgs));
+
+        Assert.Equal(4, g.Count);
+        Assert.Equal(40, g.LastRow);   // 末次 = 行号最大，与输入顺序无关
+    }
+
+    /// <summary>
+    /// 多组次数相同时按首次行号升序（spec「多组崩溃按首次行号排序」）：
+    /// 行号较小的组排在前面——旧口径按首次时间戳排，仅在时钟回跳文件上有差异。
+    /// </summary>
+    [Fact]
+    public void 多组崩溃按首次行号排序()
+    {
+        var exc = new List<string> { "A", "B" };
+        var pkgs = new List<string> { "p" };
+        var crashes = new List<CrashEvent>
+        {
+            E(100, 1, 0, CrashKind.Java),   // B 组，首见行 100
+            E(10, 0, 0, CrashKind.Java),    // A 组，首见行 10
+            E(20, 0, 0, CrashKind.Java),    // A 组第二跳
+            E(110, 1, 0, CrashKind.Java),   // B 组第二跳
+        };
+
+        var groups = CrashAggregator.Aggregate(crashes, exc, pkgs);
+
+        Assert.Equal(2, groups.Count);
+        Assert.Equal(2, groups[0].Count);
+        Assert.Equal(2, groups[1].Count);
+        Assert.Equal(10, groups[0].FirstRow);    // 同次数 → 首次行号小的在前
+        Assert.Equal("A", groups[0].ExcType);
+        Assert.Equal(100, groups[1].FirstRow);
+        Assert.Equal("B", groups[1].ExcType);
     }
 }
 
 /// <summary>
 /// LogDocument 崩溃提取集成：独立行形态、缩进合并形态（c 轨补扫）、
-/// Join=false 仍提取、Append 行号偏移与 Ts 回填、跨批 carry 补增 LineCount。
+/// Join=false 仍提取、Append 行号偏移、跨批 carry 补增 LineCount。
 /// </summary>
 public class CrashDocumentTests
 {
@@ -303,7 +356,6 @@ public class CrashDocumentTests
         Assert.Equal(CrashKind.Java, ce.Kind);
         Assert.Equal(869, ce.Pid);
         Assert.Equal(1, ce.LineCount);                    // 无续行并入
-        Assert.Equal(doc.Ts[0], ce.Ts);                   // Assemble 从列终算回填
         Assert.Equal(new[] { "java.lang.IllegalStateException" }, doc.ExcTypes);
         Assert.Equal(new[] { "com.example.app" }, doc.Pkgs);
     }
@@ -408,7 +460,7 @@ public class CrashDocumentTests
         Assert.Equal("", groups[1].Pkg);                                   // -1 解引用为空串（显示层回退 "-"）
         Assert.Equal("", groups[2].ExcType);
         Assert.Equal("com.example.pay", groups[2].Pkg);
-        // 同为 1 次的两组按首见时间升序：Native(T7) 早于 ANR(T8)
+        // 同为 1 次的两组按首次行号升序：Native(T7) 早于 ANR(T8)
         Assert.Equal(6, groups[1].FirstRow);
         Assert.Equal(7, groups[2].FirstRow);
     }
@@ -416,7 +468,7 @@ public class CrashDocumentTests
     // ── 增量追加 ──
 
     [Fact]
-    public void Append_崩溃行号加偏移且Ts回填()
+    public void Append_崩溃行号加偏移()
     {
         using var tmp = new TempLogFile(Line(T1, 'I', "Tag", "a"));
         using var doc = LogDocument.Build(tmp.Path);
@@ -431,7 +483,6 @@ public class CrashDocumentTests
         Assert.Equal(4, doc.RowCount);
         var ce = Assert.Single(doc.Crashes);
         Assert.Equal(1, ce.Row);                          // 批内 Row=0 + 偏移 n=1
-        Assert.Equal(doc.Ts[1], ce.Ts);
         Assert.Equal("java.lang.IllegalStateException", doc.ExcTypes[ce.ExcId]);
         Assert.Equal("com.example.app", doc.Pkgs[ce.PkgId]);
     }
@@ -496,6 +547,52 @@ public class CrashDocumentTests
         Assert.Equal(2, doc.RowCount);
         Assert.Equal(2, doc.Crashes[0].LineCount);        // 1 + carry 1；崩溃行本身仍是 Row 0
         Assert.Equal(0, doc.Crashes[0].Row);
+    }
+}
+
+/// <summary>
+/// <see cref="CrashTime"/>：崩溃行的时间文本取自行首原始时间戳（spec「崩溃事件的时间呈现与排序」）。
+/// 汇总行到秒、列表摘要时分秒、无时间戳返回 null（展示侧落 "-"）。
+/// </summary>
+public class CrashTimeTests
+{
+    static string Line(string time, char level, string tag, string msg) =>
+        TestData.Threadtime(time, 869, 869, level, tag, msg);
+
+    [Fact]
+    public void 汇总行时间文本显示到秒()
+    {
+        using var tmp = new TempLogFile(Line("09-23 18:06:48.123", 'E', "Tag", "FATAL EXCEPTION: main"));
+        using var doc = LogDocument.Build(tmp.Path);
+
+        Assert.Equal("09-23 18:06:48", CrashTime.GroupText(doc, 0));   // 跨天日志带日期，小数秒截掉
+    }
+
+    [Fact]
+    public void 摘要时间文本只取时分秒()
+    {
+        using var tmp = new TempLogFile(Line("09-23 18:06:48.123", 'E', "Tag", "FATAL EXCEPTION: main"));
+        using var doc = LogDocument.Build(tmp.Path);
+
+        Assert.Equal("18:06:48", CrashTime.SummaryText(doc, 0));
+    }
+
+    /// <summary>
+    /// 行首无时间戳的崩溃行（brief 形态）：时间文本返回 null，展示侧落 "-"——
+    /// 不显示为空、也不是不显示（spec「无时间戳崩溃行显示占位」）。
+    /// </summary>
+    [Fact]
+    public void 无时间戳崩溃行时间文本为null()
+    {
+        using var tmp = new TempLogFile(
+            "E/AndroidRuntime: FATAL EXCEPTION: main\n" +
+            "E/AndroidRuntime: Process: com.example.app, PID: 869\n" +
+            "E/AndroidRuntime: java.lang.IllegalStateException: boom\n");
+        using var doc = LogDocument.Build(tmp.Path);
+
+        var ce = Assert.Single(doc.Crashes);
+        Assert.Null(CrashTime.GroupText(doc, ce.Row));
+        Assert.Null(CrashTime.SummaryText(doc, ce.Row));
     }
 }
 

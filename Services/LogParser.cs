@@ -59,15 +59,16 @@ public static class LogParser
     {
         public readonly long WithinMs;   // 年内毫秒，-1 表示无时间
         public readonly int Year;        // 行内年份，-1 表示未给出
+        public readonly int Minute;      // 行内原始分钟 0-59，-1 表示无时间/解析失败
         public readonly int Pid;         // -1 表示未知
         public readonly int Tid;         // -1 表示未知
         public readonly int Level;       // 0 表示未知
         public readonly string Tag;      // 原始 tag
         public readonly int MsgOffset;   // message 在行内的起始偏移
 
-        public ParseResult(long withinMs, int year, int pid, int tid, int level, string tag, int msgOffset)
+        public ParseResult(long withinMs, int year, int minute, int pid, int tid, int level, string tag, int msgOffset)
         {
-            WithinMs = withinMs; Year = year; Pid = pid; Tid = tid;
+            WithinMs = withinMs; Year = year; Minute = minute; Pid = pid; Tid = tid;
             Level = level; Tag = tag; MsgOffset = msgOffset;
         }
     }
@@ -76,13 +77,14 @@ public static class LogParser
     {
         int n = line.Length;
         if (n == 0)
-            return new ParseResult(-1, -1, -1, -1, LVL_UNKNOWN, "", 0);
+            return new ParseResult(-1, -1, -1, -1, -1, LVL_UNKNOWN, "", 0);
 
         // ── 快速路径 ──
         if (line[0] != LBRACKET)
         {
             long ts = -1;
             int year = -1;
+            int minute = -1;
             int p = 0;
 
             // 头部：mm-dd hh:mm:ss.<1~9位小数秒>（3位=ms，6位=usec，9位=nsec）
@@ -93,7 +95,7 @@ public static class LogParser
                 while (f < n && line[f] >= ZERO && line[f] <= NINE) f++;
                 if (f > 15)
                 {
-                    (ts, year) = TsMmdd(line, f);
+                    (ts, year, minute) = TsMmdd(line, f);
                     p = f;
                 }
             }
@@ -104,7 +106,7 @@ public static class LogParser
                 while (f < n && line[f] >= ZERO && line[f] <= NINE) f++;
                 if (f > 20)
                 {
-                    (ts, year) = TsYyyy(line, f);
+                    (ts, year, minute) = TsYyyy(line, f);
                     p = f;
                 }
             }
@@ -131,7 +133,7 @@ public static class LogParser
                         if (lvl != 0 && t + 1 < n && line[t + 1] == SP)
                         {
                             var (tag, mo) = SplitTagMsg(line, t + 2, n);
-                            return new ParseResult(ts, year, BytesToInt(line[p..q]), BytesToInt(line[r..s]), lvl, tag, mo);
+                            return new ParseResult(ts, year, minute, BytesToInt(line[p..q]), BytesToInt(line[r..s]), lvl, tag, mo);
                         }
                         if (lvl != 0 && t + 1 < n && line[t + 1] == SLASH)
                         {
@@ -150,7 +152,7 @@ public static class LogParser
                                         mo++;
                                         if (mo < n && line[mo] == SP) mo++;
                                     }
-                                    return new ParseResult(ts, year, pid, BytesToInt(line[r..s]), lvl, tag, mo);
+                                    return new ParseResult(ts, year, minute, pid, BytesToInt(line[r..s]), lvl, tag, mo);
                                 }
                             }
                             int c = IndexOf(line, COLON, u);
@@ -158,7 +160,7 @@ public static class LogParser
                             {
                                 string tag = Encoding.UTF8.GetString(line[u..c]);
                                 int mo = c + 2 < n && line[c + 1] == SP ? c + 2 : c + 1;
-                                return new ParseResult(ts, year, BytesToInt(line[p..q]), BytesToInt(line[r..s]), lvl, tag, mo);
+                                return new ParseResult(ts, year, minute, BytesToInt(line[p..q]), BytesToInt(line[r..s]), lvl, tag, mo);
                             }
                         }
                     }
@@ -187,19 +189,19 @@ public static class LogParser
                                 if (mo < n && line[mo] == SP) mo++;
                             }
                         }
-                        return new ParseResult(ts, year, pid, -1, lvl2, tag, mo);
+                        return new ParseResult(ts, year, minute, pid, -1, lvl2, tag, mo);
                     }
                     if (c > 0)
                     {
                         string tag = Encoding.UTF8.GetString(line[u..c]);
                         int mo = c + 1;
                         if (mo < n && line[mo] == SP) mo++;
-                        return new ParseResult(ts, year, -1, -1, lvl2, tag, mo);
+                        return new ParseResult(ts, year, minute, -1, -1, lvl2, tag, mo);
                     }
-                    return new ParseResult(ts, year, -1, -1, lvl2, Encoding.UTF8.GetString(line[u..]), n);
+                    return new ParseResult(ts, year, minute, -1, -1, lvl2, Encoding.UTF8.GetString(line[u..]), n);
                 }
             }
-            return new ParseResult(ts, year, -1, -1, LVL_UNKNOWN, "", 0);
+            return new ParseResult(ts, year, minute, -1, -1, LVL_UNKNOWN, "", 0);
         }
 
         // ── 回退：正则 ──
@@ -218,22 +220,22 @@ public static class LogParser
             int mo = int.Parse(m.Groups[2].Value), d = int.Parse(m.Groups[3].Value);
             int h = int.Parse(m.Groups[4].Value), mi = int.Parse(m.Groups[5].Value);
             int s = int.Parse(m.Groups[6].Value), ms = NormMs(m.Groups[7].Value);
-            long within; int year;
-            try { (within, year) = MsOf(y, mo, d, h, mi, s, ms); }
-            catch { within = -1; year = -1; }
+            long within; int year; int minute;
+            try { (within, year) = MsOf(y, mo, d, h, mi, s, ms); minute = mi; }
+            catch { within = -1; year = -1; minute = -1; }
             int pid = m.Groups[8].Success ? int.Parse(m.Groups[8].Value) : -1;
             int tid = m.Groups[9].Success ? int.Parse(m.Groups[9].Value) : -1;
             int lvl = _lc.TryGetValue((byte)m.Groups[10].Value[0], out var lv) ? lv : 0;
             string tag = m.Groups[11].Value;
             string msgText = m.Groups[12].Value;
             int msgOff = n - msgText.Length;
-            return new ParseResult(within, year, pid, tid, lvl, tag, msgOff);
+            return new ParseResult(within, year, minute, pid, tid, lvl, tag, msgOff);
         }
 
         // 其余形态（日期起首的 threadtime / time / brief）都由快速路径处理并 return，
         // 走到慢路径时只剩「方括号」形式能匹配，因此这里只有 ReLong 一条规则，
         // 不匹配说明这行不是日志记录（返回空结果由调用方按续行/正文处理）。
-        return new ParseResult(-1, -1, -1, -1, LVL_UNKNOWN, "", 0);
+        return new ParseResult(-1, -1, -1, -1, -1, LVL_UNKNOWN, "", 0);
     }
 
     // ── 时间戳解析 ──
@@ -254,7 +256,7 @@ public static class LogParser
         return ms;
     }
 
-    static (long within, int year) TsMmdd(ReadOnlySpan<byte> line, int fracEnd)
+    static (long within, int year, int minute) TsMmdd(ReadOnlySpan<byte> line, int fracEnd)
     {
         int mo = (line[0] - ZERO) * 10 + (line[1] - ZERO);
         int d = (line[3] - ZERO) * 10 + (line[4] - ZERO);
@@ -276,7 +278,7 @@ public static class LogParser
         lock (_tsCache)
         {
             if (_tsCache.TryGetValue(key, out long hit))
-                return (hit, -1);
+                return (hit, -1, mi);   // 分钟不在缓存里，就地透出（校验已过，mi ∈ [0,59]）
         }
 
         var (within, year) = MsOf(null, mo, d, h, mi, s, ms);
@@ -285,10 +287,10 @@ public static class LogParser
             if (_tsCache.Count < CACHE_LIMIT)
                 _tsCache[key] = within;
         }
-        return (within, year);
+        return (within, year, mi);
     }
 
-    static (long within, int year) TsYyyy(ReadOnlySpan<byte> line, int fracEnd)
+    static (long within, int year, int minute) TsYyyy(ReadOnlySpan<byte> line, int fracEnd)
     {
         int y = (line[0] - ZERO) * 1000 + (line[1] - ZERO) * 100 + (line[2] - ZERO) * 10 + (line[3] - ZERO);
         int mo = (line[5] - ZERO) * 10 + (line[6] - ZERO);
@@ -307,7 +309,7 @@ public static class LogParser
         lock (_tsCacheY)
         {
             if (_tsCacheY.TryGetValue(key, out var hit))
-                return hit;
+                return (hit.within, hit.year, mi);   // 分钟不在缓存里，就地透出
         }
 
         var result = MsOf(y, mo, d, h, mi, s, ms);
@@ -316,7 +318,7 @@ public static class LogParser
             if (_tsCacheY.Count < CACHE_LIMIT)
                 _tsCacheY[key] = result;
         }
-        return result;
+        return (result.within, result.year, mi);
     }
 
     static (long within, int year) MsOf(int? y, int mo, int d, int h, int mi, int s, int ms)

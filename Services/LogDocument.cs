@@ -13,8 +13,8 @@ public sealed class LogDocument : IDisposable
 {
     const int MAX_JOIN = 200;           // 单条记录最多合并续行数
     const byte FLAG_MULTILINE = 0x01;
-    const int YEAR_LO = -5, YEAR_HI = 55;
-    const long HALF_DAY = LogParser.DAY_MS / 2;
+    /// <summary>分钟列哨兵：行首无有效时间戳的记录存 255（分钟集合只含 0-59，天然不命中）。</summary>
+    public const byte MINUTE_NONE = 255;
 
     static readonly ILogger _logger = Microsoft.Extensions.Logging.Abstractions.NullLoggerFactory.Instance.CreateLogger("LogDocument");
 
@@ -40,15 +40,13 @@ public sealed class LogDocument : IDisposable
     public string EncodingName { get; } = "utf-8";
     public long Size { get; private set; }
     public long IndexedSize { get; private set; }
-    public int BaseYear { get; private set; } = DateTime.Now.Year;
-    public bool HasYear { get; private set; }
     public bool Join { get; set; } = true;
 
     // ── 列存储 ──
     long[] _offs = Array.Empty<long>();
     int[] _lens = Array.Empty<int>();
     int[] _moff = Array.Empty<int>();
-    long[] _ts = Array.Empty<long>();
+    byte[] _min = Array.Empty<byte>();
     int[] _pid = Array.Empty<int>();
     int[] _tid = Array.Empty<int>();
     byte[] _lvl = Array.Empty<byte>();
@@ -78,8 +76,6 @@ public sealed class LogDocument : IDisposable
     MemoryMappedViewAccessor? _view;
     FileStream? _fh;
     (MemoryMappedViewAccessor? view, MemoryMappedFile? mmf, FileStream? fh) _retired;
-    int? _yearLast;
-    long? _withinLast;
 
     public LogDocument(string path, string encoding = "utf-8", string? displayPath = null)
     {
@@ -93,7 +89,8 @@ public sealed class LogDocument : IDisposable
     public ReadOnlySpan<long> Offs => _offs.AsSpan(0, _n);
     public ReadOnlySpan<int> Lens => _lens.AsSpan(0, _n);
     public ReadOnlySpan<int> Moff => _moff.AsSpan(0, _n);
-    public ReadOnlySpan<long> Ts => _ts.AsSpan(0, _n);
+    /// <summary>分钟列：行首时间戳的原始分钟 0-59；无有效时间戳为 <see cref="MINUTE_NONE"/>。</summary>
+    public ReadOnlySpan<byte> Minute => _min.AsSpan(0, _n);
     public ReadOnlySpan<int> Pid => _pid.AsSpan(0, _n);
     public ReadOnlySpan<int> Tid => _tid.AsSpan(0, _n);
     public ReadOnlySpan<byte> Lvl => _lvl.AsSpan(0, _n);
@@ -110,19 +107,19 @@ public sealed class LogDocument : IDisposable
     public bool LastAppendCarried { get; private set; }
 
     // ── 容量管理 ──
-    void SetColumns(long[] offs, int[] lens, int[] moff, long[] ts, int[] pid, int[] tid,
+    void SetColumns(long[] offs, int[] lens, int[] moff, byte[] min, int[] pid, int[] tid,
                     byte[] lvl, int[] tagId, byte[] flags)
     {
         int n = offs.Length;
         _n = n;
         _cap = n + (n >> 2) + 1024;
         _offs = new long[_cap]; _lens = new int[_cap]; _moff = new int[_cap];
-        _ts = new long[_cap]; _pid = new int[_cap]; _tid = new int[_cap];
+        _min = new byte[_cap]; _pid = new int[_cap]; _tid = new int[_cap];
         _lvl = new byte[_cap]; _tagId = new int[_cap]; _flags = new byte[_cap];
         if (n > 0)
         {
             Array.Copy(offs, _offs, n); Array.Copy(lens, _lens, n);
-            Array.Copy(moff, _moff, n); Array.Copy(ts, _ts, n);
+            Array.Copy(moff, _moff, n); Array.Copy(min, _min, n);
             Array.Copy(pid, _pid, n); Array.Copy(tid, _tid, n);
             Array.Copy(lvl, _lvl, n); Array.Copy(tagId, _tagId, n);
             Array.Copy(flags, _flags, n);
@@ -134,7 +131,7 @@ public sealed class LogDocument : IDisposable
         if (need <= _cap) return;
         int cap = Math.Max(need, _cap + Math.Max(_cap >> 2, 1 << 16));
         Array.Resize(ref _offs, cap); Array.Resize(ref _lens, cap); Array.Resize(ref _moff, cap);
-        Array.Resize(ref _ts, cap); Array.Resize(ref _pid, cap); Array.Resize(ref _tid, cap);
+        Array.Resize(ref _min, cap); Array.Resize(ref _pid, cap); Array.Resize(ref _tid, cap);
         Array.Resize(ref _lvl, cap); Array.Resize(ref _tagId, cap); Array.Resize(ref _flags, cap);
         _cap = cap;
     }
@@ -215,7 +212,8 @@ public sealed class LogDocument : IDisposable
     /// <summary>
     /// 行首时间戳的原始字节（保留 1~9 位小数秒精度）。
     /// threadtime 行的头部还含 pid/tid/级别/tag，这里只截到小数秒末位；
-    /// 行首不是时间戳（如 brief 的 E/Tag 形式）返回空，由调用方回退 TsToText。
+    /// 方括号 long 格式（-v long）行首是 "[ "，跳过 2 字节再按日期形态判定；
+    /// 行首不是时间戳（如 brief 的 E/Tag 形式）返回空。
     /// </summary>
     public byte[] HeaderBytes(int row)
     {
@@ -226,15 +224,18 @@ public sealed class LogDocument : IDisposable
         byte[] buf = new byte[len];
         _view.ReadArray(_offs[row], buf, 0, len);
 
-        int dot = len > 14 && buf[2] == 45 && buf[5] == 32 && buf[14] == 46 ? 14
-                : len > 19 && buf[4] == 45 && buf[7] == 45 && buf[19] == 46 ? 19 : -1;
+        // 方括号 long 格式行首为 "[ "（91 32）：跳过前缀再按既有两种日期形态判定
+        int s = len >= 2 && buf[0] == 91 && buf[1] == 32 ? 2 : 0;
+
+        int dot = len - s > 14 && buf[s + 2] == 45 && buf[s + 5] == 32 && buf[s + 14] == 46 ? s + 14
+                : len - s > 19 && buf[s + 4] == 45 && buf[s + 7] == 45 && buf[s + 19] == 46 ? s + 19 : -1;
         if (dot < 0) return Array.Empty<byte>();
         int end = dot + 1;
         while (end < len && buf[end] >= 48 && buf[end] <= 57) end++;
         if (end == dot + 1) return Array.Empty<byte>();
-        if (end == len) return buf;
-        var ts = new byte[end];
-        Array.Copy(buf, ts, end);
+        if (end == len && s == 0) return buf;
+        var ts = new byte[end - s];
+        Array.Copy(buf, s, ts, 0, end - s);
         return ts;
     }
 
@@ -262,11 +263,11 @@ public sealed class LogDocument : IDisposable
         string? displayPath = null)
     {
         var doc = new LogDocument(path, displayPath: displayPath) { Join = join };
-        doc.DoBuild(null, join, progress, ct);
+        doc.DoBuild(join, progress, ct);
         return doc;
     }
 
-    void DoBuild(int? baseYear, bool join, IProgress<(double, string)>? progress, CancellationToken ct)
+    void DoBuild(bool join, IProgress<(double, string)>? progress, CancellationToken ct)
     {
         Size = new FileInfo(SourcePath).Length;
         OpenMap();
@@ -276,7 +277,7 @@ public sealed class LogDocument : IDisposable
         // 整体重建：批末合并状态缓存一并刷新（Reload 检测到头变化走重建时，旧缓存态作废）
         _prevHeadAtEnd = part.EndPrevHead;
         _joinedAtEnd = part.EndJoined;
-        Assemble(part, baseYear, progress);
+        Assemble(part, progress);
         IndexedSize = Size;
     }
 
@@ -285,7 +286,7 @@ public sealed class LogDocument : IDisposable
     internal struct ScanPart
     {
         public long[] Offs; public int[] Lens; public int[] Moff;
-        public long[] Within; public int[] Years;
+        public byte[] Minutes;
         public int[] Pids; public int[] Tids;
         public byte[] Lvls; public int[] TagIds; public byte[] Flags;
         public List<byte[]> LocalTags;
@@ -315,8 +316,7 @@ public sealed class LogDocument : IDisposable
         var offs = new List<long>();
         var lens = new List<int>();
         var moff = new List<int>();
-        var within = new List<long>();
-        var years = new List<int>();
+        var minutes = new List<byte>();
         var pids = new List<int>();
         var tids = new List<int>();
         var lvls = new List<byte>();
@@ -475,13 +475,12 @@ public sealed class LogDocument : IDisposable
 
             LogParser.ParseResult pr;
             try { pr = LogParser.ParseLine(line); }
-            catch { pr = new LogParser.ParseResult(-1, -1, -1, -1, 0, "", 0); }
+            catch { pr = new LogParser.ParseResult(-1, -1, -1, -1, -1, 0, "", 0); }
 
             offs.Add(currentOff);
             lens.Add(lineLen);
             moff.Add(pr.MsgOffset >= 0 && pr.MsgOffset <= lineLen ? pr.MsgOffset : 0);
-            within.Add(pr.WithinMs);
-            years.Add(pr.Year);
+            minutes.Add(pr.Minute < 0 ? MINUTE_NONE : (byte)pr.Minute);
             pids.Add(pr.Pid);
             tids.Add(pr.Tid);
             lvls.Add((byte)pr.Level);
@@ -520,7 +519,6 @@ public sealed class LogDocument : IDisposable
                         PkgId = Intern(match.Value.Pkg, pkgMap, pkgList),
                         Pid = pr.Pid,
                         Tid = pr.Tid,
-                        Ts = 0,               // Assemble / Append 终算后回填（扫描期时间戳未定）
                         Kind = match.Value.Kind,
                         LineCount = 1,        // 批末按 joinCounts 终算
                     });
@@ -575,7 +573,6 @@ public sealed class LogDocument : IDisposable
                 PkgId = Intern(match.Value.Pkg, pkgMap, pkgList),
                 Pid = pids[i],
                 Tid = tids[i],
-                Ts = 0,
                 Kind = match.Value.Kind,
                 LineCount = joinCounts[i] + 1,
             });
@@ -586,7 +583,7 @@ public sealed class LogDocument : IDisposable
         return new ScanPart
         {
             Offs = offs.ToArray(), Lens = lens.ToArray(), Moff = moff.ToArray(),
-            Within = within.ToArray(), Years = years.ToArray(),
+            Minutes = minutes.ToArray(),
             Pids = pids.ToArray(), Tids = tids.ToArray(),
             Lvls = lvls.ToArray(), TagIds = tagIds.ToArray(), Flags = flags.ToArray(),
             LocalTags = tagList,
@@ -662,7 +659,7 @@ public sealed class LogDocument : IDisposable
     static ScanPart EmptyPart() => new()
     {
         Offs = Array.Empty<long>(), Lens = Array.Empty<int>(), Moff = Array.Empty<int>(),
-        Within = Array.Empty<long>(), Years = Array.Empty<int>(),
+        Minutes = Array.Empty<byte>(),
         Pids = Array.Empty<int>(), Tids = Array.Empty<int>(),
         Lvls = Array.Empty<byte>(), TagIds = Array.Empty<int>(), Flags = Array.Empty<byte>(),
         LocalTags = new List<byte[]>(),
@@ -672,12 +669,12 @@ public sealed class LogDocument : IDisposable
     // ── 组装 ──
     // 只有「单分片」一种形态：DoBuild 一次 ScanRange(0, Size) 扫完整个文件。
     // 曾经的多分片合并（按 BLOCK 分块扫描 + 拼接数组 + 全局 tag 重映射）已随分块方案一起删除。
-    void Assemble(ScanPart part, int? baseYear, IProgress<(double, string)>? progress)
+    void Assemble(ScanPart part, IProgress<(double, string)>? progress)
     {
         if (part.Offs.Length == 0)
         {
             SetColumns(Array.Empty<long>(), Array.Empty<int>(), Array.Empty<int>(),
-                       Array.Empty<long>(), Array.Empty<int>(), Array.Empty<int>(),
+                       Array.Empty<byte>(), Array.Empty<int>(), Array.Empty<int>(),
                        Array.Empty<byte>(), Array.Empty<int>(), Array.Empty<byte>());
             Tags = new(); TagIndex = new();
             _crashes = new(); ExcTypes = new(); ExcTypeIndex = new();
@@ -698,25 +695,11 @@ public sealed class LogDocument : IDisposable
         Tags = tags;
         TagIndex = tagIndex;
 
-        // 时间戳终算
-        HasYear = part.Years.Any(y => y >= 0);
-        var (ts, by, yl) = FinalizeTs(part.Within, part.Years, baseYear);
-        BaseYear = by;
-        _yearLast = yl;
-        var validWithin = part.Within.Where(w => w >= 0).ToArray();
-        _withinLast = validWithin.Length > 0 ? validWithin[^1] : null;
-
-        SetColumns(part.Offs, part.Lens, part.Moff, ts, part.Pids, part.Tids, part.Lvls, part.TagIds, part.Flags);
+        SetColumns(part.Offs, part.Lens, part.Moff, part.Minutes, part.Pids, part.Tids, part.Lvls, part.TagIds, part.Flags);
 
         // ── 崩溃事件落表（单分片：局部 id 即全局 id，无需重映射）──
-        // 时间戳在列终算后回填（扫描期 ts 未定）；Row 为绝对行号（全量扫描从 0 起）
-        _crashes = new List<CrashEvent>(part.Crashes.Count);
-        foreach (var ce in part.Crashes)
-        {
-            var e = ce;
-            e.Ts = e.Row < ts.Length ? ts[e.Row] : -1;
-            _crashes.Add(e);
-        }
+        // 事件只存行号，时间文本由展示侧经 HeaderBytes(行号) 现取（行序 + 原文，见 CrashTime）
+        _crashes = new List<CrashEvent>(part.Crashes);
         var excIndex = new Dictionary<string, int>();
         var excTypes = new List<string>(part.LocalExcTypes.Count);
         for (int i = 0; i < part.LocalExcTypes.Count; i++)
@@ -729,133 +712,6 @@ public sealed class LogDocument : IDisposable
         Pkgs = pkgs; PkgIndex = pkgIndex;
     }
 
-    // ── 时间戳终算 ──
-    static (long[] ts, int baseYear, int lastYear) FinalizeTs(long[] within, int[] years, int? baseYear,
-        int yearIdxStart = 0, int? prevYear = null, long? prevWithin = null)
-    {
-        int n = within.Length;
-        if (n == 0)
-        {
-            int y = baseYear ?? DateTime.Now.Year;
-            return (Array.Empty<long>(), y, y);
-        }
-
-        // 跨年检测
-        long[] w = new long[n];
-        int[] run = new int[n];
-        int lastValid = -1;
-        for (int i = 0; i < n; i++)
-        {
-            w[i] = within[i] >= 0 ? within[i] : -1;
-            if (within[i] >= 0) lastValid = i;
-            run[i] = lastValid;
-        }
-
-        long[] refArr = new long[n];
-        refArr[0] = prevWithin ?? -1;
-        for (int i = 1; i < n; i++)
-            refArr[i] = run[i - 1] >= 0 ? w[run[i - 1]] : -1;
-
-        bool[] fb = new bool[n];
-        for (int i = 0; i < n; i++)
-            fb[i] = within[i] >= 0 && refArr[i] >= 0 && within[i] < refArr[i] - HALF_DAY;
-
-        int[] roll = new int[n];
-        int cum = 0;
-        for (int i = 0; i < n; i++)
-        {
-            if (fb[i]) cum++;
-            roll[i] = cum;
-        }
-
-        // 每行的绝对年份
-        bool anyKnown = years.Any(y => y >= 0);
-        int[] yAbs;
-        int baseY;
-
-        if (anyKnown)
-        {
-            int first = Array.FindIndex(years, y => y >= 0);
-            baseY = baseYear ?? years[first];
-            yAbs = new int[n];
-
-            // 第一个已知年份之前的行
-            int anchorYear = prevYear ?? years[first];
-            for (int i = 0; i < first; i++)
-                yAbs[i] = anchorYear;
-
-            // 从 first 开始传播
-            int kidx = 0;
-            for (int i = first; i < n; i++)
-            {
-                if (years[i] >= 0) kidx = i;
-                yAbs[i] = years[i] >= 0 ? years[i] : years[kidx] + (roll[i] - roll[kidx]);
-            }
-            // fix: for indices before first, use roll[0]
-            for (int i = 0; i < first; i++)
-                yAbs[i] = anchorYear + roll[i];
-        }
-        else
-        {
-            baseY = baseYear ?? GuessYear(within);
-            yAbs = new int[n];
-            int startY = prevYear ?? (baseY + yearIdxStart);
-            for (int i = 0; i < n; i++)
-                yAbs[i] = startY + roll[i];
-        }
-
-        // 换算绝对毫秒
-        var (offs, adj) = YearTables(baseY);
-        long[] ts = new long[n];
-        for (int i = 0; i < n; i++)
-        {
-            int yi = Math.Clamp(yAbs[i] - baseY - YEAR_LO, 0, YEAR_HI - YEAR_LO - 1);
-            ts[i] = within[i] + offs[yi];
-            if (within[i] >= LogParser.LEAP_BOUNDARY)
-                ts[i] -= adj[yi];
-            if (within[i] < 0) ts[i] = -1;
-        }
-
-        return (ts, baseY, yAbs[^1]);
-    }
-
-    static int GuessYear(long[] within)
-    {
-        var now = DateTime.Now;
-        int validIdx = Array.FindIndex(within, w => w >= 0);
-        if (validIdx < 0) return now.Year;
-        // within 用「闰年日序」编码（见 MDAYS），比较基准必须换算到同一编码，
-        // 否则非闰年的 3 月之后整体差一天，Loc.T("今天")的日志会被判成去年。
-        long todayWithin = (now.DayOfYear - 1) * LogParser.DAY_MS;
-        if (!LogParser.IsLeap(now.Year) && now.DayOfYear > 59) todayWithin += LogParser.DAY_MS;
-        long first = within[validIdx];
-        return first - todayWithin > LogParser.DAY_MS ? now.Year - 1 : now.Year;
-    }
-
-    static (long[] offs, long[] adj) _yearTablesCache;
-    static int _yearTablesBaseYear;
-
-    static (long[] offs, long[] adj) YearTables(int baseYear)
-    {
-        if (_yearTablesBaseYear == baseYear && _yearTablesCache.offs != null)
-            return _yearTablesCache;
-
-        int span = YEAR_HI - YEAR_LO;
-        long[] offs = new long[span];
-        long[] adj = new long[span];
-        var refDate = new DateTime(baseYear, 1, 1);
-        for (int i = 0; i < span; i++)
-        {
-            int y = YEAR_LO + i;
-            var target = new DateTime(baseYear + y, 1, 1);
-            offs[i] = (long)(target - refDate).TotalMilliseconds;
-            adj[i] = LogParser.IsLeap(baseYear + y) ? 0 : LogParser.DAY_MS;
-        }
-        _yearTablesCache = (offs, adj);
-        _yearTablesBaseYear = baseYear;
-        return (offs, adj);
-    }
-
     // ── 增量 ──
     public string Reload(bool? join = null, IProgress<(double, string)>? progress = null, CancellationToken ct = default)
     {
@@ -865,7 +721,7 @@ public sealed class LogDocument : IDisposable
             return "unchanged";
         if (newSize < IndexedSize || IndexedSize == 0 || _view == null)
         {
-            DoBuild(BaseYear, Join, progress, ct);
+            DoBuild(Join, progress, ct);
             return "rebuilt";
         }
 
@@ -880,7 +736,7 @@ public sealed class LogDocument : IDisposable
 
         if (!headBuf.AsSpan().SequenceEqual(oldHead))
         {
-            DoBuild(BaseYear, Join, progress, ct);
+            DoBuild(Join, progress, ct);
             return "rebuilt";
         }
 
@@ -962,13 +818,6 @@ public sealed class LogDocument : IDisposable
             newTagId[i] = lid >= 0 ? remap[lid + 1] : -1;
         }
 
-        // 时间戳
-        var (ts, _, lastYear) = FinalizeTs(part.Within, part.Years, BaseYear, 0, _yearLast, _withinLast);
-        if (part.Years.Any(y => y >= 0)) HasYear = true;
-        if (ts.Length > 0) _yearLast = lastYear;
-        var validW = part.Within.Where(w => w >= 0).ToArray();
-        if (validW.Length > 0) _withinLast = validW[^1];
-
         int k = part.Offs.Length;
         int n = _n;
         EnsureCap(n + k);
@@ -976,7 +825,7 @@ public sealed class LogDocument : IDisposable
         Array.Copy(part.Offs, 0, _offs, n, k);
         Array.Copy(part.Lens, 0, _lens, n, k);
         Array.Copy(part.Moff, 0, _moff, n, k);
-        Array.Copy(ts, 0, _ts, n, k);
+        Array.Copy(part.Minutes, 0, _min, n, k);
         Array.Copy(part.Pids, 0, _pid, n, k);
         Array.Copy(part.Tids, 0, _tid, n, k);
         Array.Copy(part.Lvls, 0, _lvl, n, k);
@@ -984,7 +833,7 @@ public sealed class LogDocument : IDisposable
         Array.Copy(part.Flags, 0, _flags, n, k);
 
         // ── 崩溃事件并入 ──
-        // 局部 ExcType/Pkg id 重映射到全局、Row +n 偏移、Ts 从本批 ts 列回填；
+        // 局部 ExcType/Pkg id 重映射到全局、Row +n 偏移；
         // 整体引用替换（copy-on-write），后台写与 UI 读互不干扰
         if (part.Crashes.Count > 0)
         {
@@ -1021,7 +870,6 @@ public sealed class LogDocument : IDisposable
                 e.Row += n;
                 e.ExcId = e.ExcId >= 0 ? excRemap[e.ExcId + 1] : -1;
                 e.PkgId = e.PkgId >= 0 ? pkgRemap[e.PkgId + 1] : -1;
-                e.Ts = ts[e.Row - n];   // Row 已偏移，减回 n 得本批列下标
                 merged.Add(e);
             }
             _crashes = merged;
@@ -1052,62 +900,4 @@ public sealed class LogDocument : IDisposable
         return floor;
     }
 
-    // ── 定位 ──
-    public int NearestPos(ReadOnlySpan<int> rows, long ts)
-    {
-        int n = rows.Length;
-        if (n == 0) return 0;
-        // 二分查找
-        int lo = 0, hi = n - 1;
-        while (lo < hi)
-        {
-            int mid = (lo + hi) / 2;
-            if (_ts[rows[mid]] < ts) lo = mid + 1;
-            else hi = mid;
-        }
-        if (lo <= 0) return 0;
-        if (lo >= n) return n - 1;
-        long diffLo = Math.Abs(_ts[rows[lo]] - ts);
-        long diffPrev = Math.Abs(_ts[rows[lo - 1]] - ts);
-        return diffLo < diffPrev ? lo : lo - 1;
-    }
-
-    // ── 时间戳文本 ──
-    public static string TsToText(long ts, int baseYear, bool withMs = true)
-    {
-        if (ts < 0) return "";
-        try
-        {
-            var dt = new DateTime(baseYear, 1, 1).AddMilliseconds(ts);
-            return withMs
-                ? dt.ToString("MM-dd HH:mm:ss.") + $"{dt.Millisecond:D3}"
-                : dt.ToString("MM-dd HH:mm:ss");
-        }
-        catch { return ""; }
-    }
-
-    public static long TsFromParts(int year, int month, int day, int hour, int minute, int second, int ms,
-        int baseYear, long? refTs = null)
-    {
-        if (hour < 0 || hour > 23 || minute < 0 || minute > 59 || second < 0 || second > 60 || ms < 0 || ms > 999)
-            throw new ArgumentException("时间字段越界");
-        long hms = hour * 3_600_000L + minute * 60_000L + second * 1000L + ms;
-        if (month == -1)
-        {
-            if (refTs == null || refTs < 0)
-                throw new ArgumentException("缺少参考时间");
-            return (refTs.Value / LogParser.DAY_MS) * LogParser.DAY_MS + hms;
-        }
-        if (month < 1 || month > 12 || day < 1 || day > 31)
-            throw new ArgumentException("日期字段越界");
-        int[] mdays = { 0, 0, 31, 60, 91, 121, 152, 182, 213, 244, 274, 305, 335 };
-        long within = ((long)mdays[month] + day - 1) * LogParser.DAY_MS + hms;
-        int y = year > 0 ? year : baseYear;
-        var (offs, adj) = YearTables(baseYear);
-        int span = YEAR_HI - YEAR_LO;
-        int yi = Math.Clamp(y - baseYear - YEAR_LO, 0, span - 1);
-        long result = within + offs[yi];
-        if (within >= LogParser.LEAP_BOUNDARY) result -= adj[yi];
-        return result;
-    }
 }

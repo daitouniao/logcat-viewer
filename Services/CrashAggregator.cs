@@ -7,12 +7,11 @@ namespace logcat.Services;
 /// <param name="ExcType">异常类型 / 信号名；提取不到为空串（显示时回退 "-"）。</param>
 /// <param name="Pkg">包名；Native 崩溃提不到（显示 "-"）。</param>
 /// <param name="Count">该组崩溃次数。</param>
-/// <param name="FirstTs">首次发生时间戳（毫秒，未知为 -1）。</param>
-/// <param name="LastTs">末次发生时间戳。</param>
 /// <param name="FirstRow">首次发生的文档行号（点击跳转落点）。</param>
+/// <param name="LastRow">组内末次事件的行号（行序最后的事件，非时间最大）。</param>
 public readonly record struct CrashGroup(
     byte Kind, string ExcType, string Pkg,
-    int Count, long FirstTs, long LastTs, int FirstRow);
+    int Count, int FirstRow, int LastRow);
 
 /// <summary>
 /// 崩溃事件聚合：纯函数，输入 <see cref="LogDocument"/> 的稀疏崩溃清单与两个字典，
@@ -21,8 +20,9 @@ public readonly record struct CrashGroup(
 public static class CrashAggregator
 {
     /// <summary>
-    /// 按 (Kind, ExcId, PkgId) 分组。排序：次数降序，同次数按首见时间升序
+    /// 按 (Kind, ExcId, PkgId) 分组。排序：次数降序，同次数按首次行号升序
     /// （LINQ OrderBy 稳定，同键组保持首次出现顺序，结果确定可测）。
+    /// 组内末次取行序最后的事件（Math.Max 容忍输入未按行序排）。
     /// </summary>
     public static List<CrashGroup> Aggregate(
         IReadOnlyList<CrashEvent> crashes,
@@ -38,7 +38,7 @@ public static class CrashAggregator
             if (index.TryGetValue(key, out int i))
             {
                 var g = order[i];
-                order[i] = g with { Count = g.Count + 1, LastTs = Math.Max(g.LastTs, ce.Ts) };
+                order[i] = g with { Count = g.Count + 1, LastRow = Math.Max(g.LastRow, ce.Row) };
             }
             else
             {
@@ -47,11 +47,11 @@ public static class CrashAggregator
                     ce.Kind,
                     At(excTypes, ce.ExcId),
                     At(pkgs, ce.PkgId),
-                    1, ce.Ts, ce.Ts, ce.Row));
+                    1, ce.Row, ce.Row));
             }
         }
 
-        return order.OrderByDescending(g => g.Count).ThenBy(g => g.FirstTs).ToList();
+        return order.OrderByDescending(g => g.Count).ThenBy(g => g.FirstRow).ToList();
     }
 
     static string At(IReadOnlyList<string> list, int id)

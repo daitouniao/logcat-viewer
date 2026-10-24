@@ -374,13 +374,10 @@ public class LogListView : ListView
 
     string[] MakeFields(int docRow)
     {
-        // Time
-        string timeStr;
+        // Time：行首时间戳原文（保留原始小数秒位数，含方括号 long 格式）；
+        // 行首无时间戳显示空（绝对毫秒兜底已随分钟列改造移除）
         byte[] hb = _doc!.HeaderBytes(docRow);
-        if (hb.Length > 0)
-            timeStr = _doc.Decode(hb);
-        else
-            timeStr = LogDocument.TsToText(_doc.Ts[docRow], _doc.BaseYear);
+        string timeStr = hb.Length > 0 ? _doc.Decode(hb) : "";
 
         int pid = _doc.Pid[docRow], tid = _doc.Tid[docRow];
         int lvl = _doc.Lvl[docRow];
@@ -445,10 +442,8 @@ public class LogListView : ListView
             if (exc.Length == 0) exc = CrashKind.Name(ce.Kind);
         }
 
-        // MM-dd HH:mm:ss → HH:mm:ss（列表已有 Time 列，摘要里只留时分秒）
-        string time = LogDocument.TsToText(ce.Ts, _doc!.BaseYear, withMs: false);
-        int sp = time.LastIndexOf(' ');
-        if (sp >= 0) time = time[(sp + 1)..];
+        // 行首原始时间戳的时分秒部分（与 Time 列同源）；行首无时间戳显示 "-"
+        string time = CrashTime.SummaryText(_doc!, ce.Row) ?? "-";
 
         return ce.LineCount > 1
             ? Loc.F("☠ {0} · {1} · {2} · +{3} 行", exc, pkg.Length > 0 ? pkg : "-", time, ce.LineCount - 1)
