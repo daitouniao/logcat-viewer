@@ -8,7 +8,7 @@ namespace logcat.Controls;
 /// <summary>
 /// 左侧面板：Android 设备目录。支持 root 与 run-as 模式。
 /// </summary>
-public sealed class DeviceFilePane : FilePane
+public class DeviceFilePane : FilePane
 {
     readonly AdbManager _manager;
     readonly string _serial;
@@ -542,7 +542,7 @@ public sealed class DeviceFilePane : FilePane
         new(localFile, FileMode.Create, FileAccess.ReadWrite, FileShare.Read);
 
     /// <summary>下载设备文件到本机指定文件。</summary>
-    public async Task PullFileAsync(string remotePath, string localFile)
+    public async Task PullFileAsync(string remotePath, string localFile, IProgress<(double pct, string msg)>? progress = null)
     {
         var dir = Path.GetDirectoryName(localFile);
         if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
@@ -550,22 +550,31 @@ public sealed class DeviceFilePane : FilePane
         if (!NeedsRelay(remotePath))
         {
             using var fs = OpenDownloadTarget(localFile);
-            await _manager.PullAsync(_serial, remotePath, fs);
+            await _manager.PullAsync(_serial, remotePath, fs, progress);
             return;
         }
 
         var tmp = NextRelayPath(remotePath);
         try
         {
-            await ShellOkAsync($"cp '{remotePath}' '{tmp}'", Loc.F("无法读取 {0}", remotePath), elevated: true);
-            // cp 落地的中转文件沿用源权限（常为 0600），属主是提权身份（root 或应用），
-            // 不放开读权限的话 sync 依旧取不到；chmod 与清理也必须用同样的身份执行。
-            await ShellBestEffortAsync($"chmod a+r '{tmp}'", elevated: true);
-            using (var fs = OpenDownloadTarget(localFile))
-                await _manager.PullAsync(_serial, tmp, fs);
+            await RunPullStagesAsync(progress,
+                prepare: async () =>
+                {
+                    await ShellOkAsync($"cp '{remotePath}' '{tmp}'", Loc.F("无法读取 {0}", remotePath), elevated: true);
+                    // cp 落地的中转文件沿用源权限（常为 0600），属主是提权身份（root 或应用），
+                    // 不放开读权限的话 sync 依旧取不到；chmod 与清理也必须用同样的身份执行。
+                    await ShellBestEffortAsync($"chmod a+r '{tmp}'", elevated: true);
+                },
+                bytes: async () =>
+                {
+                    using var fs = OpenDownloadTarget(localFile);
+                    await _manager.PullAsync(_serial, tmp, fs, progress);
+                });
         }
         finally
         {
+            // 收尾动作不产生字节回调，报不确定态说明后清理中转文件（异常路径同样执行）
+            progress?.Report((double.NaN, Loc.T("正在收尾传输：清理中转文件…")));
             await ShellBestEffortAsync($"rm -f '{tmp}'", elevated: true);
         }
     }
@@ -578,44 +587,101 @@ public sealed class DeviceFilePane : FilePane
     public Task SyncAsync() => ShellBestEffortAsync("sync", 120);
 
     /// <summary>上传本机文件到设备指定路径。</summary>
-    public async Task PushFileAsync(string localFile, string remotePath)
+    public async Task PushFileAsync(string localFile, string remotePath, IProgress<(double pct, string msg)>? progress = null)
     {
         int cut = remotePath.LastIndexOf('/');
         if (cut <= 0)
         {
-            await _manager.PushAsync(_serial, localFile, remotePath);
+            await _manager.PushAsync(_serial, localFile, remotePath, progress);
             return;
         }
         var dir = remotePath[..cut];
         var relay = NeedsRelay(remotePath);
-        // 属主必须在 mkdir 之前取：目录是新建的话它自己就是 root:root，没有参考价值
-        var owner = relay ? await NearestOwnerAsync(dir) : null;
-        await MkdirPAsync(dir);
-
-        if (!relay)
-        {
-            await _manager.PushAsync(_serial, localFile, remotePath);
-            return;
-        }
-
-        var tmp = NextRelayPath(remotePath);
+        var tmp = relay ? NextRelayPath(remotePath) : null;
+        string? owner = null;
         try
         {
-            await _manager.PushAsync(_serial, localFile, tmp);
-            await ShellOkAsync($"cp '{tmp}' '{remotePath}'", Loc.F("无法写入 {0}", remotePath), elevated: true);
-            // sync 推送的文件属主是 shell，直接落到应用数据目录会让应用自身无法读写，
-            // 所以再按目标目录链上最近的已有属主改回去（顺带处理本次新建的目录）。
-            if (_rootMode != RootMode.None && owner != null)
-            {
-                await ShellBestEffortAsync($"chown '{owner}' '{dir}'", elevated: true);
-                await ShellBestEffortAsync($"chown '{owner}' '{remotePath}'", elevated: true);
-            }
+            await RunPushStagesAsync(relay, progress,
+                prepare: async () =>
+                {
+                    // 属主必须在 mkdir 之前取：目录是新建的话它自己就是 root:root，没有参考价值
+                    if (relay) owner = await NearestOwnerAsync(dir);
+                    await MkdirPAsync(dir);
+                },
+                bytes: async () =>
+                {
+                    if (tmp == null)
+                        await _manager.PushAsync(_serial, localFile, remotePath, progress);
+                    else
+                        await _manager.PushAsync(_serial, localFile, tmp, progress);
+                },
+                finalize: async () =>
+                {
+                    await ShellOkAsync($"cp '{tmp}' '{remotePath}'", Loc.F("无法写入 {0}", remotePath), elevated: true);
+                    // push 落地的文件属主是 shell，直接落到应用数据目录会让应用自身无法读写，
+                    // 所以再按目标目录链上最近的已有属主改回去（顺带处理本次新建的目录）。
+                    if (_rootMode != RootMode.None && owner != null)
+                    {
+                        await ShellBestEffortAsync($"chown '{owner}' '{dir}'", elevated: true);
+                        await ShellBestEffortAsync($"chown '{owner}' '{remotePath}'", elevated: true);
+                    }
+                });
         }
         finally
         {
             // push 落地的中转文件属主是 shell，普通 shell 即可清理，不必提权
-            await ShellBestEffortAsync($"rm -f '{tmp}'");
+            if (tmp != null) await ShellBestEffortAsync($"rm -f '{tmp}'");
         }
+    }
+
+    // ── 阶段编排（design D4/D6）──
+
+    /// <summary>传输流水线里的一步。</summary>
+    internal delegate Task TransferStepAsync();
+
+    /// <summary>
+    /// 按中转与否编排上传阶段：中转路径 = 准备（查属主、建目录）→ 字节（推中转文件）→ 收尾（设备端拷贝、改属主）；
+    /// 直连路径执行准备与字节但不产生阶段上报（全程百分比）。阶段上报 pct=NaN 表示非字节阶段（不确定态），
+    /// msg 为动作说明；字节阶段原样透传每文件百分比。抽成纯编排便于单测（design D6）。
+    /// </summary>
+    internal static async Task RunPushStagesAsync(bool relay, IProgress<(double pct, string msg)>? progress,
+        TransferStepAsync prepare, TransferStepAsync bytes, TransferStepAsync finalize)
+    {
+        if (!relay)
+        {
+            await prepare();
+            await bytes();
+            return;
+        }
+        progress?.Report((double.NaN, Loc.T("正在准备传输：查询属主、创建目录…")));
+        await prepare();
+        await bytes();
+        progress?.Report((double.NaN, Loc.T("正在收尾传输：设备端拷贝与权限设置…")));
+        await finalize();
+    }
+
+    /// <summary>
+    /// 中转下载阶段：准备（设备端复制中转文件、放开读权限）→ 字节（拉中转文件）。
+    /// 中转文件清理必须随异常路径执行，留在调用方 finally（含收尾阶段上报）。
+    /// </summary>
+    internal static async Task RunPullStagesAsync(IProgress<(double pct, string msg)>? progress,
+        TransferStepAsync prepare, TransferStepAsync bytes)
+    {
+        progress?.Report((double.NaN, Loc.T("正在准备传输：设备端复制中转文件…")));
+        await prepare();
+        await bytes();
+    }
+
+    /// <summary>
+    /// 取当前列表中某设备文件的已知大小（字节）；不在当前视图里（如 find 展开出的子目录文件）返回 null。
+    /// 供传输编排计算多文件总字节（design D2）。
+    /// </summary>
+    public long? TryGetRemoteSize(string devicePath)
+    {
+        foreach (var item in List.Items.Cast<ListViewItem>())
+            if (item.Tag is FileEntry e && !e.IsDir && e.Path == devicePath)
+                return e.Size;
+        return null;
     }
 }
 

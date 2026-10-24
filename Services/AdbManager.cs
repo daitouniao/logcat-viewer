@@ -393,15 +393,31 @@ public sealed class AdbManager : IDisposable
 
     // ── 文件传输 ──
 
-    public void Pull(string serial, string remotePath, Stream stream)
+    /// <summary>
+    /// 把同步通道自带的字节回调映射成项目惯用的进度形状（design D1/D5）：
+    /// pct = 已传字节/总字节之比（经 <see cref="TransferProgress.PercentOf"/> 归一，总字节不可得时为 NaN 表示不确定态）；
+    /// 不把库的回调类型外泄到上层。
+    /// </summary>
+    static Action<SyncProgressChangedEventArgs>? ByteCallback(IProgress<(double pct, string msg)>? progress) =>
+        progress == null ? null : args =>
+            progress.Report((TransferProgress.PercentOf((long)args.ReceivedBytesSize, (long)args.TotalBytesToReceive) ?? double.NaN, ""));
+
+    public void Pull(string serial, string remotePath, Stream stream, IProgress<(double pct, string msg)>? progress = null)
     {
         var device = FindDevice(serial);
         using var sync = new SyncService(new AdbSocket(), device);
-        sync.Pull(remotePath, stream);
+        var callback = ByteCallback(progress);
+        if (callback == null)
+        {
+            sync.Pull(remotePath, stream);
+            return;
+        }
+        bool isCancelled = false;
+        sync.Pull(remotePath, stream, callback, false, ref isCancelled);
     }
 
-    public Task PullAsync(string serial, string remotePath, Stream stream) =>
-        Task.Run(() => Pull(serial, remotePath, stream));
+    public Task PullAsync(string serial, string remotePath, Stream stream, IProgress<(double pct, string msg)>? progress = null) =>
+        Task.Run(() => Pull(serial, remotePath, stream, progress));
 
     /// <summary>
     /// 上传时赋予设备端文件的权限模式：普通文件 + 0644。
@@ -413,18 +429,25 @@ public sealed class AdbManager : IDisposable
         | UnixFileStatus.GroupRead
         | UnixFileStatus.OtherRead;
 
-    public void Push(string serial, string localPath, string remotePath)
+    public void Push(string serial, string localPath, string remotePath, IProgress<(double pct, string msg)>? progress = null)
     {
         var device = FindDevice(serial);
         using var sync = new SyncService(new AdbSocket(), device);
         // 共享模式放宽为 ReadWrite：外部进程（编辑器、下载中等）以写方式持有文件时也能上传，
         // 读到的可能只是写入中途的快照，对上传场景可接受。
         using var fs = new FileStream(localPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-        sync.Push(fs, remotePath, PushFileMode, DateTimeOffset.Now);
+        var callback = ByteCallback(progress);
+        if (callback == null)
+        {
+            sync.Push(fs, remotePath, PushFileMode, DateTimeOffset.Now);
+            return;
+        }
+        bool isCancelled = false;
+        sync.Push(fs, remotePath, PushFileMode, DateTimeOffset.Now, callback, false, ref isCancelled);
     }
 
-    public Task PushAsync(string serial, string localPath, string remotePath) =>
-        Task.Run(() => Push(serial, localPath, remotePath));
+    public Task PushAsync(string serial, string localPath, string remotePath, IProgress<(double pct, string msg)>? progress = null) =>
+        Task.Run(() => Push(serial, localPath, remotePath, progress));
 
     // ── 设备监控 ──
 
