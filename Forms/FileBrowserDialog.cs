@@ -21,6 +21,9 @@ public class FileBrowserDialog : Form, ILocalizedUi
 
     bool _transferring;
 
+    string _startPath = "/sdcard";
+    string _localStartPath = "";
+
     /// <summary>
     /// 传输进行中是否阻止关闭并弹提示。默认 true；
     /// 嵌入设备操作窗口后，应用退出场景由宿主把它设为 false，避免关程序时弹「传输中」确认框。
@@ -30,7 +33,18 @@ public class FileBrowserDialog : Form, ILocalizedUi
 
     public FileBrowserDialog(AdbManager manager, string serial, RootMode rootMode = RootMode.None,
                              string startPath = "/sdcard", string localStartPath = "")
+        : this(new DeviceFilePane(manager, serial, rootMode), new LocalFilePane(), serial, rootMode)
     {
+        _startPath = startPath;
+        _localStartPath = localStartPath;
+    }
+
+    /// <summary>测试注入构造：面板可替换，便于在无设备环境下驱动传输编排（design D6）。</summary>
+    internal FileBrowserDialog(DeviceFilePane remote, LocalFilePane local, string serial, RootMode rootMode = RootMode.None)
+    {
+        _remote = remote;
+        _local = local;
+
         AutoScaleDimensions = new SizeF(96F, 96F);
         AutoScaleMode = AutoScaleMode.Dpi;
         Text = Loc.F("文件浏览 — {0}{1}", serial, rootMode != RootMode.None ? " [root]" : "");
@@ -48,8 +62,6 @@ public class FileBrowserDialog : Form, ILocalizedUi
             Orientation = Orientation.Vertical,
             SplitterWidth = 6,
         };
-        _remote = new DeviceFilePane(manager, serial, rootMode);
-        _local = new LocalFilePane();
         split.Panel1.Controls.Add(_remote);
         split.Panel2.Controls.Add(_local);
 
@@ -145,8 +157,8 @@ public class FileBrowserDialog : Form, ILocalizedUi
             }
             catch { /* 布局异常不应阻断打开对话框 */ }
 
-            _remote.NavigateTo(startPath);
-            _local.NavigateTo(localStartPath);
+            _remote.NavigateTo(_startPath);
+            _local.NavigateTo(_localStartPath);
             UpdateTransferLabels();
         };
 
@@ -221,7 +233,7 @@ public class FileBrowserDialog : Form, ILocalizedUi
         await RunTransferAsync(args.Paths, args.SourceDirectory, dstDir, toDevice);
     }
 
-    async Task RunTransferAsync(IReadOnlyList<string> srcPaths, string srcBase, string dstDir, bool toDevice)
+    internal async Task RunTransferAsync(IReadOnlyList<string> srcPaths, string srcBase, string dstDir, bool toDevice)
     {
         if (_transferring)
         {
@@ -239,6 +251,9 @@ public class FileBrowserDialog : Form, ILocalizedUi
         _transferring = true;
         _btnDownload.Enabled = false;
         _btnUpload.Enabled = false;
+        _pbar.Style = ProgressBarStyle.Blocks;
+        _pbar.Maximum = 100;
+        _pbar.Value = 0;
         _pbar.Visible = true;
 
         var errors = new StringBuilder();
@@ -258,25 +273,31 @@ public class FileBrowserDialog : Form, ILocalizedUi
                 if (errors.Length > 0)
                     MessageBox.Show(this, errors.ToString(), Loc.T("传输结果"),
                         MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                await RefreshTargetAsync(toDevice);
                 return;
             }
 
-            _pbar.Maximum = files.Count;
-            _pbar.Value = 0;
+            // 总量在传输开始前算清（design D2）：上传侧取本机文件长度，下载侧取目录列表中的大小；
+            // 任一项不可知则分母不可信，进度条退为不确定态而不是显示错的百分比
+            var totalBytes = TransferProgress.TotalBytes(files.Select(f => FileSizeOf(f, toDevice)));
+            var reporter = new TransferReporter(this, totalBytes);
+            if (totalBytes is null)
+                reporter.Report((double.NaN, ""));
 
             int ok = 0, failed = 0;
-            foreach (var src in files)
+            for (int i = 0; i < files.Count; i++)
             {
+                var src = files[i];
                 var rel = RelativeOf(src, srcBase, toDevice);
-                _pbar.Value = ok + failed;
-                SetStatus($"({ok + failed + 1}/{files.Count}) {Shorten(Path.GetFileName(src), 32)}");
+                reporter.NextFile(FileSizeOf(src, toDevice) ?? 0);
+                SetStatus(Loc.F("({0}/{1}) {2}", i + 1, files.Count, Shorten(Path.GetFileName(src), 32)));
 
                 try
                 {
                     if (toDevice)
-                        await _remote.PushFileAsync(src, RemoteCombine(dstDir, rel));
+                        await _remote.PushFileAsync(src, RemoteCombine(dstDir, rel), reporter);
                     else
-                        await _remote.PullFileAsync(src, Path.Combine(dstDir, rel.Replace('/', '\\')));
+                        await _remote.PullFileAsync(src, Path.Combine(dstDir, rel.Replace('/', '\\')), reporter);
                     ok++;
                 }
                 catch (Exception ex)
@@ -287,28 +308,35 @@ public class FileBrowserDialog : Form, ILocalizedUi
                 }
             }
 
-            // 上传完成后在设备端 sync 落盘，避免数据还在页缓存里就重启/拔线；失败不影响传输结果
+            // 上传完成后在设备端 sync 落盘，避免数据还在页缓存里就重启/拔线；失败不影响传输结果。
+            // 刷盘不产生字节回调，归入非字节阶段上报（任务 2.3），避免进度条在长耗时段静止
             if (toDevice && ok > 0)
             {
-                SetStatus(Loc.F("({0}/{1}) 正在 sync 刷写到存储…", files.Count, files.Count));
+                var syncMsg = Loc.F("({0}/{1}) 正在 sync 刷写到存储…", files.Count, files.Count);
+                SetStatus(syncMsg);
+                reporter.Report((double.NaN, syncMsg));
                 await _remote.SyncAsync();
             }
 
-            SetStatus(Loc.F("传输完成：成功 {0} 个{1}", ok, failed > 0 ? Loc.F("，失败 {0} 个", failed) : ""));
+            SetStatus(TransferResultText(ok, failed, dstDir, toDevice));
             if (errors.Length > 0)
                 MessageBox.Show(this, errors.ToString(), Loc.T("传输结果"),
                     MessageBoxButtons.OK, MessageBoxIcon.Warning);
 
-            if (toDevice) await _remote.RefreshAsync();
-            else await _local.RefreshAsync();
+            await RefreshTargetAsync(toDevice);
         }
         catch (Exception ex)
         {
             SetStatus(Loc.T("传输失败"));
             MessageBox.Show(this, DescribeError(ex), Loc.T("传输失败"), MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            // 异常路径同样刷新（design D7）：已落盘的文件不能在列表里缺席
+            try { await RefreshTargetAsync(toDevice); } catch { /* 刷新失败不掩盖原始异常提示 */ }
         }
         finally
         {
+            // 终态满格再隐藏（任务 3.3）：异常终止也不停留在中间态
+            _pbar.Style = ProgressBarStyle.Blocks;
+            _pbar.Value = _pbar.Maximum;
             _pbar.Visible = false;
             _btnDownload.Enabled = true;
             _btnUpload.Enabled = true;
@@ -316,8 +344,131 @@ public class FileBrowserDialog : Form, ILocalizedUi
         }
     }
 
-    async Task CopyLocalFilesAsync(PathsDroppedArgs args)
+    /// <summary>
+    /// 传输结果文案（任务 3.4/4.4）：成功/失败统计；目标不是目标栏当前目录（如拖放到子目录项）时说明落点，
+    /// 否则用户看到的是「刷新了却看不到」。
+    /// </summary>
+    string TransferResultText(int ok, int failed, string dstDir, bool toDevice)
     {
+        var text = Loc.F("传输完成：成功 {0} 个{1}", ok, failed > 0 ? Loc.F("，失败 {0} 个", failed) : "");
+        var target = toDevice ? (FilePane)_remote : _local;
+        if (!string.Equals(dstDir, target.CurrentPath, StringComparison.OrdinalIgnoreCase))
+            text += Loc.F("，文件已放入 {0}", Shorten(dstDir, 40));
+        return text;
+    }
+
+    /// <summary>刷新目标栏当前目录：上传刷设备栏、下载刷本机栏（design D7）。</summary>
+    Task RefreshTargetAsync(bool toDevice) => toDevice ? _remote.RefreshAsync() : _local.RefreshAsync();
+
+    /// <summary>取参与总字节计算的单文件大小：上传侧取本机文件长度，下载侧取目录列表中已显示的大小（design D2）。</summary>
+    long? FileSizeOf(string path, bool toDevice)
+    {
+        if (toDevice)
+        {
+            try { return new FileInfo(path).Length; }
+            catch { return null; }
+        }
+        return _remote.TryGetRemoteSize(path);
+    }
+
+    /// <summary>
+    /// 传输期进度上报器（design D2/D5/Risks）：把每文件的字节百分比折算成本次传输整体百分比，
+    /// 并对控件刷新做节流——幅度不足 1 个百分点且间隔不足 200ms 时只更新内存值，不刷控件，
+    /// 避免大文件传输时字节回调过密拖卡 UI 线程。pct=NaN 表示非字节阶段（不确定态），msg 为动作说明。
+    /// </summary>
+    sealed class TransferReporter : IProgress<(double pct, string msg)>
+    {
+        const double FlushDeltaPct = 1.0;
+        static readonly long FlushIntervalTicks = TimeSpan.FromMilliseconds(200).Ticks;
+
+        readonly FileBrowserDialog _dlg;
+        readonly long _total;
+        readonly object _lock = new();
+        long _offset;
+        long _fileSize;
+        double? _anchor;                 // 整体百分比单调锚点：防进度回退
+        double _shownPct = -1;           // 控件已显示的整体百分比（-1 = 还没刷过）
+        long _lastFlush = DateTime.UtcNow.Ticks;
+
+        public TransferReporter(FileBrowserDialog dlg, long? total)
+        {
+            _dlg = dlg;
+            _total = total ?? 0;
+        }
+
+        /// <summary>进入下一个文件：把当前文件计入累计字节，重设字节窗口。</summary>
+        public void NextFile(long fileSize)
+        {
+            lock (_lock)
+            {
+                _offset += _fileSize;
+                _fileSize = fileSize;
+            }
+        }
+
+        public void Report((double pct, string msg) value)
+        {
+            if (double.IsNaN(value.pct))
+            {
+                _dlg.BeginUi(() => _dlg.ShowIndeterminate(value.msg));
+                return;
+            }
+
+            double? overall;
+            lock (_lock)
+            {
+                if (_total <= 0) return;   // 分母不可信：不冒充百分比（不确定态由阶段上报驱动）
+                var intra = (long)Math.Round(value.pct / 100.0 * _fileSize);
+                overall = TransferProgress.PercentOf(_offset + intra, _total, _anchor);
+                if (overall is null) return;
+                _anchor = overall;
+                var now = DateTime.UtcNow.Ticks;
+                var flush = _shownPct < 0 ||
+                            overall.Value - _shownPct >= FlushDeltaPct ||
+                            now - _lastFlush >= FlushIntervalTicks;
+                if (!flush) return;        // 幅度与间隔都不足：只留在内存里
+                _shownPct = overall.Value;
+                _lastFlush = now;
+            }
+            var pct = overall.Value;
+            _dlg.BeginUi(() => _dlg.ShowPercent(pct));
+        }
+    }
+
+    internal void ShowPercent(double pct)
+    {
+        if (_pbar.Style != ProgressBarStyle.Blocks)
+        {
+            _pbar.Style = ProgressBarStyle.Blocks;
+            _pbar.Maximum = 100;
+        }
+        _pbar.Value = (int)Math.Clamp(Math.Round(pct), 0, 100);
+    }
+
+    internal void ShowIndeterminate(string message)
+    {
+        if (_pbar.Style != ProgressBarStyle.Marquee)
+        {
+            _pbar.Style = ProgressBarStyle.Marquee;
+            _pbar.MarqueeAnimationSpeed = 30;
+        }
+        if (message.Length > 0) SetStatus(message);
+    }
+
+    void BeginUi(Action action)
+    {
+        if (IsHandleCreated) BeginInvoke(action);
+        else action();
+    }
+
+    internal async Task CopyLocalFilesAsync(PathsDroppedArgs args)
+    {
+        if (_transferring)
+        {
+            SetStatus(Loc.T("正在传输，请稍候…"));
+            return;
+        }
+
         var dstDir = string.IsNullOrEmpty(args.TargetDirectory) ? _local.CurrentPath : args.TargetDirectory;
         if (string.IsNullOrEmpty(dstDir))
         {
@@ -328,39 +479,62 @@ public class FileBrowserDialog : Form, ILocalizedUi
         var files = LocalFilePane.ExpandFiles(args.Paths);
         if (files.Count == 0) return;
 
+        // 本机内复制与设备传输共用同一条进度条，纳入同一占用闸门（design D9）；
+        // 进度条生命周期收口到 try/finally，异常路径同样收起（任务 4.2）
+        _transferring = true;
+        _btnDownload.Enabled = false;
+        _btnUpload.Enabled = false;
+        _pbar.Style = ProgressBarStyle.Blocks;
+        _pbar.Maximum = Math.Max(files.Count, 1);
+        _pbar.Value = 0;
+        _pbar.Visible = true;
+
         var errors = new StringBuilder();
         int ok = 0, failed = 0;
-        _pbar.Visible = true;
-        _pbar.Maximum = files.Count;
-        _pbar.Value = 0;
-
-        foreach (var src in files)
+        try
         {
-            var rel = RelativeOf(src, args.SourceDirectory, false);
-            var dst = Path.Combine(dstDir, rel.Replace('/', '\\'));
-            _pbar.Value = ok + failed;
-            SetStatus($"({ok + failed + 1}/{files.Count}) {Shorten(Path.GetFileName(src), 32)}");
-            try
+            for (int i = 0; i < files.Count; i++)
             {
-                var dir = Path.GetDirectoryName(dst);
-                if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
-                File.Copy(src, dst, true);
-                ok++;
+                var src = files[i];
+                var rel = RelativeOf(src, args.SourceDirectory, false);
+                var dst = Path.Combine(dstDir, rel.Replace('/', '\\'));
+                _pbar.Value = i;
+                SetStatus(Loc.F("({0}/{1}) {2}", i + 1, files.Count, Shorten(Path.GetFileName(src), 32)));
+                try
+                {
+                    var dir = Path.GetDirectoryName(dst);
+                    if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
+                    File.Copy(src, dst, true);
+                    ok++;
+                }
+                catch (Exception ex)
+                {
+                    failed++;
+                    if (errors.Length < 1200) errors.AppendLine($"{Path.GetFileName(src)}: {ex.Message}");
+                }
             }
-            catch (Exception ex)
-            {
-                failed++;
-                if (errors.Length < 1200) errors.AppendLine($"{Path.GetFileName(src)}: {ex.Message}");
-            }
+
+            _pbar.Value = _pbar.Maximum;
+            SetStatus(Loc.F("复制完成：成功 {0} 个{1}", ok, failed > 0 ? Loc.F("，失败 {0} 个", failed) : ""));
+            if (failed > 0)
+                MessageBox.Show(this, Loc.F("{0} 个文件复制失败：\n{1}", failed, errors), Loc.T("复制结果"),
+                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
+
+            await _local.RefreshAsync();
         }
-
-        _pbar.Visible = false;
-        SetStatus(Loc.F("复制完成：成功 {0} 个{1}", ok, failed > 0 ? Loc.F("，失败 {0} 个", failed) : ""));
-        if (failed > 0)
-            MessageBox.Show(this, Loc.F("{0} 个文件复制失败：\n{1}", failed, errors), "复制结果",
-                MessageBoxButtons.OK, MessageBoxIcon.Warning);
-
-        await _local.RefreshAsync();
+        catch (Exception ex)
+        {
+            SetStatus(Loc.F("复制失败：{0}", ex.Message));
+        }
+        finally
+        {
+            _pbar.Style = ProgressBarStyle.Blocks;
+            _pbar.Value = _pbar.Maximum;
+            _pbar.Visible = false;
+            _btnDownload.Enabled = true;
+            _btnUpload.Enabled = true;
+            _transferring = false;
+        }
     }
 
     // ── 路径工具 ──
