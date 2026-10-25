@@ -1,9 +1,16 @@
 using System.IO.MemoryMappedFiles;
+using System.Runtime.CompilerServices;
 using System.Text;
 using logcat.Models;
 using Microsoft.Extensions.Logging;
 
 namespace logcat.Services;
+
+/// <summary>
+/// 正文读取回调：<see cref="ReadOnlySpan{T}"/> 只在回调执行期间有效，
+/// 调用方不得将其带出回调作用域（形态上由 span 参数保证，无法存入字段或长期引用）。
+/// </summary>
+public delegate void MessageBodyAction(ReadOnlySpan<byte> body);
 
 /// <summary>
 /// 日志文档：基于 MemoryMappedFile 的列式索引。
@@ -248,6 +255,105 @@ public sealed class LogDocument : IDisposable
         // 防御性检查：后台 Reload 可能导致 Tags 瞬态不一致
         var tags = Tags;
         return i >= 0 && i < tags.Count ? tags[i] : "";
+    }
+
+    // ── 零拷贝正文读取会话 ──
+
+    /// <summary>
+    /// 打开只读正文读取会话：一次 AcquirePointer/ReleasePointer 配对的生命周期内，
+    /// 以零拷贝方式读取各行正文（字节序列与 <see cref="MessageBytes"/> 逐字节一致）。
+    /// </summary>
+    /// <remarks>
+    /// <para>会话<b>复用文档当前的映射视图</b>（容量随 <c>Append</c> 重映射刷新），
+    /// 不自持独立映射——独立映射的容量冻结于创建时刻，文件增长后读新追加行即越界，
+    /// 而裸指针越界读是进程段错误（exit 139）而非托管异常。</para>
+    /// <para>正文经回调交付：<see cref="ReadOnlySpan{T}"/> 只在回调执行期间有效，
+    /// 调用方不得把它带出回调作用域（会话释放后 span 即悬垂，且不抛异常、只产乱码）。
+    /// 回调形态让「span 不得逸出」成为编译期可检查的结构约束。</para>
+    /// <para>会话应在 using 作用域内使用、尽早释放；不可跨 <see cref="Close"/> 使用
+    /// （Close 释放映射后继续使用会话属误用）。</para>
+    /// </remarks>
+    public MessageSession OpenMessageSession() => new(this);
+
+    /// <summary>
+    /// 只读正文读取会话（见 <see cref="LogDocument.OpenMessageSession"/>）。
+    /// 指针生命周期由 AcquirePointer/ReleasePointer 配对控制：映射由 Acquire 的引用计数托住，
+    /// 与文档视图是否被换掉无关；但每次过滤都应现取新会话，避免跨调用持有指针读到旧映射内容。
+    /// </summary>
+    public sealed unsafe class MessageSession : IDisposable
+    {
+        readonly LogDocument _doc;
+        readonly MemoryMappedViewAccessor? _view;
+        readonly long _capacity;
+        byte* _ptr;
+        bool _released;
+
+        internal MessageSession(LogDocument doc)
+        {
+            _doc = doc;
+            _view = doc._view;
+            _capacity = _view?.Capacity ?? 0;
+            if (_view != null)
+                _view.SafeMemoryMappedViewHandle.AcquirePointer(ref _ptr);
+        }
+
+        /// <summary>建会话时刻的映射容量（字节）。「偏移+长度」超出它的读取被护栏拦截为空片段。</summary>
+        public long Capacity => _capacity;
+
+        /// <summary>
+        /// 回调式读取第 <paramref name="row"/> 行的正文片段，边界与 <see cref="MessageBytes"/> 一致：
+        /// 起于「行首偏移 + 消息偏移」、长为「行长度 - 消息偏移」。
+        /// 行号为负、超出行数、消息偏移大于等于行长（无正文）、或「偏移+长度」超会话容量时，
+        /// 以空片段调用回调（裸指针无越界保护，必须构造 span 前校验）。
+        /// 会话释放后调用同样返回空片段（误用不抛，但不保证内容）。
+        /// </summary>
+        public void ReadMessage(int row, MessageBodyAction body)
+        {
+            ArgumentNullException.ThrowIfNull(body);
+            body(MessageSpan(row));
+        }
+
+        /// <summary>
+        /// 与 <see cref="ReadMessage"/> 同一套边界与护栏（行号范围 / 无正文 / 映射容量），
+        /// 但直接返回正文 span 而不经回调。
+        /// <para>
+        /// <b>internal：仅供同程序集的过滤引擎热循环使用</b>——1582 万行的逐行过滤里，
+        /// 每行一次「方法调用 + 委托间接调用 + 闭包字段回写」合计可达数百 ms，
+        /// 故引擎热循环走直连接口；span 只在调用语句内消费，不得存入任何位置。
+        /// 对外契约仍是回调式 <see cref="ReadMessage"/>：span 逸出即悬垂读
+        /// （不抛异常、只产乱码），回调形态让逸出成为编译期错误。
+        /// </para>
+        /// </summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        internal ReadOnlySpan<byte> MessageSpan(int row)
+        {
+            var doc = _doc;
+            if (_released || _ptr == null || row < 0 || row >= doc._n)
+                return ReadOnlySpan<byte>.Empty;
+            long off = doc._offs[row];
+            int mo = doc._moff[row];
+            int mlen = doc._lens[row] - mo;
+            if (mlen <= 0)
+                return ReadOnlySpan<byte>.Empty;
+            long start = off + mo;
+            // 容量护栏：文档视图可能已被 Append 重映射（本会话指针指向旧映射），
+            // 经旧指针读新行 = 越界 = 段错误，必须先校验「偏移 + 长度 ≤ 建会话时的容量」
+            if (start < 0 || start + mlen > _capacity)
+                return ReadOnlySpan<byte>.Empty;
+            return new ReadOnlySpan<byte>(_ptr + start, mlen);
+        }
+
+        /// <summary>释放指针。幂等：重复调用不抛。</summary>
+        public void Dispose()
+        {
+            if (_released) return;
+            _released = true;
+            if (_ptr != null)
+            {
+                _view!.SafeMemoryMappedViewHandle.ReleasePointer();
+                _ptr = null;
+            }
+        }
     }
 
     // ── 构建 ──

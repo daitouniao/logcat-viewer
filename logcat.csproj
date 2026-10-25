@@ -7,6 +7,10 @@
     <Nullable>enable</Nullable>
     <UseWindowsForms>true</UseWindowsForms>
     <ImplicitUsings>enable</ImplicitUsings>
+    <!-- 零拷贝正文读取（LogDocument.MessageSession）经 SafeMemoryMappedViewHandle.AcquirePointer
+         取裸指针，需要 unsafe 上下文；该开关是工程级的，unsafe 代码集中收敛在 LogDocument.cs
+         的会话类内，不散落到其他文件 -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <!-- 版本号唯一来源：发布时只改这里，显示约定为 V<Version>（见 Services/AppInfo.cs） -->
     <Version>0.1.6</Version>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
