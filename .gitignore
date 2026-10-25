@@ -128,4 +128,8 @@ tests/logcat.Tests/tmp/
 
 ## 私有文档（不入库，仅本地保存）
 docs/private/
+
+## AI 项目记忆（不入库，仅本地保存）
+docs/memory/
+
 [Aa][Gg][Ee][Nn][Tt][Ss].[Mm][Dd]
