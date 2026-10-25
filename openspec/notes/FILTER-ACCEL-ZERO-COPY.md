@@ -124,5 +124,6 @@ UI 默认 message 过滤**忽略大小写**（`_ckMsgCase` 默认不勾）。现
 ## 8. 下一步
 
 - **本 change 无阻塞决策项，可直接 `/opsx:propose`**。建议 change 名：`filter-msgfilter-zero-copy`。
+- **落地顺序（2026-10-25 复核确定）**：本 change（A 零拷贝）→ 缓存 sidecar（`SIDECAR-CACHE-INDEX.md`）→ UTF-8 块扫描 SIMD（`UTF8-BYTE-SIMD-SEARCH.md`）。**双向渐进显示方向已搁置**（`BIDIRECTIONAL-PROGRESSIVE-FILTER.md` §7：其收益全在感知延迟、不减少总工作量，现状典型规模已是几百毫秒），不排在其中。
 - 范围：`Services/FilterEngine.cs`（MsgFilter 路径）+ `Services/LogDocument.cs`（暴露只读 Span 访问器）+ 回归测试。**不动列布局**，与 `STREAMING-FILE-LOAD.md` 的 `ScanPart` 改造无冲突。
 - 本笔记为探索产物；本 change 归档时同批移入 `openspec/notes/archive/`（与 `SIDECAR-CACHE-INDEX.md` 分批归档，各跟各的 change）。
