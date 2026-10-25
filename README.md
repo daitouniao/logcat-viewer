@@ -4,8 +4,8 @@
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
 [![Platform: Windows](https://img.shields.io/badge/platform-Windows-lightgrey)](#requirements)
 [![CI](https://github.com/daitouniao/logcat-viewer/actions/workflows/ci.yml/badge.svg)](https://github.com/daitouniao/logcat-viewer/actions/workflows/ci.yml)
-[![Tests: 673 passing](https://img.shields.io/badge/tests-673%20passing-green)](docs/TESTING.md)
-[![Coverage: 97.47% lines](https://img.shields.io/badge/coverage-97.47%25%20lines-blue)](docs/TESTING.md)
+[![Tests: 706 passing](https://img.shields.io/badge/tests-706%20passing-green)](docs/TESTING.md)
+[![Coverage: 97.46% lines](https://img.shields.io/badge/coverage-97.46%25%20lines-blue)](docs/TESTING.md)
 
 A Windows desktop viewer for Android logs (`logcat`). Built with WinForms on .NET 10, it opens **tens of millions of log lines instantly** using memory-mapped files and a columnar index — and it also drives your device over ADB: live capture, screenshots, screen recording, two-pane file transfer, and APK install/uninstall.
 
@@ -189,7 +189,7 @@ dotnet test tests/logcat.Tests/logcat.Tests.csproj --collect:"XPlat Code Coverag
 python tests/coverage-report.py     # writes tests/coverage-report.html
 ```
 
-Current status: **673 tests, all passing**; **97.47%** line coverage (3,507 / 3,598 lines), **88.46%** branch coverage.
+Current status: **706 tests, all passing**; **97.46%** line coverage (3,414 / 3,503 lines), **88.43%** branch coverage.
 
 The scope is defined in `tests/logcat.Tests/coverlet.runsettings` and excludes two groups:
 
@@ -281,7 +281,7 @@ Services/
   AppInfo.cs            Product name and version (reads Assembly InformationalVersion)
 tests/
   coverage-report.py    Coverage report generation (coverlet cobertura XML → readable HTML)
-  logcat.Tests/         xUnit test project (673 tests: log parsing / columnar index / filter engine / crash extraction / persistence / localization)
+  logcat.Tests/         xUnit test project (706 tests: log parsing / columnar index / filter engine / crash extraction / persistence / localization)
     coverlet.runsettings Coverage scope (Include / Exclude rules)
 docs/
   BUILDING.md            How to build and publish — the two `dotnet publish` commands, artifact verification, pitfall table

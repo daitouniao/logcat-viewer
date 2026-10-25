@@ -50,6 +50,20 @@ public abstract class FilePane : UserControl
     readonly FlowLayoutPanel BtnBar = null!;
 
     CancellationTokenSource? _cts;
+    /// <summary>
+    /// 起始目录解析的尝试链。
+    ///
+    /// <para>
+    /// 与用户加载链<b>共用取消触发点</b>：用户导航（<see cref="LoadIntoAsync"/>）与关窗
+    /// （<see cref="CancelLoading"/>）都会取消进行中的尝试，因此解析结果不会覆盖用户已发生的导航。
+    /// </para>
+    ///
+    /// <para>
+    /// 但它是<b>独立</b>的取消源：尝试开始时不会反过来取消用户正在进行的加载——
+    /// 两者互不干扰，谁先谁都不打断对方。
+    /// </para>
+    /// </summary>
+    CancellationTokenSource? _tryCts;
     bool _favEventSuppressed;
 
     /// <summary>是否为设备端（远端）面板。</summary>
@@ -57,6 +71,34 @@ public abstract class FilePane : UserControl
 
     /// <summary>当前目录。</summary>
     public string CurrentPath { get; private set; } = "";
+
+    /// <summary>
+    /// 用户最后一次<b>主动导航成功</b>的目录；<c>null</c> 表示从未手动导航成功过。
+    ///
+    /// <para>
+    /// 与「当前目录」分开跟踪：手动导航是「先提交路径、后加载」，用户输入一个打不开的路径时
+    /// 当前目录会停在那个失败路径上；本值只在列举成功后才更新，因此不会把失败路径记成
+    /// 「上次浏览的目录」。
+    /// </para>
+    ///
+    /// <para>
+    /// 空串表示用户导航到了本机驱动器列表（与 <c>null</c>「从未导航过」区分开）。
+    /// 起始目录解析的结果<b>不</b>写进这里——它走 <see cref="TryOpenAsync"/> 的独立路径。
+    /// </para>
+    /// </summary>
+    internal string? LastUserNavPath { get; private set; }
+
+    /// <summary>待确认的主动导航目录：手动导航发起时记下，列举成功后据此更新 <see cref="LastUserNavPath"/>。</summary>
+    string? _pendingUserNavPath;
+
+    /// <summary>用户主动导航的计数：每次 <see cref="NavigateTo"/> 递增。</summary>
+    int _userNavEpoch;
+
+    /// <summary>
+    /// 用户主动导航的计数（每次 <see cref="NavigateTo"/> 递增）。
+    /// 起始目录解析用它判断「期间用户已导航」——用户导航优先，解析结果作废。
+    /// </summary>
+    internal int UserNavEpoch => _userNavEpoch;
 
     public FavoritesStore Favorites => FavoritesStore.Default;
 
@@ -345,6 +387,9 @@ public abstract class FilePane : UserControl
         EdPath.Text = DisplayPath(p);
         SyncFavSelection();
         PathChanged?.Invoke(this, EventArgs.Empty);
+        // 主动导航：记下目标，列举成功后才算「用户最后导航目录」（失败路径不记）
+        _pendingUserNavPath = p;
+        _userNavEpoch++;
         _ = RefreshAsync();
     }
 
@@ -363,6 +408,9 @@ public abstract class FilePane : UserControl
         _cts?.Cancel();
         _cts = new CancellationTokenSource();
         var ct = _cts.Token;
+        // 用户导航/刷新同时取消进行中的起始目录解析尝试：
+        // 用户已经导航，解析结果不该再覆盖用户当前状态。
+        _tryCts?.Cancel();
 
         List.Items.Clear();
         SetStatus(Loc.T("加载中…"));
@@ -374,17 +422,102 @@ public abstract class FilePane : UserControl
             if (ct.IsCancellationRequested) return;
             Populate(entries);
             SetStatus(Loc.F("{0} 项", entries.Count));
+            CommitUserNavPath(path);
         }
         catch (OperationCanceledException) { }
         catch (Exception ex)
         {
             if (ct.IsCancellationRequested) return;
+            DropPendingUserNavPath(path);
             SetStatus(Loc.T("加载失败"));
             OnLoadFailed(path, ex);
         }
         finally
         {
             if (!ct.IsCancellationRequested) Pbar.Visible = false;
+        }
+    }
+
+    /// <summary>列举成功后提交「用户最后导航目录」（只认主动导航发起的这次列举）。</summary>
+    void CommitUserNavPath(string loadedPath)
+    {
+        if (_pendingUserNavPath == null) return;
+        if (!string.Equals(_pendingUserNavPath, loadedPath, StringComparison.Ordinal)) return;
+        _pendingUserNavPath = null;
+        LastUserNavPath = loadedPath;
+    }
+
+    /// <summary>列举失败时作废这次主动导航：打不开的路径不记成「用户最后导航目录」。</summary>
+    void DropPendingUserNavPath(string failedPath)
+    {
+        if (_pendingUserNavPath == null) return;
+        if (!string.Equals(_pendingUserNavPath, failedPath, StringComparison.Ordinal)) return;
+        _pendingUserNavPath = null;
+    }
+
+    /// <summary>
+    /// 尝试打开指定目录：<b>先列举、成功才提交</b>，失败时界面保持原状。
+    ///
+    /// <para>
+    /// 与 <see cref="NavigateTo"/> 并存（非替换），用于起始目录的逐级回落：
+    /// 逐个候选调用本方法，首个成功者被采用；失败候选在界面上不留任何痕迹
+    /// （不弹框、不写失败文案、不改动路径栏与列表）。
+    /// </para>
+    ///
+    /// <para>
+    /// 取消链与用户加载链共用触发点：用户导航（<see cref="NavigateTo"/>）与关窗
+    /// （<see cref="CancelLoading"/>）都会取消进行中的尝试，因此解析结果不会覆盖
+    /// 用户已经发生的导航。但本方法<b>不</b>取消用户正在进行的加载——两者互不干扰。
+    /// </para>
+    /// </summary>
+    /// <param name="path">要打开的目录。</param>
+    /// <param name="silent">
+    /// true = 静默失败（不进入失败钩子、不弹消息框、不触发设备端的 run-as 引导）；
+    /// false = 按既有方式报错（与手动导航失败同一路径与文案）。
+    /// </param>
+    /// <param name="navEpochBaseline">
+    /// 解析开始时的用户导航纪元。解析期间用户导航过 → 本次结果作废（用户导航优先）。
+    /// 不传时以调用时刻的纪元为基线，即不做这项判定。
+    /// </param>
+    public async Task<TryOpenOutcome> TryOpenAsync(string path, bool silent, int? navEpochBaseline = null)
+    {
+        var baseline = navEpochBaseline ?? _userNavEpoch;
+        // 解析期间用户已导航 → 本次结果作废，且不碰界面（连占位文案都不写）
+        if (_userNavEpoch != baseline) return TryOpenOutcome.Cancelled;
+
+        _tryCts?.Cancel();
+        _tryCts = new CancellationTokenSource();
+        var ct = _tryCts.Token;
+
+        var p = NormalizePath(path ?? "");
+        // 解析期间的占位文案：失败候选不改它（保持「加载中…」不变），
+        // 成功落地后由结果取代（{N} 项）。失败文案只在报错模式下出现。
+        SetStatus(Loc.T("加载中…"));
+        try
+        {
+            var entries = await ListAsync(p, ct);
+            // 提交前再校验一次：列举期间可能已被用户导航或关窗取消
+            if (ct.IsCancellationRequested) return TryOpenOutcome.Cancelled;
+            if (_userNavEpoch != baseline) return TryOpenOutcome.Cancelled;
+            // 提交面与 NavigateTo 一致：当前目录、路径栏、收藏高亮、列表、状态、路径变更事件
+            CurrentPath = p;
+            EdPath.Text = DisplayPath(p);
+            SyncFavSelection();
+            Populate(entries);
+            SetStatus(Loc.F("{0} 项", entries.Count));
+            PathChanged?.Invoke(this, EventArgs.Empty);
+            return TryOpenOutcome.Succeeded;
+        }
+        catch (OperationCanceledException) { return TryOpenOutcome.Cancelled; }
+        catch (Exception ex)
+        {
+            if (ct.IsCancellationRequested) return TryOpenOutcome.Cancelled;
+            if (!silent)
+            {
+                SetStatus(Loc.T("加载失败"));
+                OnLoadFailed(p, ex);
+            }
+            return TryOpenOutcome.Failed;
         }
     }
 
@@ -407,7 +540,12 @@ public abstract class FilePane : UserControl
         List.EndUpdate();
     }
 
-    public void CancelLoading() => _cts?.Cancel();
+    /// <summary>取消进行中的加载与起始目录解析尝试（关窗时调用）。</summary>
+    public void CancelLoading()
+    {
+        _cts?.Cancel();
+        _tryCts?.Cancel();
+    }
 
     // ── 选中项 ──
 

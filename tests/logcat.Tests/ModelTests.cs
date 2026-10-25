@@ -275,7 +275,6 @@ public class ModelTests
         Assert.Equal("↵", s.NewlineVis);
         Assert.Equal(10, s.FontPt);
 
-        Assert.Equal("/sdcard", s.LastRemotePath);
         Assert.Equal("", s.LastLocalPath);
         Assert.Equal("/sdcard/Download", s.LastRunAsRelayDir);
 

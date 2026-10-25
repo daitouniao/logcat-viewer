@@ -193,9 +193,7 @@ public class DeviceOpsDialog : Form, ILocalizedUi
         {
             PageKind.Screenshot => new ScreenShotDialog(_manager, serial!),
             PageKind.Record => new ScreenRecordDialog(_manager, serial!),
-            PageKind.Files => new FileBrowserDialog(_manager, serial!, _rootProvider(),
-                logcat.Services.AppSettings.Default.LastRemotePath ?? "/sdcard",
-                logcat.Services.AppSettings.Default.LastLocalPath ?? Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory)),
+            PageKind.Files => new FileBrowserDialog(_manager, serial!, _rootProvider()),
             PageKind.ApkInstall => new ApkInstallDialog(_manager, serial!, _rootProvider()),
             PageKind.ApkUninstall => new ApkUninstallDialog(_manager, serial!, _rootProvider()),
             _ => new CommandDialog(_manager, _serialProvider, _rootProvider),
