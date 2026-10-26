@@ -1623,6 +1623,10 @@ public partial class frmMain : Form, ILocalizedUi
         int total = _doc?.RowCount ?? 0;
         _lblStat.Text = Loc.F("总 {0:N0} 条 | 命中 {1:N0} | 标记 {2:N0} | 索引 {3:F0} ms | 过滤 {4:F0} ms",
             total, _listView.Rows.Length, _marked.Count, _indexMs, _filterMs);
+        // WinForms StatusStrip 偶发塌缩：本标签被某次布局算成零宽后，仅改自身文本
+        // 不会触发整条重排，项保持不可见（实测改相邻标签文本如 _lblPos 会连带恢复）。
+        // 写完文本强制重排一次，保证统计必定按新文本重新测量上屏。
+        _statusStrip.PerformLayout();
     }
 
     /// <summary>
