@@ -4,6 +4,7 @@ using System.IO;
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using logcat.Models;
 
 namespace logcat.Services;
 
@@ -59,9 +60,53 @@ public sealed class AppSettings
     public int WindowState { get; set; }
 
     // ── 上次路径 ──
-    public string LastRemotePath { get; set; } = "/sdcard";
     public string LastLocalPath { get; set; } = "";
     public string LastRunAsRelayDir { get; set; } = "/sdcard/Download";
+
+    /// <summary>
+    /// 按设备分别记忆的文件浏览目录，<b>最近在前</b>。
+    ///
+    /// <para>
+    /// 用「列表 + 最近在前」而非「字典 + 键为序列号」：设备序列号并不稳定
+    /// （模拟器端口号随启动顺序变化、网络设备地址随 IP 变化），记录会持续增殖，
+    /// 字典没有天然的「最久未用」概念；列表按「最近使用置首、超限从尾部淘汰」维护，
+    /// 与既有 <see cref="FavoritesStore"/> 的插前范式同构。
+    /// </para>
+    /// </summary>
+    List<DeviceLastDir> _deviceLastDirs = new();
+
+    public List<DeviceLastDir> DeviceLastDirs
+    {
+        get => _deviceLastDirs;
+        // 显式 null 也要归一为空集合：反序列化时 STJ 会用 JSON 的 null 覆盖字段初始值
+        set => _deviceLastDirs = value ?? new List<DeviceLastDir>();
+    }
+
+    /// <summary>按设备记忆目录的条数上限；超出后从尾部淘汰最久未用者。</summary>
+    public const int MaxDeviceLastDirs = 16;
+
+    /// <summary>取某设备记忆的目录；没有记录时返回空串。</summary>
+    public string GetDeviceLastDir(string serial)
+    {
+        if (string.IsNullOrEmpty(serial)) return "";
+        foreach (var e in DeviceLastDirs)
+            if (string.Equals(e.Serial, serial, StringComparison.Ordinal))
+                return e.Path;
+        return "";
+    }
+
+    /// <summary>
+    /// 记录某设备的目录：同设备的旧条目移除后置首（只留一条），
+    /// 条数超上限时从尾部淘汰最久未用者。
+    /// </summary>
+    public void RecordDeviceLastDir(string serial, string path)
+    {
+        if (string.IsNullOrEmpty(serial) || string.IsNullOrEmpty(path)) return;
+        DeviceLastDirs.RemoveAll(e => string.Equals(e.Serial, serial, StringComparison.Ordinal));
+        DeviceLastDirs.Insert(0, new DeviceLastDir { Serial = serial, Path = path });
+        while (DeviceLastDirs.Count > MaxDeviceLastDirs)
+            DeviceLastDirs.RemoveAt(DeviceLastDirs.Count - 1);
+    }
 
     // ── 文件浏览列宽（设备端 / 本机面板各一组，元素为各列宽度，按列序对应）──
     public List<int> DevicePaneColumnWidths { get; set; } = new();

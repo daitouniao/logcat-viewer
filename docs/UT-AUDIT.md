@@ -225,7 +225,7 @@ var a = AppSettings.Default;
 注释说「无副作用」——**它确实不写，但它读**。`AppSettings.Default` 指向真实的
 `settings.json`（程序目录），测试结果受你本机的窗口几何、路径设置影响。
 
-断言也偏弱：`Assert.Same(a, b)` 对 `??=` 单例恒真，`Assert.NotNull(a.LastRemotePath)` 几乎不可能失败。
+断言也偏弱：`Assert.Same(a, b)` 对 `??=` 单例恒真，`Assert.NotNull(a.LastLocalPath)` 几乎不可能失败。
 同批的 `StorePersistenceTests` 全部走注入的临时路径，**只有它例外**。
 
 > **✅ 处理（10-05）**：查证后发现「反序列化 / 文件损坏回退」这两条语义

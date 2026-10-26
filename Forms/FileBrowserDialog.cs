@@ -19,10 +19,10 @@ public class FileBrowserDialog : Form, ILocalizedUi
     readonly Button _btnDownload;
     readonly Button _btnUpload;
 
-    bool _transferring;
+    /// <summary>本窗体对应的设备序列号：起始目录按设备分别记忆，关闭时写回该设备的记录。</summary>
+    readonly string _serial;
 
-    string _startPath = "/sdcard";
-    string _localStartPath = "";
+    bool _transferring;
 
     /// <summary>
     /// 传输进行中是否阻止关闭并弹提示。默认 true；
@@ -31,12 +31,9 @@ public class FileBrowserDialog : Form, ILocalizedUi
     [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
     internal bool BlockCloseWhileTransferring { get; set; } = true;
 
-    public FileBrowserDialog(AdbManager manager, string serial, RootMode rootMode = RootMode.None,
-                             string startPath = "/sdcard", string localStartPath = "")
+    public FileBrowserDialog(AdbManager manager, string serial, RootMode rootMode = RootMode.None)
         : this(new DeviceFilePane(manager, serial, rootMode), new LocalFilePane(), serial, rootMode)
     {
-        _startPath = startPath;
-        _localStartPath = localStartPath;
     }
 
     /// <summary>测试注入构造：面板可替换，便于在无设备环境下驱动传输编排（design D6）。</summary>
@@ -44,6 +41,7 @@ public class FileBrowserDialog : Form, ILocalizedUi
     {
         _remote = remote;
         _local = local;
+        _serial = serial;
 
         AutoScaleDimensions = new SizeF(96F, 96F);
         AutoScaleMode = AutoScaleMode.Dpi;
@@ -157,8 +155,9 @@ public class FileBrowserDialog : Form, ILocalizedUi
             }
             catch { /* 布局异常不应阻断打开对话框 */ }
 
-            _remote.NavigateTo(_startPath);
-            _local.NavigateTo(_localStartPath);
+            // 起始目录按设备分别记忆：设备侧「本设备记忆目录 → 设备可写存储根目录」，
+            // 本机侧「本机记忆目录 → 本机驱动器列表」。逐级尝试，首个成功者被采用。
+            _ = ResolveStartDirsAsync(logcat.Services.AppSettings.Default);
             UpdateTransferLabels();
         };
 
@@ -183,6 +182,63 @@ public class FileBrowserDialog : Form, ILocalizedUi
                           $"remote[{_remote.DescribeLayout()}] local[{_local.DescribeLayout()}]");
         }
         catch (Exception ex) { DpiDiag.Write($"FileBrowserDialog.LogLayout 异常: {ex.Message}"); }
+    }
+
+    // ── 起始目录解析 ──
+
+    /// <summary>
+    /// 解析两侧的起始目录并打开（按设备分别记忆）。
+    ///
+    /// <para>
+    /// 设备侧候选链：本设备记忆目录 → 设备可写存储根目录；
+    /// 本机侧候选链：本机记忆目录 → 本机驱动器列表。
+    /// 逐级尝试，首个成功者被采用；失败候选在界面上不留痕迹。
+    /// </para>
+    /// </summary>
+    internal async Task ResolveStartDirsAsync(AppSettings s)
+    {
+        var deviceCandidates = StartDirResolver.BuildDeviceCandidates(s.GetDeviceLastDir(_serial));
+        var localCandidates = StartDirResolver.BuildLocalCandidates(s.LastLocalPath);
+
+        try
+        {
+            await Task.WhenAll(
+                ResolveSideAsync(_remote, deviceCandidates),
+                ResolveSideAsync(_local, localCandidates));
+        }
+        catch (Exception ex)
+        {
+            // 解析失败不该阻断窗体打开
+            logcat.Services.StartupLog.Write($"[FileBrowserDialog] 起始目录解析异常: {ex.Message}");
+        }
+    }
+
+    /// <summary>逐级尝试某个面板的候选链。</summary>
+    async Task ResolveSideAsync(FilePane pane, IReadOnlyList<string> candidates)
+    {
+        if (candidates.Count == 0) return;
+
+        // 解析基线：解析期间用户导航过 → 解析结果作废（用户导航优先，design D4）
+        int baseline = pane.UserNavEpoch;
+
+        // 非末位候选静默失败（界面无痕）；末位候选走报错模式——
+        // 走到末位即意味着其余候选都已失败，此时报错才有信息量。
+        // 每个候选只列举一次，不为末位候选额外再列一遍。
+        int tried = 0;
+        try
+        {
+            await StartDirResolver.PickFirstAvailableAsync(candidates, async path =>
+            {
+                bool isLast = ++tried == candidates.Count;
+                var outcome = await pane.TryOpenAsync(path, silent: !isLast, navEpochBaseline: baseline);
+                if (outcome == TryOpenOutcome.Cancelled) throw new OperationCanceledException();
+                return outcome == TryOpenOutcome.Succeeded;
+            });
+        }
+        catch (OperationCanceledException)
+        {
+            // 用户已导航或窗体已关闭：丢弃解析结果，保留用户当前状态
+        }
     }
 
     void UpdateTransferLabels()
@@ -589,12 +645,29 @@ public class FileBrowserDialog : Form, ILocalizedUi
     {
         try
         {
-            var s = logcat.Services.AppSettings.Default;
-            if (!string.IsNullOrEmpty(_remote.CurrentPath)) s.LastRemotePath = _remote.CurrentPath;
-            if (!string.IsNullOrEmpty(_local.CurrentPath)) s.LastLocalPath = _local.CurrentPath;
-            s.Save();
+            SaveLastPaths(logcat.Services.AppSettings.Default);
         }
         catch { /* 设置不可用时忽略 */ }
+    }
+
+    /// <summary>
+    /// 写回两侧的「用户最后导航目录」（internal 便于单测注入临时设置实例）。
+    /// </summary>
+    /// <remarks>
+    /// 设备侧写按设备记忆的记录集合；本机侧写全局上次目录。
+    /// 两者都取「用户最后导航目录」而非当前路径——打不开的路径不该被记成上次位置。
+    /// 起始目录解析的降级结果不写回（解析走的是独立路径，不更新该值）。
+    /// </remarks>
+    internal void SaveLastPaths(AppSettings s)
+    {
+        // 设备侧：null = 本次会话没手动导航成功过 → 不写任何值，
+        // 该设备的旧记录保持不变（不用空串或根目录顶掉）
+        var devDir = _remote.LastUserNavPath;
+        if (devDir != null) s.RecordDeviceLastDir(_serial, devDir);
+        // 本机侧：空串（导航到了本机驱动器列表）按既有习惯不写，保留旧值
+        var localDir = _local.LastUserNavPath;
+        if (!string.IsNullOrEmpty(localDir)) s.LastLocalPath = localDir;
+        s.Save();
     }
     /// <summary>
     /// 切语言后重算两个传输按钮的文案（内含路径，是运行时算出来的）。

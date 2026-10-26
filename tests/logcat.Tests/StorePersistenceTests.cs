@@ -195,7 +195,6 @@ public class StorePersistenceTests
 
         Assert.True(s.Join);
         Assert.Equal(10, s.FontPt);
-        Assert.Equal("/sdcard", s.LastRemotePath);
         Assert.Equal(file.Path, s.StorePath);
         Assert.False(file.Exists);                   // 只读不写
     }
