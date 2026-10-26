@@ -13,6 +13,10 @@ public partial class frmMain : Form, ILocalizedUi
     FilterSpec _spec = new();
     HashSet<int> _marked = new();
     double _indexMs, _filterMs;
+    // 进度条所有权：谁点亮 _pbar 谁登记自己的 gen；finally 仅 owner 才隐藏。
+    // 否则非 quiet 过滤被 quiet 过滤（采集增量同步回退，gen 已被抢占）顶掉时，
+    // 死者按 gen 判定跳过隐藏、quiet 者又不碰 _pbar，进度条永久卡在可见。
+    int _pbarGen;
     // 最近一次全量过滤完成时的文档行数；实时采集增量过滤（FilterTail）从此行号起判定
     int _filterDocRows;
     bool _join = true;
@@ -986,6 +990,7 @@ public partial class frmMain : Form, ILocalizedUi
         var cts = new CancellationTokenSource();
         _ctsWorker = cts;
         int gen = ++_workerGen;
+        _pbarGen = gen;
         _pbar.Visible = true; _pbar.Value = 0;
         ShowStatus("建立索引…");
         var sw = System.Diagnostics.Stopwatch.StartNew();
@@ -1043,11 +1048,8 @@ public partial class frmMain : Form, ILocalizedUi
         }
         finally
         {
-            if (_workerGen == gen)
-            {
-                _pbar.Visible = false;
-                ShowStatusRaw("");
-            }
+            if (_workerGen == gen) ShowStatusRaw("");
+            if (_pbarGen == gen) _pbar.Visible = false;
         }
     }
 
@@ -1137,6 +1139,7 @@ public partial class frmMain : Form, ILocalizedUi
         var cts = new CancellationTokenSource();
         _ctsWorker = cts;
         int gen = ++_workerGen;
+        _pbarGen = gen;
         _pbar.Visible = true;
         ShowStatus("检查更新…");
 
@@ -1164,7 +1167,11 @@ public partial class frmMain : Form, ILocalizedUi
         }
         catch (OperationCanceledException) { }
         catch (Exception ex) { ShowError(Loc.F("重载失败：{0}", ex.Message)); }
-        finally { if (_workerGen == gen) { _pbar.Visible = false; ShowStatusRaw(""); } }
+        finally
+        {
+            if (_workerGen == gen) ShowStatusRaw("");
+            if (_pbarGen == gen) _pbar.Visible = false;
+        }
     }
 
     // ── 过滤 ──
@@ -1184,7 +1191,7 @@ public partial class frmMain : Form, ILocalizedUi
         var cts = new CancellationTokenSource();
         _ctsWorker = cts;
         int gen = ++_workerGen;
-        if (!quiet) { _pbar.Visible = true; _pbar.Value = 0; ShowStatus("过滤…"); }
+        if (!quiet) { _pbarGen = gen; _pbar.Visible = true; _pbar.Value = 0; ShowStatus("过滤…"); }
         var sw = System.Diagnostics.Stopwatch.StartNew();
 
         // 普通（非重载/非静默）过滤：捕获选中行锚点，过滤后固定回原屏幕位置
@@ -1236,7 +1243,8 @@ public partial class frmMain : Form, ILocalizedUi
         catch (Exception ex) { ShowError(Loc.F("过滤失败：{0}", ex.Message)); }
         finally
         {
-            if (_workerGen == gen && !quiet) { _pbar.Visible = false; ShowStatusRaw(""); }
+            if (_workerGen == gen && !quiet) ShowStatusRaw("");
+            if (!quiet && _pbarGen == gen) _pbar.Visible = false;
         }
     }
 
