@@ -5,7 +5,7 @@
 - 关联提交：无
 - 验收结论：不适用
 - 探针：`.tmp-test/BenchLog/`（`SidecarFacts.cs` / `SidecarLoad.cs`），已 git-ignore，不入库
-- **本篇只覆盖缓存加速（change B）**。过滤加速见 `FILTER-ACCEL-ZERO-COPY.md`；两者共用 `FILTER-ACCEL-ZERO-COPY.md` 的「实测基线」节。
+- **本篇只覆盖缓存加速（change B）**。过滤加速见《过滤加速·零拷贝》探索笔记（已随 `filter-msgfilter-zero-copy` 归档，现于 `openspec/notes/archive/2026-10-28-FILTER-ACCEL-ZERO-COPY.md`）；两者共用该笔记的「实测基线」节。
 
 ## 1. 目标与范围
 
@@ -14,7 +14,7 @@
 **本 change 做什么**：把建好的列索引落盘成 sidecar 文件，重开同一文件时直接加载索引、跳过解析。
 
 **本 change 不做什么**：
-- 不做过滤加速（属 `FILTER-ACCEL-ZERO-COPY.md`）
+- 不做过滤加速（属《过滤加速·零拷贝》探索笔记，已随 `filter-msgfilter-zero-copy` 归档）
 - 不做流式加载 / 首屏快（属 `STREAMING-FILE-LOAD.md`，D1–D4 已拍板、D5–D11 仍待定）
 - **不改列布局**（见 §3 结论 1：sidecar 沿用现状 SoA 9 段）
 
@@ -131,11 +131,11 @@
 | D1 目标 | 目标①「过滤加速」+ 目标②「缓存加速」两项都做；本 change 只做目标② | 2026-10-25 |
 | D3 落点 | exe 同级 | 2026-10-25 |
 | 落盘格式 | 沿用现状 SoA 9 段，不改 AoS（结论 1，实测） | 2026-10-25 |
-| 实施顺序 | 后过滤加速 change（`FILTER-ACCEL-ZERO-COPY.md`）落地 | 2026-10-25 |
+| 实施顺序 | 后过滤加速 change（《过滤加速·零拷贝》探索笔记，已归档）落地 | 2026-10-25 |
 | 拆分 | 两个 change 独立走 propose → apply → archive | 2026-10-25 |
 
 ## 9. 下一步
 
 - **D5–D7 拍板后**即可走 `/opsx:propose`。建议 change 名：`doc-index-sidecar-cache`。
 - 范围：sidecar 落盘/加载（SoA 9 段，exe 同级）+ 键与失效（D5）+ 体积管理（D6）+ 增长文件边界（D7）+ 与 `LogDocument.Build` 的接入 + 专项对比测试。
-- 本笔记为探索产物；本 change 归档时同批移入 `openspec/notes/archive/`（与 `FILTER-ACCEL-ZERO-COPY.md` 分批归档，各跟各的 change）。
+- 本笔记为探索产物；本 change 归档时同批移入 `openspec/notes/archive/`（与《过滤加速·零拷贝》笔记分别归档，各跟各的 change；后者已于 2026-10-28 归档）。
