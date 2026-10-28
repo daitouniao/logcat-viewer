@@ -860,15 +860,13 @@ public class FilterEngineTests
     }
 
     /// <summary>
-    /// MsgFilter 的复用缓冲区初始 1 KB，消息更长时会`new` 一个更大的数组
-    /// （FilterEngine 的 scratch 扩容分支，此前无覆盖）。
-    /// 两个要验的点：
-    /// ① 超过 1 KB 的消息仍能正确折叠与匹配（扩容后长度对得上）；
-    /// ② **扩容后的缓冲区会被后续短消息复用**，所以切片必须按当前 msgBuf.Length 走——
-    ///    若误用 scratch.Length，短消息会带上上一行的残留字节而假命中。
+    /// 超长消息与后续短消息互不污染（零拷贝改造后无复用缓冲，按行 span 匹配，
+    /// 本条继续钉住长短行交错时的结论）：
+    /// ① 超过 1 KB 的消息仍能正确匹配（长度对得上）；
+    /// ② 短消息行不得因上一行的残留/长度假设而假命中或漏命中。
     /// </summary>
     [Fact]
-    public void message超长时触发缓冲区扩容且不影响后续短消息()
+    public void message超长消息后的短消息仍能正确匹配()
     {
         // 第 0 行正文约 2.5 KB（远超 1 KB），tag 里埋了 NEEDLE
         var big = new string('x', 2500) + " NEEDLE";
@@ -1053,10 +1051,273 @@ public class FilterEngineTests
             Apply(doc, new FilterSpec { Msg = new[] { "CAFÉ" }, MsgExclude = true }));
     }
 
+    // ── 零拷贝改造：段 2 命中集合与改造前逐行一致 ──
+    // message 过滤的段 2 从「每行 new byte[] + ReadArray 拷贝」改为文档层零拷贝读取
+    // （LogDocument.MessageSession + 回调）。以下用例把改造前的逐行实现照搬为对照基线，
+    // 钉住「命中集合逐行不变」这一硬门槛；中文 needle 必须选样本中真实出现的串
+    // （出现 0 次的串两边都 0，空转无鉴别力）。
+
+    /// <summary>
+    /// 混合样本（行号 → 内容）：
+    /// 0  PLAIN ASCII UPPER        1  plain ascii lower      2  MiXeD CaSe TeXt
+    /// 3  加载中 请稍候（中文）     4  CAFÉ crème brûlée（重音）5  German Straße STRASSE
+    /// 6  ẞ uppercase ẞ            7  Turkish dotless ı and I  8  crash + 续行 at Foo.bar
+    /// 9  无正文行（冒号结尾）       10 中文Mixed大小写
+    /// </summary>
+    const string ZeroCopyData =
+        "09-23 18:00:00.000  1  1 I CaseTag: PLAIN ASCII UPPER\n" +
+        "09-23 18:00:01.000  1  2 I CaseTag: plain ascii lower\n" +
+        "09-23 18:00:02.000  1  3 I CaseTag: MiXeD CaSe TeXt\n" +
+        "09-23 18:00:03.000  1  4 I CaseTag: 加载中 请稍候\n" +
+        "09-23 18:00:04.000  1  5 I CaseTag: CAFÉ crème brûlée\n" +
+        "09-23 18:00:05.000  1  6 I CaseTag: German Straße STRASSE\n" +
+        "09-23 18:00:06.000  1  7 I CaseTag: ẞ uppercase ẞ\n" +
+        "09-23 18:00:07.000  1  8 I CaseTag: Turkish dotless ı and I\n" +
+        "09-23 18:00:08.000  1  9 I CrashTag: crash\n" +
+        "    at Foo.bar(Foo.java:1)\n" +
+        "09-23 18:00:09.000  1 10 I EmptyTag:\n" +
+        "09-23 18:00:10.000  1 11 I CaseTag: 中文Mixed大小写\n";
+
+    /// <summary>
+    /// 改造前的段 2 逐行实现（照搬）：每行 <see cref="LogDocument.MessageBytes"/> 拷贝，
+    /// 忽略大小写时就地 ASCII 折叠 / 非 ASCII 行 Unicode 回退，再按字节 IndexOf。
+    /// 只覆盖 msg 维度（不过级别/pid/tag 等），对照规格只设 Msg 相关字段。
+    /// </summary>
+    static int[] MsgFilterLegacy(LogDocument doc, Models.FilterSpec spec)
+    {
+        bool opAnd = spec.MsgOp == "and";
+        var keys = spec.Msg.Select(t =>
+        {
+            var bytes = Encoding.UTF8.GetBytes(t);
+            return spec.MsgCase ? bytes : Encoding.UTF8.GetBytes(t.ToLowerInvariant());
+        }).ToArray();
+
+        byte[] scratch = new byte[1024];
+        var res = new List<int>();
+        for (int r = 0; r < doc.RowCount; r++)
+        {
+            byte[] msgBuf = doc.MessageBytes(r);
+            bool ok;
+            if (spec.MsgCase)
+            {
+                ok = MatchAnyLegacy(msgBuf, keys, opAnd);
+            }
+            else
+            {
+                if (msgBuf.Length > scratch.Length)
+                    scratch = new byte[Math.Max(msgBuf.Length, scratch.Length * 2)];
+                Array.Copy(msgBuf, scratch, msgBuf.Length);
+                if (FilterEngine.FoldLowerAsciiInPlace(scratch.AsSpan(0, msgBuf.Length)))
+                    ok = MatchAnyLegacy(scratch.AsSpan(0, msgBuf.Length), keys, opAnd);
+                else
+                    ok = MatchAnyLegacy(
+                        Encoding.UTF8.GetBytes(Encoding.UTF8.GetString(msgBuf).ToLowerInvariant()),
+                        keys, opAnd);
+            }
+            if (ok != spec.MsgExclude) res.Add(r);
+        }
+        return res.ToArray();
+    }
+
+    /// <summary>改造前的子串匹配（and 全中 / or 任一；空 needle：or 立即成立、and 跳过）。</summary>
+    static bool MatchAnyLegacy(ReadOnlySpan<byte> hay, byte[][] keys, bool opAnd)
+    {
+        for (int i = 0; i < keys.Length; i++)
+        {
+            var needle = keys[i].AsSpan();
+            if (needle.Length == 0)
+            {
+                if (!opAnd) return true;
+                continue;
+            }
+            bool hit = hay.IndexOf(needle) >= 0;
+            if (opAnd && !hit) return false;
+            if (!opAnd && hit) return true;
+        }
+        return opAnd;
+    }
+
+    /// <summary>
+    /// 区分大小写路径零拷贝化后命中集合不变：与改造前逐行实现逐行对比
+    /// （含中文 needle、多行记录续行、无正文行、不存在的词）。
+    /// </summary>
+    [Fact]
+    public void MsgFilter_区分大小写_零拷贝后命中集合不变()
+    {
+        using var tmp = new TempLogFile(ZeroCopyData);
+        using var doc = LogDocument.Build(tmp.Path);
+
+        foreach (var needle in new[] { "plain", "PLAIN", "MiXeD", "mixed", "加载", "Straße",
+                                       "Foo.bar", "java:1", "no-such-text", "" })
+        {
+            var spec = new FilterSpec { Msg = new[] { needle }, MsgOp = "or", MsgCase = true };
+            Assert.Equal(MsgFilterLegacy(doc, spec), Apply(doc, spec));
+        }
+    }
+
+    /// <summary>
+    /// 非 ASCII 行必须走整行 Unicode 小写化路径、不能走字节折叠：样本第 5/6 行含 ß/ẞ，
+    /// needle「ẞ」折成 ß 后只可能经 Unicode 路径命中；若分派写错（非 ASCII 行也走
+    /// 字节路径），这两行一条都命中不了。另与改造前逐行实现全形态对比。
+    /// </summary>
+    [Fact]
+    public void MsgFilter_非ASCII行走Unicode路径()
+    {
+        using var tmp = new TempLogFile(ZeroCopyData);
+        using var doc = LogDocument.Build(tmp.Path);
+
+        // ß 与 ẞ 等价：命中 5（Straße）、6（ẞ）
+        Assert.Equal(new[] { 5, 6 }, Apply(doc, new FilterSpec { Msg = new[] { "ß" }, MsgOp = "or" }));
+        Assert.Equal(new[] { 5, 6 }, Apply(doc, new FilterSpec { Msg = new[] { "ẞ" }, MsgOp = "or" }));
+
+        // 重音不与非重音等价（第 4 行 CAFÉ；样本无 cafe 写法）
+        Assert.Equal(new[] { 4 }, Apply(doc, new FilterSpec { Msg = new[] { "CAFÉ" }, MsgOp = "or" }));
+        Assert.Empty(Apply(doc, new FilterSpec { Msg = new[] { "cafe" }, MsgOp = "or" }));
+
+        // 全形态与改造前逐行一致（or/and、排除、大小写敏感、中文 needle）
+        foreach (var spec in new[]
+        {
+            new FilterSpec { Msg = new[] { "ß" }, MsgOp = "or" },
+            new FilterSpec { Msg = new[] { "ẞ" }, MsgOp = "or" },
+            new FilterSpec { Msg = new[] { "ß" }, MsgOp = "or", MsgExclude = true },
+            new FilterSpec { Msg = new[] { "加载" }, MsgOp = "or" },
+            new FilterSpec { Msg = new[] { "加载" }, MsgOp = "or", MsgCase = true },
+            new FilterSpec { Msg = new[] { "CAFÉ", "straße" }, MsgOp = "or" },
+            new FilterSpec { Msg = new[] { "ß" }, MsgOp = "or", MsgCase = true },
+            new FilterSpec { Msg = new[] { "ı", "I" }, MsgOp = "or" },
+        })
+            Assert.Equal(MsgFilterLegacy(doc, spec), Apply(doc, spec));
+    }
+
+    /// <summary>
+    /// 候选首字节定位 + 逐字节验证 与 朴素逐位置比较（整行 A–Z 折叠后 IndexOf）
+    /// 命中结论逐条一致：同一批行 × 同一批 needle 两种比较方式结论相同。
+    /// </summary>
+    [Fact]
+    public void 字节比较_候选定位与朴素比较命中集合一致()
+    {
+        var lines = new[]
+        {
+            "PLAIN ASCII UPPER",
+            "plain ascii lower",
+            "MiXeD CaSe TeXt",
+            "needle at start",
+            "end with needle",
+            "double needle needle here",
+            "NeeDle",
+            "no match at all",
+            "",
+            "123 456 @x@ [y] {z}",
+            "a",
+            "needl",
+        };
+        var needles = new[] { "needle", "NEEDLE", "NeEdLe", "n", "N", "123", "@x@", "[y]",
+                              "needle at", "zzz", "e", "E", "a" };
+
+        foreach (var line in lines)
+        {
+            var hay = Encoding.UTF8.GetBytes(line);
+            foreach (var needle in needles)
+            {
+                var key = Encoding.UTF8.GetBytes(needle.ToLowerInvariant());
+
+                // 朴素：整行 A–Z 折叠后 IndexOf（改造前 ASCII 路径的判定）
+                var folded = hay.ToArray();
+                Assert.True(FilterEngine.FoldLowerAsciiInPlace(folded));   // 本批行全纯 ASCII
+                bool naive = folded.AsSpan().IndexOf(key) >= 0;
+
+                bool cand = FilterEngine.ContainsAsciiInsensitive(hay, key);
+                Assert.Equal(naive, cand);
+            }
+        }
+    }
+
+    /// <summary>
+    /// needle 首字节为数字/标点：大小写两种形态退化为一种（该字节无大小写之分），
+    /// 命中结论仍须与折叠比较一致；首字节之后的大小写仍参与逐字节验证。
+    /// </summary>
+    [Fact]
+    public void 字节比较_needle首字节为数字或标点()
+    {
+        Assert.True(FilterEngine.ContainsAsciiInsensitive("abc 123 xyz"u8, "123"u8));
+        Assert.False(FilterEngine.ContainsAsciiInsensitive("abc 124 xyz"u8, "123"u8));
+        Assert.True(FilterEngine.ContainsAsciiInsensitive("say @x@ now"u8, "@x@"u8));
+        Assert.False(FilterEngine.ContainsAsciiInsensitive("say @y@ now"u8, "@x@"u8));
+        Assert.True(FilterEngine.ContainsAsciiInsensitive("brackets [y] here"u8, "[y]"u8));
+        // 首字节之后的大小写仍参与验证（needle 已小写，行侧大写折成小写后比对）
+        Assert.True(FilterEngine.ContainsAsciiInsensitive("123 ABC"u8, "123 abc"u8));
+        Assert.False(FilterEngine.ContainsAsciiInsensitive("123 abd"u8, "123 abc"u8));
+    }
+
+    /// <summary>
+    /// needle 为空：字节比较判「包含」（与 IndexOf(空 needle) 返回 0 一致）；
+    /// 组合语义（or 立即成立 / and 跳过不否决）由上层 MatchAny/MatchFolded 处理，
+    /// 与改造前一致（现有用例 空过滤词不构成否决 已钉住）。
+    /// </summary>
+    [Fact]
+    public void 字节比较_needle为空()
+    {
+        Assert.True(FilterEngine.ContainsAsciiInsensitive("anything"u8, ReadOnlySpan<byte>.Empty));
+        Assert.True(FilterEngine.ContainsAsciiInsensitive(ReadOnlySpan<byte>.Empty, ReadOnlySpan<byte>.Empty));
+    }
+
+    /// <summary>
+    /// 改造前后命中集合逐行一致（本 change 的硬门槛）：同一份文档、同一组规格，
+    /// 零拷贝实现 vs 改造前逐行实现返回的行号数组完全相等。
+    /// 覆盖七类：忽略大小写 / 区分大小写 / and / or / 空 needle / exclude / 中文 needle。
+    /// 规格显式写 MsgOp（默认 "and"，不显式则 or 规格实际跑 and 语义）；
+    /// 中文 needle 选样本中真实出现的「加载」（出现 0 次的串两边都 0、空转无鉴别力）。
+    /// </summary>
+    [Fact]
+    public void MsgFilter_改造前后命中集合逐行一致()
+    {
+        using var tmp = new TempLogFile(ZeroCopyData);
+        using var doc = LogDocument.Build(tmp.Path);
+
+        var specs = new[]
+        {
+            // 忽略大小写（含重音 / ß / 无点 i / 大小写混写）
+            new FilterSpec { Msg = new[] { "plain" }, MsgOp = "or" },
+            new FilterSpec { Msg = new[] { "PLAIN" }, MsgOp = "or" },
+            new FilterSpec { Msg = new[] { "mixed" }, MsgOp = "or" },
+            new FilterSpec { Msg = new[] { "straße" }, MsgOp = "or" },
+            new FilterSpec { Msg = new[] { "ß" }, MsgOp = "or" },
+            new FilterSpec { Msg = new[] { "ı" }, MsgOp = "or" },
+            // 区分大小写
+            new FilterSpec { Msg = new[] { "PLAIN" }, MsgOp = "or", MsgCase = true },
+            new FilterSpec { Msg = new[] { "plain" }, MsgOp = "or", MsgCase = true },
+            new FilterSpec { Msg = new[] { "Straße" }, MsgOp = "or", MsgCase = true },
+            new FilterSpec { Msg = new[] { "加载" }, MsgOp = "or", MsgCase = true },
+            // and / or 组合
+            new FilterSpec { Msg = new[] { "plain", "ascii" }, MsgOp = "and" },
+            new FilterSpec { Msg = new[] { "plain", "ascii" }, MsgOp = "or" },
+            new FilterSpec { Msg = new[] { "plain", "zzz" }, MsgOp = "and" },
+            new FilterSpec { Msg = new[] { "plain", "mixed", "crash" }, MsgOp = "or" },
+            // 空 needle（or 立即成立 / and 跳过不否决）
+            new FilterSpec { Msg = new[] { "" }, MsgOp = "or" },
+            new FilterSpec { Msg = new[] { "", "plain" }, MsgOp = "or" },
+            new FilterSpec { Msg = new[] { "", "plain" }, MsgOp = "and" },
+            new FilterSpec { Msg = new[] { "" }, MsgOp = "and" },
+            // exclude
+            new FilterSpec { Msg = new[] { "plain" }, MsgOp = "or", MsgExclude = true },
+            new FilterSpec { Msg = new[] { "plain", "case" }, MsgOp = "or", MsgExclude = true },
+            new FilterSpec { Msg = new[] { "ß" }, MsgOp = "or", MsgExclude = true },
+            // 中文 needle（样本中真实出现）
+            new FilterSpec { Msg = new[] { "加载" }, MsgOp = "or" },
+            new FilterSpec { Msg = new[] { "加载", "plain" }, MsgOp = "or" },
+            new FilterSpec { Msg = new[] { "中文" }, MsgOp = "or" },
+        };
+
+        foreach (var spec in specs)
+            Assert.Equal(MsgFilterLegacy(doc, spec), Apply(doc, spec));
+    }
+
     // ── 修复回归：每行只扫自身字节 ──
     // 历史缺陷：调用点把整行拷入只增不减的复用缓冲 scratch 后按「整个容量」折叠，
     // 残留字节 ≥ 0x80 会让纯 ASCII 行误走 Unicode 回退、单行扫描量退化为 O(缓冲容量)。
     // 折叠函数改为按行切片后，这里用 internal 直测 + 扫描字节计数器把不变式钉成契约。
+    // 零拷贝改造后 scratch 已移除（按行 span 判定 + 候选定位），同一不变式由
+    // ASCII 快路径扫描计数器（AsciiScanBytesForTest）继续钉住。
 
     [Fact]
     public void FoldLowerAscii_纯ASCII就地折叠为小写()
@@ -1145,9 +1406,10 @@ public class FilterEngineTests
     }
 
     /// <summary>
-    /// 「每行只扫自身字节」不变式的主钉：一次多行过滤的扫描总字节必须等于
-    /// Σ 各行正文长度。若调用点退回传整个 scratch（历史缺陷），每行扫描量
-    /// 变成缓冲容量（远大于行内字节），本用例立即变红。
+    /// 「每行只扫自身正文」不变式的主钉：一次多行过滤在 ASCII 快路径上的扫描总字节
+    /// 必须等于 Σ 各行正文长度。零拷贝改造后「就地折叠」改为「按行 span 判定」
+    /// （Ascii.IsValid + 候选定位），本用例继续钉住扫描量不超出行内字节 ——
+    /// 若误按整行/整缓冲扫描，数值立即变大而变红。
     /// </summary>
     [Fact]
     public void MsgFilter_ScanBytes_EqualSumOfLineBytes()
@@ -1159,9 +1421,9 @@ public class FilterEngineTests
         for (int i = 0; i < doc.RowCount; i++)
             expected += doc.MessageBytes(i).Length;
 
-        long before = FilterEngine.FoldScanBytesForTest;
+        long before = FilterEngine.AsciiScanBytesForTest;
         Apply(doc, new FilterSpec { Msg = new[] { "zzz-no-such-term" } });
-        long scanned = FilterEngine.FoldScanBytesForTest - before;
+        long scanned = FilterEngine.AsciiScanBytesForTest - before;
 
         Assert.Equal(expected, scanned);
     }

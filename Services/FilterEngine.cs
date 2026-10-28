@@ -1,4 +1,5 @@
 using System.IO.MemoryMappedFiles;
+using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.RegularExpressions;
 using logcat.Services;
@@ -128,17 +129,18 @@ public static class FilterEngine
             if (b >= 0x80) return false;      // 非 ASCII：交给调用方回退，不做部分折叠
             if (b >= (byte)'A' && b <= (byte)'Z') buf[i] = (byte)(b + 32);
         }
-        _foldScanBytes += buf.Length;
         return true;
     }
 
     /// <summary>对切片的转发，逻辑单源；调用方持有数组时避免维护第二份折叠实现。</summary>
     internal static bool FoldLowerAsciiInPlace(byte[] buf) => FoldLowerAsciiInPlace(buf.AsSpan());
 
-    // ASCII 折叠路径累计「完整扫描并折叠」的字节数；internal 只读，仅供测试观测（钉住
-    // 「每行只扫自身字节」不变式），测试间用差值比较，不参与任何过滤行为。
-    private static long _foldScanBytes;
-    internal static long FoldScanBytesForTest => _foldScanBytes;
+    // 忽略大小写路径的 ASCII 快路径累计「完整扫描并判定为纯 ASCII」的字节数；
+    // internal 只读，仅供测试观测（钉住「每行只扫自身正文字节」不变式），
+    // 测试间用差值比较，不参与任何过滤行为。
+    // 非 ASCII 行的 Ascii.IsValid 是提前退出的部分扫描，无法精确计量，故不计入。
+    private static long _asciiScanBytes;
+    internal static long AsciiScanBytesForTest => _asciiScanBytes;
 
     // ── Message 过滤 ──
     static int[] MsgFilter(LogDocument doc, int[] cand, Models.FilterSpec spec,
@@ -147,18 +149,30 @@ public static class FilterEngine
         if (cand.Length == 0) return cand;
 
         bool opAnd = spec.MsgOp == "and";
+        bool exclude = spec.MsgExclude;
+        bool needFold = !spec.MsgCase;
+
+        // needle 预编码：区分大小写按原始字节；忽略大小写按 ToLowerInvariant
+        // （与改造前一致——needle 自身的 Unicode 语义由它保证，ß 与 ẞ 都编码成 ß 的字节序列）
         var keys = spec.Msg.Select(t =>
         {
             var bytes = Encoding.UTF8.GetBytes(t);
             return spec.MsgCase ? bytes : Encoding.UTF8.GetBytes(t.ToLowerInvariant());
         }).ToArray();
 
+        // 忽略大小写时预判每条 needle 是否全 ASCII：字节快路径只适用于全 ASCII needle。
+        // 含 ≥0x80 字节的 needle 在 ASCII 行上不可能命中（改造前同理：折叠后的 ASCII 行
+        // 不含 ≥0x80 字节，IndexOf 恒为 -1）——判为不命中，不进候选定位。
+        bool[] keyAscii = needFold
+            ? keys.Select(k => Ascii.IsValid(k)).ToArray()
+            : Array.Empty<bool>();
+
         var result = new List<int>();
         int total = cand.Length;
-        // 纯 ASCII 且忽略大小写时就地折叠，缓冲区按行复用（首次 1 KB，按需增长后不再缩）。
-        // 含非 ASCII 的行走 Unicode 折叠，行为与原实现完全一致。
-        byte[] scratch = new byte[1024];
-        bool needFold = !spec.MsgCase;
+
+        // 零拷贝读取会话：复用文档当前映射视图（容量随 Append 重映射），
+        // 一次 AcquirePointer/ReleasePointer 配对，替换「每行 new byte[] + ReadArray 拷贝」
+        using var session = doc.OpenMessageSession();
 
         for (int s = 0; s < total; s += BATCH)
         {
@@ -166,31 +180,13 @@ public static class FilterEngine
             for (int pos = s; pos < e; pos++)
             {
                 int r = cand[pos];
-                byte[] msgBuf = doc.MessageBytes(r);
-
-                bool ok;
-                if (needFold)
-                {
-                    if (msgBuf.Length > scratch.Length)
-                        scratch = new byte[Math.Max(msgBuf.Length, scratch.Length * 2)];
-                    Array.Copy(msgBuf, scratch, msgBuf.Length);
-                    if (FoldLowerAsciiInPlace(scratch.AsSpan(0, msgBuf.Length)))
-                    {
-                        // ASCII 折叠不改变长度，直接按 msgBuf.Length 切片即可
-                        ok = MatchAny(scratch.AsSpan(0, msgBuf.Length), keys, opAnd);
-                    }
-                    else
-                    {
-                        // 含非 ASCII：回退 Unicode 折叠（ß/ẞ、İ 等会改变长度，不能就地做）
-                        var folded = Encoding.UTF8.GetBytes(Encoding.UTF8.GetString(msgBuf).ToLowerInvariant());
-                        ok = MatchAny(folded, keys, opAnd);
-                    }
-                }
-                else
-                {
-                    ok = MatchAny(msgBuf, keys, opAnd);
-                }
-                if (ok != spec.MsgExclude)
+                // 热循环走会话的 internal 直连接口（同边界同护栏，span 只在本语句内消费）；
+                // 对外回调契约见 LogDocument.MessageSession.ReadMessage
+                var msg = session.MessageSpan(r);
+                bool ok = needFold
+                    ? MatchFolded(msg, keys, keyAscii, opAnd)
+                    : MatchAny(msg, keys, opAnd);
+                if (ok != exclude)
                     result.Add(r);
             }
             progress?.Report(((double)e / total, Loc.F("匹配 message {0}/{1}", e, total)));
@@ -200,10 +196,89 @@ public static class FilterEngine
     }
 
     /// <summary>
+    /// 忽略大小写的按行分派匹配（与改造前逐位等价）：
+    /// 行内全部字节 &lt; 0x80 → 字节级忽略大小写比较（候选首字节定位 + 逐字节验证）；
+    /// 行内含 ≥ 0x80 字节 → 整行 Unicode 小写化后按字节找（ß/ẞ、İ/ı、重音的结论
+    /// 只在这条路径下成立，故非 ASCII 行走 Unicode 是语义要求而非实现细节）。
+    /// 空 needle 语义与 <see cref="MatchAny"/> 一致：or 立即成立，and 跳过不否决。
+    /// </summary>
+    // MatchAny / MatchFolded / ContainsAsciiInsensitive 均带 AggressiveInlining：
+    // 千万级逐行过滤的热循环里，非内联的调用层在 Release 下可占一成以上耗时
+    // （JIT 实测：不带特性时 Tier1-OSR 码保留三次真实 call/行）。
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    static bool MatchFolded(ReadOnlySpan<byte> msg, byte[][] keys, bool[] keyAscii, bool opAnd)
+    {
+        if (Ascii.IsValid(msg))
+        {
+            _asciiScanBytes += msg.Length;
+            for (int i = 0; i < keys.Length; i++)
+            {
+                var needle = keys[i].AsSpan();
+                if (needle.Length == 0)
+                {
+                    if (!opAnd) return true;
+                    continue;
+                }
+                // 非 ASCII needle 在 ASCII 行上不可能命中：两种大小写形态退化为「判不命中」
+                bool hit = keyAscii[i] && ContainsAsciiInsensitive(msg, needle);
+                if (opAnd && !hit) return false;
+                if (!opAnd && hit) return true;
+            }
+            return opAnd;
+        }
+
+        // 含非 ASCII：整行 Unicode 小写化（ß/ẞ、İ 等会改变字节数，不能就地折），按字节找
+        var folded = Encoding.UTF8.GetBytes(Encoding.UTF8.GetString(msg).ToLowerInvariant());
+        return MatchAny(folded, keys, opAnd);
+    }
+
+    /// <summary>
+    /// 纯 ASCII 行上的字节级忽略大小写子串查找：先用 needle 首字节的小写与大写两种形态
+    /// 定位候选位置（向量化 <see cref="MemoryExtensions.IndexOfAny(ReadOnlySpan{Byte}, Byte, Byte)"/>），
+    /// 再对候选位置逐字节验证（行侧 A–Z 折成小写后与 needle 字节比较）。
+    /// needle 必须全 ASCII（调用方经 keyAscii 保证）且已按 ToLowerInvariant 预编码。
+    /// 与「整行 A–Z 折叠后 IndexOf(needle)」逐位等价；needle 首字节非 ASCII 字母时
+    /// 两种形态退化为一种（该字节无大小写之分），仍完备。
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal static bool ContainsAsciiInsensitive(ReadOnlySpan<byte> hay, ReadOnlySpan<byte> needle)
+    {
+        if (needle.Length == 0) return true;      // 与 IndexOf(空 needle) 返回 0 一致
+        if (needle.Length > hay.Length) return false;
+        byte lo = needle[0];
+        byte hi = (byte)(lo >= (byte)'a' && lo <= (byte)'z' ? lo - 32 : lo);
+        // 候选窗口右界：验证时读 [at, at+needle.Length)，必须不越 hay 的界
+        int last = hay.Length - needle.Length;
+        int from = 0;
+        while (from <= last)
+        {
+            int idx = hay.Slice(from, last - from + 1).IndexOfAny(lo, hi);
+            if (idx < 0) return false;
+            int at = from + idx;
+            if (VerifyAsciiInsensitive(hay, at, needle)) return true;
+            from = at + 1;
+        }
+        return false;
+    }
+
+    /// <summary>候选位置逐字节验证：行侧 A–Z 折成小写后与 needle（已小写）比较。</summary>
+    static bool VerifyAsciiInsensitive(ReadOnlySpan<byte> hay, int at, ReadOnlySpan<byte> needle)
+    {
+        for (int i = 0; i < needle.Length; i++)
+        {
+            byte h = hay[at + i];
+            if (h >= (byte)'A' && h <= (byte)'Z') h = (byte)(h + 32);
+            if (h != needle[i]) return false;
+        }
+        return true;
+    }
+
+    /// <summary>
     /// 子串匹配：and 要求全部命中，or 要求任一命中。
     /// 用显式循环而非 LINQ——lambda 不能捕获 <see cref="ReadOnlySpan{T}"/>。
     /// 逐字节精确比较，needle 为空视为命中（与历史行为一致）。
     /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     static bool MatchAny(ReadOnlySpan<byte> hay, byte[][] keys, bool opAnd)
     {
         for (int i = 0; i < keys.Length; i++)
