@@ -4,7 +4,7 @@
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
 [![Platform: Windows](https://img.shields.io/badge/platform-Windows-lightgrey)](#环境要求)
 [![CI](https://github.com/daitouniao/logcat-viewer/actions/workflows/ci.yml/badge.svg)](https://github.com/daitouniao/logcat-viewer/actions/workflows/ci.yml)
-[![Tests: 717 passing](https://img.shields.io/badge/tests-717%20passing-green)](docs/TESTING.md)
+[![Tests: 756 passing](https://img.shields.io/badge/tests-756%20passing-green)](docs/TESTING.md)
 [![Coverage: 97.46% lines](https://img.shields.io/badge/coverage-97.46%25%20lines-blue)](docs/TESTING.md)
 
 Windows 桌面端 Android 日志（logcat）查看器。基于 WinForms，使用内存映射文件 + 列式索引，可直接打开并流畅浏览千万行级别的日志文件，同时支持通过 ADB 实时采集设备日志、截图、录屏、文件互传、APK 安装/卸载与分类收藏常用命令。
@@ -27,11 +27,11 @@ Windows 桌面端 Android 日志（logcat）查看器。基于 WinForms，使用
 
 ## 日志查看
 
-大多数 logcat 查看器在处理大日志文件时会卡顿。本工具将文本保留在磁盘上（mmap），仅将固定宽度的列数据加载到内存中，因此即使数 GB 的日志文件也能秒开，滚动帧率稳定。
+大多数 logcat 查看器在处理大日志文件时会卡顿。本工具把正文原样留在磁盘上（mmap），内存里只放定宽列数据。打开时要顺序扫描一遍建索引，耗时随文件大小线性增长（进度条可随时取消）：1 GB 量级约十几秒（视机器而定），更大的文件按比例增加，不是瞬时打开；打开之后滚动只按虚拟行号从映射区按需取数，帧率稳定，也不会把整份日志读进内存。
 
 | 能力                 | 实现                                                                                |
 | -------------------- | ----------------------------------------------------------------------------------- |
-| **大文件秒开**       | 内存映射 + 列式索引，可随时取消                                                     |
+| **大文件低内存**     | 内存映射 + 列式索引，建索引过程有可取消进度条                                       |
 | **虚拟列表**         | 只渲染可见行，10M+ 行时滚动依然流畅                                                 |
 | **六种格式自动识别** | `threadtime` / `time` / `long` / `brief` / `tag` / `ymd`，字节级快速路径 + 正则回退 |
 | **续行合并**         | 异常堆栈、多行正文可并入上一条记录（可开关）                                        |
@@ -189,7 +189,7 @@ dotnet test tests/logcat.Tests/logcat.Tests.csproj --collect:"XPlat Code Coverag
 python tests/coverage-report.py     # 输出 tests/coverage-report.html
 ```
 
-当前状态：**717 个用例全部通过**，行覆盖率 **97.46%**（3,414 / 3,503 行），分支覆盖率 **88.43%**。
+当前状态：**756 个用例全部通过**，行覆盖率 **97.46%**（3,766 / 3,864 行），分支覆盖率 **88.67%**。
 
 覆盖口径见 `tests/logcat.Tests/coverlet.runsettings`，排除两类代码：
 - **UI 层**：`Forms` / `Controls` / `frmMain` / `Program`，以及 `DpiFix` / `DpiDiag` / `Loc`。`Loc`（本地化运行时）与 `DpiFix` 同理——它一半的代码是控件树遍历、字体替换与文本像素测量，没有真实窗体与消息泵无从验证
@@ -272,7 +272,7 @@ Services/
   LogParser.cs          行解析（六种格式 + 续行判定）
   CrashExtractor.cs     崩溃 / ANR / native fault 信号检测（绑进索引扫描）
   CrashAggregator.cs    崩溃事件按类型与包名分组，供崩溃汇总窗口使用
-  FilterEngine.cs       过滤引擎（预筛 → message 匹配 → 导出）
+  FilterEngine.cs       过滤引擎（预筛 → message 匹配（大文档块扫描 / 增量逐条）→ 导出）
   AdbManager.cs         ADB 封装（设备枚举、Shell、流式执行、本机 adb、截图、推拉文件）
   LogcatStream.cs       实时 logcat 采集流
   ClipboardHelper.cs    带重试的剪贴板写入（剪贴板被其他进程短暂占用时不抛 ExternalException）
@@ -282,7 +282,7 @@ Services/
   AppInfo.cs            产品名与版本号（读取程序集 InformationalVersion，标题与关于对话框共用）
 tests/
   coverage-report.py      覆盖率报告生成（coverlet 的 cobertura XML → 可读 HTML）
-  logcat.Tests/           xUnit 测试工程（717 个用例：日志解析 / 列式索引 / 过滤引擎 / 崩溃提取 / 持久化 / 本地化）
+  logcat.Tests/           xUnit 测试工程（756 个用例：日志解析 / 列式索引 / 过滤引擎 / 崩溃提取 / 持久化 / 本地化）
     coverlet.runsettings  覆盖率统计口径（Include / Exclude 规则）
 docs/
   BUILDING.md             怎么编译与发布（两个包各自的命令与产物验证）

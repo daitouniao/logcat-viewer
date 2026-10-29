@@ -4,10 +4,10 @@
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
 [![Platform: Windows](https://img.shields.io/badge/platform-Windows-lightgrey)](#requirements)
 [![CI](https://github.com/daitouniao/logcat-viewer/actions/workflows/ci.yml/badge.svg)](https://github.com/daitouniao/logcat-viewer/actions/workflows/ci.yml)
-[![Tests: 717 passing](https://img.shields.io/badge/tests-717%20passing-green)](docs/TESTING.md)
+[![Tests: 756 passing](https://img.shields.io/badge/tests-756%20passing-green)](docs/TESTING.md)
 [![Coverage: 97.46% lines](https://img.shields.io/badge/coverage-97.46%25%20lines-blue)](docs/TESTING.md)
 
-A Windows desktop viewer for Android logs (`logcat`). Built with WinForms on .NET 10, it opens **tens of millions of log lines instantly** using memory-mapped files and a columnar index — and it also drives your device over ADB: live capture, screenshots, screen recording, two-pane file transfer, and APK install/uninstall.
+A Windows desktop viewer for Android logs (`logcat`). Built with WinForms on .NET 10, it opens and scrolls through **tens of millions of log lines** smoothly using memory-mapped files and a columnar index — and it also drives your device over ADB: live capture, screenshots, screen recording, two-pane file transfer, and APK install/uninstall.
 
 **English** | [简体中文](README.zh-CN.md)
 
@@ -27,11 +27,11 @@ Repositories:
 
 ## Log viewing
 
-Most logcat viewers choke on large captures. This one keeps the text on disk (mmap) and only the fixed-width columns in memory, so a multi-GB log file opens without loading it into RAM and scrolls at a stable frame rate.
+Most logcat viewers choke on large captures. This one keeps the text on disk (mmap) and holds only the fixed-width columns in memory. Opening means one sequential pass to build the index, so it scales linearly with file size (the progress bar can be cancelled): a 1 GB file takes on the order of ten seconds (machine-dependent) and larger files scale up accordingly — it is not an instant open. After that, scrolling reads rows from the mapping on demand — the file is never pulled into RAM, and the frame rate stays steady.
 
 | Capability                     | How it works                                                                                             |
 | ------------------------------ | -------------------------------------------------------------------------------------------------------- |
-| **Instant open on huge files** | Memory-mapped + columnar index, with a cancellable progress bar                                          |
+| **Huge files, low memory**     | Memory-mapped text + columnar index; index build runs under a cancellable progress bar                   |
 | **Virtual list**               | Only visible rows are rendered, so scrolling stays smooth at 10M+ rows                                   |
 | **Six formats auto-detected**  | `threadtime` / `time` / `long` / `brief` / `tag` / `ymd`, via a byte-level fast path with regex fallback |
 | **Multi-line joining**         | Stack traces and wrapped messages fold back into their parent record (toggleable)                        |
@@ -189,7 +189,7 @@ dotnet test tests/logcat.Tests/logcat.Tests.csproj --collect:"XPlat Code Coverag
 python tests/coverage-report.py     # writes tests/coverage-report.html
 ```
 
-Current status: **717 tests, all passing**; **97.46%** line coverage (3,414 / 3,503 lines), **88.43%** branch coverage.
+Current status: **756 tests, all passing**; **97.46%** line coverage (3,766 / 3,864 lines), **88.67%** branch coverage.
 
 The scope is defined in `tests/logcat.Tests/coverlet.runsettings` and excludes two groups:
 
@@ -271,7 +271,7 @@ Services/
   LogParser.cs          Line parser (six formats + continuation detection)
   CrashExtractor.cs     Crash / ANR / native fault signal detection bound to the index scan
   CrashAggregator.cs    Groups crash events by type and package for the summary window
-  FilterEngine.cs       Filter engine (pre-filter → message match → export)
+  FilterEngine.cs       Filter engine (pre-filter → message match (block scan for large docs, per-row for incremental) → export)
   AdbManager.cs         ADB wrapper (device enumeration, shell, streaming, local adb, screenshot, push/pull)
   LogcatStream.cs       Live logcat capture stream
   ClipboardHelper.cs    Clipboard write with retry (other processes briefly holding the clipboard shouldn't throw ExternalException)
@@ -281,7 +281,7 @@ Services/
   AppInfo.cs            Product name and version (reads Assembly InformationalVersion)
 tests/
   coverage-report.py    Coverage report generation (coverlet cobertura XML → readable HTML)
-  logcat.Tests/         xUnit test project (717 tests: log parsing / columnar index / filter engine / crash extraction / persistence / localization)
+  logcat.Tests/         xUnit test project (756 tests: log parsing / columnar index / filter engine / crash extraction / persistence / localization)
     coverlet.runsettings Coverage scope (Include / Exclude rules)
 docs/
   BUILDING.md            How to build and publish — the two `dotnet publish` commands, artifact verification, pitfall table

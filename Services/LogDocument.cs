@@ -343,6 +343,26 @@ public sealed class LogDocument : IDisposable
             return new ReadOnlySpan<byte>(_ptr + start, mlen);
         }
 
+        /// <summary>
+        /// internal：块扫描用的原始基指针（<see cref="FilterEngine"/> 的并行分块扫描）。
+        /// 指针为映射视图数据起点（已含 <c>PointerOffset</c>），只在会话 Dispose 前有效；
+        /// 容量是建会话时的快照，与 <see cref="MessageSpan"/> 的护栏同源 ——
+        /// 调用方须按「偏移 + 长度 ≤ 容量」自检后再构造 span。
+        /// 返回 false 表示会话已释放或无映射（空文件），调用方回退逐条匹配。
+        /// </summary>
+        internal bool TryAcquireRaw(out byte* ptr, out long capacity)
+        {
+            if (_released || _ptr == null)
+            {
+                ptr = null;
+                capacity = 0;
+                return false;
+            }
+            ptr = _ptr;
+            capacity = _capacity;
+            return true;
+        }
+
         /// <summary>释放指针。幂等：重复调用不抛。</summary>
         public void Dispose()
         {
