@@ -1,7 +1,7 @@
 # Tasks
 
-- [x] 1.0 创建独立 worktree：分支 `wt/filter-msgfilter-block-scan`，路径以 `git worktree list` 定位并回填本行（禁写绝对路径，只记分支名）。验证：`git worktree list` 显示该分支。
-  - 完成：worktree 已建于 91c037c，分支 `wt/filter-msgfilter-block-scan`；change 产物与探索笔记以文件复制方式带入（主树中尚为未跟踪状态）。
+- [x] 1.0 ~~创建独立 worktree：分支 `wt/filter-msgfilter-block-scan`~~ → **已废弃（2026-10-29）**：该 worktree 与分支已清理，apply 改在主树进行（原因：worktree 内产物副本滞后两轮决策，且实现未提交、tasks 未回填，维护两条线成本高于收益）。
+  - 原记录：worktree 曾建于 91c037c；清理前其未提交改动已备份到仓库内 git-ignore 的 `.tmp-test/wt-block-scan-backup/`（`tracked-changes.patch` + `FilterEngineBlockScanTests.cs`），该备份不入库、不作为实现基线。
 
 ## 2. 块扫描核心
 
@@ -24,4 +24,4 @@
 
 （归档阶段，非本 change tracked 任务）
 
-- 用户验收通过后按归档指令执行：`openspec archive` + 同批归档探索笔记 + 清除 worktree。
+- 用户验收通过后按归档指令执行：`openspec archive` + 同批归档探索笔记。（该 change 已无 worktree，无需清除。）
