@@ -13,7 +13,7 @@
 > 「后台续载」= 现有分块管线的自然延伸，无需新机制；
 > 「异步过滤」在**列预筛段**已验证零成本（逐块累计 23 ms ≈ 整份 19 ms）；**Message 关键词段的冲突已解**（D9=C′ 增量块扫描，见 §6.2 修正与 §8 D9）。
 
-前置事实修正：`STREAMING-FILE-LOAD.md` 写「`ScanRange` 一次 `new byte[rangeSize]` 读全文件」——**该描述已过时**。当前 `ScanRange` 用 `FileStream` 逐行读，单次只持有区间大小的 `byte[]`（`Services/LogDocument.cs` L519–L528）。当时是整份扫描，故区间 = 全文件；**区间化能力本身早已具备**。
+前置事实修正：`openspec/notes/archive/2026-10-30-STREAMING-FILE-LOAD.md` 写「`ScanRange` 一次 `new byte[rangeSize]` 读全文件」——**该描述已过时**。当前 `ScanRange` 用 `FileStream` 逐行读，单次只持有区间大小的 `byte[]`（`Services/LogDocument.cs` L519–L528）。当时是整份扫描，故区间 = 全文件；**区间化能力本身早已具备**。
 
 ## 2. 现有原语盘点（代码事实）
 
@@ -109,7 +109,7 @@
 **对设计的约束**（三条都是硬约束）：
 - 分块管线**必须透传 `prevHeadDoc` / `joinedDoc`**，否则每块边界都会多算记录；
 - 分块管线**必须走 `Append` 消费 carry**（或等价的 `_lens[_n-1]` 回写），否则末条记录长度错、Message 匹配结果可能翻转；
-- `LastAppendCarried` 已由 `Append` 置位（`Services/LogDocument.cs` L894）——加载期每块都要判它：carry 意味着**刚发布的末行 Message 内容可能还会变**，这是 `STREAMING-FILE-LOAD.md` D3 选项 B「允许末行刷新」的禁区，等价于要求 **D3=A 滞后一条发布**。
+- `LastAppendCarried` 已由 `Append` 置位（`Services/LogDocument.cs` L894）——加载期每块都要判它：carry 意味着**刚发布的末行 Message 内容可能还会变**，这是 `openspec/notes/archive/2026-10-30-STREAMING-FILE-LOAD.md` D3 选项 B「允许末行刷新」的禁区，等价于要求 **D3=A 滞后一条发布**。
 
 > 补充：`Assemble` 的注释写着「曾经的多分片合并（按 BLOCK 分块扫描 + 拼接数组 + 全局 tag 重映射）已随分块方案一起删除」（`Services/LogDocument.cs` L796–L797）。该删除发生在**首次提交之前**（公开 git 历史无细节，`git log -S "BLOCK"` 只命中 `017af89 首次提交`），**回滚原因不可考**。本轮实测证明分块解析本身等价，但「多分片 tag 全局重映射 + 拼接」那套组装逻辑的坑仍未验证——设计时须正面处理 tag 重映射（`Append` 已有 `remap` 实现，见 L927–L942）。
 
@@ -163,20 +163,20 @@
 - 探针锚点：4 MB 块首块 212 ms / p50 43 ms；16 MB 首块 539 ms；64 MB 首块 1,446 ms。
 - 设计待定：首块阈值、稳定期块长上限。倾向首块用小块（≤4 MB）抢首屏，后续放大到 16–64 MB 提吞吐。
 
-### D3 加载期 join 语义与末条发布 —— **已定：A 滞后一条发布**（沿用 `STREAMING-FILE-LOAD.md` D3）
+### D3 加载期 join 语义与末条发布 —— **已定：A 滞后一条发布**（沿用 `openspec/notes/archive/2026-10-30-STREAMING-FILE-LOAD.md` D3）
 
 - 本轮实测强化了这条决策的必要性：`LastAppendCarried` 在每块都可能置位，carry 意味着末行 Message 内容会变 → 若照发（选项 B）需新增「末行刷新」能力，且**会与 §6.2 的 Message 过滤语义冲突**。
 - 影响：选 A 不需要新增单行刷新能力，`Append` 现成的 carry 语义正好承载「压一条」；EOF 时必须无条件 flush 最后一条。
 
-### D4 取消语义 —— **已定：B 整份清空**（沿用 `STREAMING-FILE-LOAD.md` D4）
+### D4 取消语义 —— **已定：B 整份清空**（沿用 `openspec/notes/archive/2026-10-30-STREAMING-FILE-LOAD.md` D4）
 
-### D5 代理路径是否边 spool 边解析 —— **已定：A 本期不做**（沿用 `STREAMING-FILE-LOAD.md` D5）
+### D5 代理路径是否边 spool 边解析 —— **已定：A 本期不做**（沿用 `openspec/notes/archive/2026-10-30-STREAMING-FILE-LOAD.md` D5）
 
-### D6 加载期功能可用性 —— **已定：A 过滤器/时间过滤随发布增量生效，导出与崩溃面板置灰到完成**（沿用 `STREAMING-FILE-LOAD.md` D6）
+### D6 加载期功能可用性 —— **已定：A 过滤器/时间过滤随发布增量生效，导出与崩溃面板置灰到完成**（沿用 `openspec/notes/archive/2026-10-30-STREAMING-FILE-LOAD.md` D6）
 
-### D7 存量私有设计处置 —— **已定：A 以公开笔记为事实基座**（沿用 `STREAMING-FILE-LOAD.md` D7）
+### D7 存量私有设计处置 —— **已定：A 以公开笔记为事实基座**（沿用 `openspec/notes/archive/2026-10-30-STREAMING-FILE-LOAD.md` D7）
 
-### D8 小文件是否走同一条流式管线 —— **已定：A 统一流式**（沿用 `STREAMING-FILE-LOAD.md` D8）
+### D8 小文件是否走同一条流式管线 —— **已定：A 统一流式**（沿用 `openspec/notes/archive/2026-10-30-STREAMING-FILE-LOAD.md` D8）
 
 ### D9 加载期 Message 过滤走哪条路径 —— **已定：C′ 增量块扫描**（2026-10-30 复核实现后定）
 
@@ -205,7 +205,7 @@
 - 影响面：`LogListView._rows` 是虚拟列表的模型索引数组，`SetRows` / `AppendRows` / `CaptureAnchor` / `PinAnchor` / `ModelRowOf` / `DocRow` 均依赖它，改结构需一并覆盖这些访问点（`Controls/LogListView.cs`）。
 - 备选：若改动面被认为过大，替代方案是「块长下限设 16 MB + 首屏单独用一个 4 MB 首块」——首屏快、稳态用大块把拼接占比压回 2.5%，且不改 `LogListView`。此备选需维护者在 D2 一并拍板。
 
-### D11 加载期视图跟随语义 —— **已定：A 严格按「跟随尾部」开关**（沿用 `STREAMING-FILE-LOAD.md` D10，2026-10-30）
+### D11 加载期视图跟随语义 —— **已定：A 严格按「跟随尾部」开关**（沿用 `openspec/notes/archive/2026-10-30-STREAMING-FILE-LOAD.md` D10，2026-10-30）
 
 - 与 D9 的耦合注记更新：D9=C′ 下前缀视图的行号会随每块过滤结果变化；开关默认关闭（视图停在顶部）时该影响弱化，锚点重钉需求在 design 阶段按 D11=A 复核即可。
 
@@ -224,7 +224,7 @@
 - 已定：D1–D12 全部（D9=C′、D11=A、D12 按建议值，2026-10-30）。
 - **可走 `/opsx-propose` 建 change**（proposal + specs delta + design + tasks）；design 阶段待定项：D2 具体阈值（首块阈值、稳态块长上限）、C′ 调度粒度（每块/每 N 块一轮）、raw 视图的实现形态（整文件映射 vs 块扫描自有缓冲形态）。
 - 与在途 change `filter-msgfilter-block-scan` 的协同：其分派逻辑已在 master（未归档），C′ 落点是其 `MsgFilterBlockScan` 的函数形状拆分；它先归档也不构成二次改动。
-- 遗留待维护者决策：`BACKLOG-BIGFILE-LOAD-PERF.md` 的总时长目标 ≤ 10 s 是否下调（本轮实测 12.9–13.1 s，见 §10）。
+- 遗留待维护者决策：重启卡 B1（已归档，`openspec/notes/archive/2026-10-30-BACKLOG-BIGFILE-LOAD-PERF.md`）的总时长目标 ≤ 10 s 是否下调（本轮实测 12.9–13.1 s，见 §10）。
 - 编码只在 change 的 apply 阶段发生（AGENTS.md §2.2 阶段门禁；apply 在专属 worktree 实施）。
 - 本笔记为探索产物；change 归档时同批移入 `openspec/notes/archive/`。
 
@@ -232,8 +232,8 @@
 
 | 笔记 | 关系 |
 | --- | --- |
-| `STREAMING-FILE-LOAD.md` | **本笔记是它的续篇**：D1/D3/D4/D5/D6/D7/D8/D10 沿用其结论（D5–D8 本轮补记为已定），修正其「一次读全文件」的过时描述，补充 §5 等价性陷阱、§6 异步过滤边界、D9 新议题 |
-| `BACKLOG-BIGFILE-LOAD-PERF.md`（重启卡 B1） | **可转 change**：其 22 条决策方向与本笔记一致；其目标「首屏 ≤ 0.15 s / 全量 ≤ 10 s / 内存 ≤ 2.0 GB」中，**首屏与内存本轮实测已可达成**（212 ms / 663 MB），总时长 12.9 s 未达 10 s 目标——需确认该目标是否下调 |
+| `openspec/notes/archive/2026-10-30-STREAMING-FILE-LOAD.md` | **本笔记是它的续篇**：D1/D3/D4/D5/D6/D7/D8/D10 沿用其结论（D5–D8 本轮补记为已定），修正其「一次读全文件」的过时描述，补充 §5 等价性陷阱、§6 异步过滤边界、D9 新议题 |
+| `openspec/notes/archive/2026-10-30-BACKLOG-BIGFILE-LOAD-PERF.md`（重启卡 B1，已归档） | **命题已由 change `chunked-progressive-load` 承接**：其 22 条决策方向与本笔记一致；其目标「首屏 ≤ 0.15 s / 全量 ≤ 10 s / 内存 ≤ 2.0 GB」中，**首屏与内存本轮实测已可达成**（212 ms / 663 MB），总时长 12.9 s 未达 10 s 目标——需确认该目标是否下调 |
 | `BIDIRECTIONAL-PROGRESSIVE-FILTER.md` | **不冲突**：其 §7.1 判据 2「C 要造的 UI，流式加载也要造」在本轮得到印证——D11 的锚点/跟随语义是同一套契约 |
 | `UTF8-BYTE-SIMD-SEARCH.md` | **直接相关**：D9=C 的实现依赖该路线的块扫描能力，且需与在途 change 协同 |
 | `filter-msgfilter-block-scan`（在途 change） | **已协同**：该 change 已实现未归档（9/9，master 8145561）；D9=C′ 落点在其 `MsgFilterBlockScan` 的函数形状拆分 |

@@ -1,7 +1,7 @@
 # 探索结论：边加载、边解析、边显示（IO / CPU 卡点探针）
 
-- 状态：探索完成，**待维护者决策**（未建 OpenSpec change，未改动仓库代码）
-- 日期：2026-10-24
+- 状态：**已归档（结项）**——D1–D11 决策已由后续探索 `openspec/notes/CHUNKED-PROGRESSIVE-LOAD.md` 续完并转入 OpenSpec change `chunked-progressive-load`，本文不再维护
+- 日期：2026-10-24；2026-10-30 归档
 - 关联提交：无（探针为临时工程 `.tmp-test/BenchLog`，已被 `.gitignore` 忽略，不入库）
 - 验收结论：不适用
 
@@ -135,7 +135,7 @@
 
 ### D7 存量私有设计处置 —— 待定
 
-- 为什么：同一命题存在一份私有待评审设计（重启卡 B1，见 `BACKLOG-BIGFILE-LOAD-PERF.md`；私有目录内容按项目规则不作依据，本文不引用其内容）。
+- 为什么：同一命题存在一份私有待评审设计（重启卡 B1，同批归档为 `openspec/notes/archive/2026-10-30-BACKLOG-BIGFILE-LOAD-PERF.md`；私有目录内容按项目规则不作依据，本文不引用其内容）。
 - 选项：A 以本笔记为事实基座，吸收私有设计中仍成立的结论；B 私有设计整体废弃，重写；C 两案并行评审。
 - 偏向：**A**，但需维护者确认哪些结论仍成立。
 

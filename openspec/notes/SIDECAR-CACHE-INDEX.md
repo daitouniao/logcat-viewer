@@ -15,14 +15,14 @@
 
 **本 change 不做什么**：
 - 不做过滤加速（属《过滤加速·零拷贝》探索笔记，已随 `filter-msgfilter-zero-copy` 归档）
-- 不做流式加载 / 首屏快（属 `STREAMING-FILE-LOAD.md`，D1–D4 已拍板、D5–D11 仍待定）
+- 不做流式加载 / 首屏快（属 `openspec/notes/archive/2026-10-30-STREAMING-FILE-LOAD.md`，D1–D4 已拍板、D5–D11 仍待定）
 - **不改列布局**（见 §3 结论 1：sidecar 沿用现状 SoA 9 段）
 
 ## 2. 现状（代码事实）
 
 `LogDocument.DoBuild` → `ScanRange`（单遍扫全文件 → `ParseLine` → 写 9 个 List → tag 字典）→ `Assemble`（`FinalizeTs` 终算 → `ToArray` 物化 → `SetColumns`）。
 
-1 GB 文件实测分解（`STREAMING-FILE-LOAD.md` 探针口径）：逐行 `ParseLine` 6–9 s + 九列物化 4–7 s + 终算/组装 2–4 s；本地 SSD 冷读仅 2.5 s。→ **纯 CPU 瓶颈，可被缓存跳过**。
+1 GB 文件实测分解（`openspec/notes/archive/2026-10-30-STREAMING-FILE-LOAD.md` 探针口径）：逐行 `ParseLine` 6–9 s + 九列物化 4–7 s + 终算/组装 2–4 s；本地 SSD 冷读仅 2.5 s。→ **纯 CPU 瓶颈，可被缓存跳过**。
 
 ## 3. 实测基线（2026-10-25）
 
@@ -54,7 +54,7 @@
 - SoA 加载更快（459 vs 509 ms）且体积更小：SoA 读回后**直接就是内存里那 9 个数组**（零转换）；AoS 还要把连续记录重建成结构体数组（多一次 0.47 GB 拷贝）。
 - **关键收益是解耦**：内存布局不变 → 与过滤加速 change **互不牵制**，可独立实施、独立验证、独立回滚。
 - 代价：sidecar 是「9 段变长段」而非「定长记录流」，失去「流式追加友好」。但 sidecar 是**一次性整体写、整体读**的离线文件，不需要流式追加 → 该代价不成立。
-- 原文「AoS 是 B 的价值所在」随之作废：AoS 唯一还站得住的场景是**流式加载时的逐块发布**（`STREAMING-FILE-LOAD.md` 摩擦点 1、2），与 sidecar 无关。
+- 原文「AoS 是 B 的价值所在」随之作废：AoS 唯一还站得住的场景是**流式加载时的逐块发布**（`openspec/notes/archive/2026-10-30-STREAMING-FILE-LOAD.md` 摩擦点 1、2），与 sidecar 无关。
 
 ### sidecar 需落盘的数据量与体积要素
 

@@ -35,7 +35,7 @@
 
 1. 现有架构是**文本行扫描专属**：`LooksLikeNewRecord` 记录头判定、banner 行、续行 join、`ScanRange` 行对齐、块起点表等均为 logcat 文本格式假设——`ILogFormat` 抽象的主要工作量在这里。
 2. `YearTables` 无锁静态可变缓存曾列为硬伤；该表已随 change `2026-10-24-minute-byte-column`（已归档）删除，重启时按现状重新核对（不复用旧结论）。
-3. SMB 路径读性能：见 `openspec/notes/STREAMING-FILE-LOAD.md`（网络路径以 IO 为主）与已结项的网络过滤慢根因（与网络无关，属 `MsgFilter` CPU 侧，已修）。
+3. SMB 路径读性能：见 `openspec/notes/archive/2026-10-30-STREAMING-FILE-LOAD.md`（网络路径以 IO 为主）与已结项的网络过滤慢根因（与网络无关，属 `MsgFilter` CPU 侧，已修）。
 
 ## 重启条件
 

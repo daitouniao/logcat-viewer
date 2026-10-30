@@ -1,9 +1,9 @@
 # 待重启卡 B1：大文件加载性能优化（单流水线渐进发布，方案 C）
 
-- 状态：**待评审**（澄清项全部闭环，决策 22 条已定，可直接转 OpenSpec change）（重启卡：未结项条目一卡一条 `openspec/notes/BACKLOG-*.md`，结项后移入 `openspec/notes/archive/`）
-- 日期：2026-10-13 起稿；2026-10-21 登记；2026-10-29 从登记簿拆为独立卡片
-- 关联提交：无（未编码）
-- 验收结论：不适用（未实施）
+- 状态：**已归档（结项）**——命题由 OpenSpec change `chunked-progressive-load` 承接（proposal / specs delta / design / tasks 已就绪，待 apply），本卡不再维护
+- 日期：2026-10-13 起稿；2026-10-21 登记；2026-10-29 从登记簿拆为独立卡片；2026-10-30 归档
+- 关联提交：无（本卡未直接编码）
+- 验收结论：不适用（未实施；验收随 `chunked-progressive-load` 的 change 流程进行）
 - 原设计：`docs/private/design/BIGFILE-LOAD-PERF.md`（私有目录，git-ignored，**换机器即丢**；本卡自包含需求与已定决策要点，不依赖该文件）
 
 ## 基础需求
@@ -30,7 +30,7 @@
 
 - **fileproxy 先行已落地**（change `2026-10-18-fileproxy` 已归档）：本方案的重启义务是**重接**三处——`StartIndex` 分流段、3 处 `SourcePath` 打开处、spool 取消行为。
 - **YearTables 已删除**（change `2026-10-24-minute-byte-column` 已归档）：原「YearTables 修复」子项作废，重启时按分钟列重新评估该项。
-- 相关探索结论可参考（同为在办笔记）：`openspec/notes/STREAMING-FILE-LOAD.md`（边加载边解析边显示的 IO/CPU 卡点实测）、`openspec/notes/SIDECAR-CACHE-INDEX.md`（旁车索引缓存，D5–D7 待决策）。
+- 相关探索结论可参考（同批归档）：`openspec/notes/archive/2026-10-30-STREAMING-FILE-LOAD.md`（边加载边解析边显示的 IO/CPU 卡点实测）、`openspec/notes/SIDECAR-CACHE-INDEX.md`（旁车索引缓存，D5–D7 待决策）。
 
 ## 重启条件
 
