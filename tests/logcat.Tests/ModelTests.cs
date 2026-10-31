@@ -269,10 +269,7 @@ public class ModelTests
     {
         var s = new AppSettings();
 
-        Assert.True(s.Join);
-        Assert.False(s.SingleLineExport);
         Assert.True(s.AutoApply);
-        Assert.Equal("↵", s.NewlineVis);
         Assert.Equal(10, s.FontPt);
 
         Assert.Equal("", s.LastLocalPath);
@@ -293,14 +290,12 @@ public class ModelTests
     {
         var s = new AppSettings
         {
-            Join = false,
             FontPt = 14,
             WindowLocation = new System.Drawing.Point(10, 20),
             WindowSize = new System.Drawing.Size(800, 600),
             ApkUseRoot = true,
         };
 
-        Assert.False(s.Join);
         Assert.Equal(14, s.FontPt);
         Assert.Equal(new System.Drawing.Point(10, 20), s.WindowLocation);
         Assert.Equal(new System.Drawing.Size(800, 600), s.WindowSize);

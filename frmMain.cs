@@ -19,10 +19,7 @@ public partial class frmMain : Form, ILocalizedUi
     int _pbarGen;
     // 最近一次全量过滤完成时的文档行数；实时采集增量过滤（FilterTail）从此行号起判定
     int _filterDocRows;
-    bool _join = true;
     int _fontPt = 10;
-    string _newlineVis = "↵";
-    bool _singleLineExport;
 
     // ── 异步 ──
     CancellationTokenSource? _ctsWorker;
@@ -94,7 +91,7 @@ public partial class frmMain : Form, ILocalizedUi
     readonly System.Windows.Forms.Timer _adbStatTimer = new() { Interval = 300 };
 
     // 菜单项
-    ToolStripMenuItem _actJoin = null!, _actSingleExport = null!, _actSaveLog = null!;
+    ToolStripMenuItem _actSaveLog = null!;
 
     // 「文件 → 最近打开」子菜单：打开下拉时动态重建
     ToolStripMenuItem _mruMenu = null!;
@@ -161,14 +158,7 @@ public partial class frmMain : Form, ILocalizedUi
         mFile!.DropDownItems.AddRange(new ToolStripItem[] { actOpen, actOpenPath, _mruMenu, actReload, actExport, actExportMarked, _actSaveLog, new ToolStripSeparator(), actQuit });
         RebuildRecentMenu();   // 初始化 Enabled：列表为空时子菜单置灰，避免「禁用后无法触发 DropDownOpening」死锁
 
-        _actJoin = Loc.Bind(new ToolStripMenuItem("续行合并（堆栈并入上一条记录）") { Checked = true, CheckOnClick = true }, "续行合并（堆栈并入上一条记录）");
-        _actJoin.Click += (_, _) => { _join = _actJoin.Checked; if (_doc != null) StartIndex(_doc.Path); };
-        mSet!.DropDownItems.Add(_actJoin);
-
-        _actSingleExport = Loc.Bind(new ToolStripMenuItem("导出时单行化（换行转 \\n）") { CheckOnClick = true }, "导出时单行化（换行转 \\n）");
-        _actSingleExport.Click += (_, _) => _singleLineExport = _actSingleExport.Checked;
-        mSet.DropDownItems.Add(_actSingleExport);
-        mSet.DropDownItems.Add(new ToolStripSeparator());
+        mSet!.DropDownItems.Add(new ToolStripSeparator());
         mSet.DropDownItems.Add(Loc.Bind(new ToolStripMenuItem("过滤设置…", null, (_, _) => ShowFilterDialog()), "过滤设置…"));
         mSet.DropDownItems.Add(Loc.Bind(new ToolStripMenuItem("文件代理…", null, (_, _) => ShowFileProxyDialog()), "文件代理…"));
 
@@ -1407,7 +1397,7 @@ public partial class frmMain : Form, ILocalizedUi
             {
                 var doc = _doc;
                 if (doc == null) { _pbar.Visible = false; return; }
-                n = await FilterEngine.ExportRowsAsync(doc, rows, dlg.FileName, _singleLineExport,
+                n = await FilterEngine.ExportRowsAsync(doc, rows, dlg.FileName,
                     new Progress<(double, string)>(p => { _pbar.Value = (int)(p.Item1 * 100); ShowStatusRaw(p.Item2); }));
             }
             finally { _docBusy.Release(); }
@@ -1533,14 +1523,10 @@ public partial class frmMain : Form, ILocalizedUi
             var cells = new List<string> { item.Text };
             for (int c = 0; c < item.SubItems.Count; c++)
                 cells.Add(item.SubItems[c].Text);
-            // 摘要只用于显示：崩溃行带格式复制时 Message 列还原完整堆栈；
-            // 换行照显示口径转 _newlineVis，与同行其他多行记录保持一致的表格形态
+            // 摘要只用于显示：崩溃行带格式复制时 Message 列还原完整原文
             if (_listView.CrashOf(dr) != null)
             {
-                var raw = _listView.FullText(dr);
-                if (_newlineVis != null && (raw.Contains('\n') || raw.Contains('\r')))
-                    raw = raw.Replace("\r\n", _newlineVis).Replace("\n", _newlineVis).Replace("\r", _newlineVis);
-                cells[^1] = raw;
+                cells[^1] = _listView.FullText(dr);
             }
             lines.Add(string.Join("\t", cells));
         }
@@ -1766,13 +1752,7 @@ public partial class frmMain : Form, ILocalizedUi
         var s = logcat.Services.AppSettings.Default;
         try
         {
-            _join = s.Join;
-            _actJoin.Checked = _join;
-            _singleLineExport = s.SingleLineExport;
-            _actSingleExport.Checked = _singleLineExport;
             _chkAuto.Checked = s.AutoApply;
-            _newlineVis = string.IsNullOrEmpty(s.NewlineVis) ? "↵" : s.NewlineVis;
-            _listView.NewlineVis = _newlineVis;
             _fontPt = s.FontPt > 0 ? s.FontPt : 10;
             ApplyFont(_fontPt);
 
@@ -1859,10 +1839,7 @@ public partial class frmMain : Form, ILocalizedUi
     void SaveSettings()
     {
         var s = logcat.Services.AppSettings.Default;
-        s.Join = _join;
-        s.SingleLineExport = _singleLineExport;
         s.AutoApply = _chkAuto.Checked;
-        s.NewlineVis = _newlineVis;
         s.FontPt = _fontPt;
         // ── 窗口状态与几何保存 ──
         // 关闭时状态 → 保存策略：

@@ -375,10 +375,11 @@ public static class LogParser
         return j >= line.Length || line[j] == ' ' || line[j] == '\t';
     }
 
-    // ── 续行判定 ──
+    // ── 新记录特征判定 ──
     /// <summary>
-    /// 判定一行是否像「一条新记录的开头」。
-    /// 缩进的堆栈帧、Caused by: 等视为续行。
+    /// 判定一行是否像「一条新记录的开头」（缩进视为续行特征）。
+    /// 这是格式层能力，与索引无关：索引已改为自然行口径（除空行与横幅行外每物理行各成一条记录），
+    /// 删 join 后生产侧无调用点，保留供外部 / 未来使用（不标 [Obsolete]，仓库无此先例）。
     /// </summary>
     public static bool LooksLikeNewRecord(ReadOnlySpan<byte> line)
     {

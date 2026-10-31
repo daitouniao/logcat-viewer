@@ -45,10 +45,7 @@ public sealed class AppSettings
     internal AppSettings(string path) => StorePath = path;
 
     // ── 显示选项 ──
-    public bool Join { get; set; } = true;
-    public bool SingleLineExport { get; set; }
     public bool AutoApply { get; set; } = true;
-    public string NewlineVis { get; set; } = "↵";
     public int FontPt { get; set; } = 10;
 
     /// <summary>界面语言（"zh-CN" / "en"）。留空表示按系统区域推断（见 <c>Loc.DetectLang</c>）。</summary>

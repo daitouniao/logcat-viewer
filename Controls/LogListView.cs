@@ -31,7 +31,6 @@ public class LogListView : ListView
     LogDocument? _doc;
     int[] _rows = Array.Empty<int>();
     HashSet<int> _marked = new();
-    string _newlineVis = "↵";
     int _fontPt = 10;
 
     // 缓存
@@ -41,8 +40,6 @@ public class LogListView : ListView
     public LogDocument? Document { get => _doc; }
     public int[] Rows { get => _rows; }
     public HashSet<int> Marked { get => _marked; }
-    [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
-    public string NewlineVis { get => _newlineVis; set { _newlineVis = value; ClearCache(); Invalidate(); } }
     public int FontPt { get => _fontPt; }
 
     public event EventHandler<int>? RowMarkToggled;
@@ -389,8 +386,6 @@ public class LogListView : ListView
             msg = CrashSummary(crash.Value, msg);
         else
         {
-            if (_newlineVis != null && (msg.Contains('\n') || msg.Contains('\r')))
-                msg = msg.Replace("\r\n", _newlineVis).Replace("\n", _newlineVis).Replace("\r", _newlineVis);
             if (msg.Length > MSG_LIMIT)
                 msg = msg[..MSG_LIMIT] + Loc.F(" …(+{0} 字符)", msg.Length - MSG_LIMIT);
         }
