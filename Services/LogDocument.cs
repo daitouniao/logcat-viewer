@@ -18,8 +18,6 @@ public delegate void MessageBodyAction(ReadOnlySpan<byte> body);
 /// </summary>
 public sealed class LogDocument : IDisposable
 {
-    const int MAX_JOIN = 200;           // 单条记录最多合并续行数
-    const byte FLAG_MULTILINE = 0x01;
     /// <summary>分钟列哨兵：行首无有效时间戳的记录存 255（分钟集合只含 0-59，天然不命中）。</summary>
     public const byte MINUTE_NONE = 255;
 
@@ -47,9 +45,9 @@ public sealed class LogDocument : IDisposable
     public string EncodingName { get; } = "utf-8";
     public long Size { get; private set; }
     public long IndexedSize { get; private set; }
-    public bool Join { get; set; } = true;
 
     // ── 列存储 ──
+    // 自然行口径：除空行与横幅行外，每一物理行各成一条记录，不合并续行。
     long[] _offs = Array.Empty<long>();
     int[] _lens = Array.Empty<int>();
     int[] _moff = Array.Empty<int>();
@@ -58,7 +56,6 @@ public sealed class LogDocument : IDisposable
     int[] _tid = Array.Empty<int>();
     byte[] _lvl = Array.Empty<byte>();
     int[] _tagId = Array.Empty<int>();
-    byte[] _flags = Array.Empty<byte>();
     int _n;      // 有效行数
     int _cap;    // 已分配容量
 
@@ -102,34 +99,24 @@ public sealed class LogDocument : IDisposable
     public ReadOnlySpan<int> Tid => _tid.AsSpan(0, _n);
     public ReadOnlySpan<byte> Lvl => _lvl.AsSpan(0, _n);
     public ReadOnlySpan<int> TagId => _tagId.AsSpan(0, _n);
-    public ReadOnlySpan<byte> Flags => _flags.AsSpan(0, _n);
     public int RowCount => _n;
-
-    public bool IsMultiline(int row) => (_flags[row] & FLAG_MULTILINE) != 0;
-
-    /// <summary>
-    /// 最近一次 Append 是否发生了跨批次续行合并（末记录被拉长、message 内容变化）。
-    /// 实时采集的增量过滤据此决定是否回退全量：carry 意味着末行的 Msg 匹配结果可能翻转。
-    /// </summary>
-    public bool LastAppendCarried { get; private set; }
 
     // ── 容量管理 ──
     void SetColumns(long[] offs, int[] lens, int[] moff, byte[] min, int[] pid, int[] tid,
-                    byte[] lvl, int[] tagId, byte[] flags)
+                    byte[] lvl, int[] tagId)
     {
         int n = offs.Length;
         _n = n;
         _cap = n + (n >> 2) + 1024;
         _offs = new long[_cap]; _lens = new int[_cap]; _moff = new int[_cap];
         _min = new byte[_cap]; _pid = new int[_cap]; _tid = new int[_cap];
-        _lvl = new byte[_cap]; _tagId = new int[_cap]; _flags = new byte[_cap];
+        _lvl = new byte[_cap]; _tagId = new int[_cap];
         if (n > 0)
         {
             Array.Copy(offs, _offs, n); Array.Copy(lens, _lens, n);
             Array.Copy(moff, _moff, n); Array.Copy(min, _min, n);
             Array.Copy(pid, _pid, n); Array.Copy(tid, _tid, n);
             Array.Copy(lvl, _lvl, n); Array.Copy(tagId, _tagId, n);
-            Array.Copy(flags, _flags, n);
         }
     }
 
@@ -139,7 +126,7 @@ public sealed class LogDocument : IDisposable
         int cap = Math.Max(need, _cap + Math.Max(_cap >> 2, 1 << 16));
         Array.Resize(ref _offs, cap); Array.Resize(ref _lens, cap); Array.Resize(ref _moff, cap);
         Array.Resize(ref _min, cap); Array.Resize(ref _pid, cap); Array.Resize(ref _tid, cap);
-        Array.Resize(ref _lvl, cap); Array.Resize(ref _tagId, cap); Array.Resize(ref _flags, cap);
+        Array.Resize(ref _lvl, cap); Array.Resize(ref _tagId, cap);
         _cap = cap;
     }
 
@@ -377,32 +364,29 @@ public sealed class LogDocument : IDisposable
     }
 
     // ── 构建 ──
-    public static async Task<LogDocument> BuildAsync(string path, bool join = true,
+    public static async Task<LogDocument> BuildAsync(string path,
         IProgress<(double pct, string msg)>? progress = null, CancellationToken ct = default,
         string? displayPath = null)
     {
-        return await Task.Run(() => Build(path, join, progress, ct, displayPath), ct);
+        return await Task.Run(() => Build(path, progress, ct, displayPath), ct);
     }
 
-    public static LogDocument Build(string path, bool join = true,
+    public static LogDocument Build(string path,
         IProgress<(double pct, string msg)>? progress = null, CancellationToken ct = default,
         string? displayPath = null)
     {
-        var doc = new LogDocument(path, displayPath: displayPath) { Join = join };
-        doc.DoBuild(join, progress, ct);
+        var doc = new LogDocument(path, displayPath: displayPath);
+        doc.DoBuild(progress, ct);
         return doc;
     }
 
-    void DoBuild(bool join, IProgress<(double, string)>? progress, CancellationToken ct)
+    void DoBuild(IProgress<(double, string)>? progress, CancellationToken ct)
     {
         Size = new FileInfo(SourcePath).Length;
         OpenMap();
         progress?.Report((0.0, Loc.T("扫描行…")));
-        var part = ScanRange(SourcePath, 0, Size, join, false, 0, progress, ct);
+        var part = ScanRange(SourcePath, 0, Size, progress, ct);
         ct.ThrowIfCancellationRequested();
-        // 整体重建：批末合并状态缓存一并刷新（Reload 检测到头变化走重建时，旧缓存态作废）
-        _prevHeadAtEnd = part.EndPrevHead;
-        _joinedAtEnd = part.EndJoined;
         Assemble(part, progress);
         IndexedSize = Size;
     }
@@ -414,21 +398,13 @@ public sealed class LogDocument : IDisposable
         public long[] Offs; public int[] Lens; public int[] Moff;
         public byte[] Minutes;
         public int[] Pids; public int[] Tids;
-        public byte[] Lvls; public int[] TagIds; public byte[] Flags;
+        public byte[] Lvls; public int[] TagIds;
         public List<byte[]> LocalTags;
         /// <summary>本批提取到的崩溃事件（稀疏方案）。Row 为批次内相对行号，Append 时 +n 偏移。</summary>
         public List<CrashEvent> Crashes;
         /// <summary>本批出现的异常类型 / 包名局部字典（id 即 CrashEvent.ExcId/PkgId）。</summary>
         public List<string> LocalExcTypes;
         public List<string> LocalPkgs;
-        /// <summary>本批开头若干行属于「上一批末尾那条记录」的续行（跨批次合并）。</summary>
-        public int CarryLines;
-        /// <summary>这些续行结束处的绝对文件偏移。</summary>
-        public long CarryEndOff;
-        /// <summary>批末真实合并状态（空行已重置、横幅不重置，语义与批内一致）。跨批缓存用，替代按已索引行反推。</summary>
-        public bool EndPrevHead;
-        /// <summary>批末真实 joined：自末条记录头起的续行总数（跨批 carry 行也计入）。</summary>
-        public int EndJoined;
     }
 
     /// <summary>
@@ -436,8 +412,8 @@ public sealed class LogDocument : IDisposable
     /// （前半段已由上一批索引），end 落在行中间时回退到该行行首（不完整行留待下次追加）。
     /// internal：单元测试直接验证对齐语义（见 InternalsVisibleTo）。
     /// </summary>
-    internal static ScanPart ScanRange(string path, long start, long end, bool join, bool prevHeadDoc = false,
-        int joinedDoc = 0, IProgress<(double, string)>? progress = null, CancellationToken ct = default)
+    internal static ScanPart ScanRange(string path, long start, long end,
+        IProgress<(double, string)>? progress = null, CancellationToken ct = default)
     {
         var offs = new List<long>();
         var lens = new List<int>();
@@ -447,28 +423,16 @@ public sealed class LogDocument : IDisposable
         var tids = new List<int>();
         var lvls = new List<byte>();
         var tagIds = new List<int>();
-        var flags = new List<byte>();
 
         var tagMap = new Dictionary<string, int>();
         var tagList = new List<byte[]>();
 
         // ── 崩溃提取 ──
         var crashes = new List<CrashEvent>();
-        var crashRows = new HashSet<int>();       // a 轨已建事件的行号（c 轨批末补扫去重）
         var excMap = new Dictionary<string, int>();
         var excList = new List<string>();
         var pkgMap = new Dictionary<string, int>();
         var pkgList = new List<string>();
-        var joinCounts = new List<int>();         // 与 offs 平行：每条记录已合并的续行数（LineCount 来源）
-
-        int prev = -1;
-        // 续行状态跨批次传递：本批第一行如果属于上一批末尾那条记录，要并回去，
-        // 否则多行日志（崩溃堆栈）会在批次边界被切成年两条记录。
-        bool prevHead = prevHeadDoc;
-        // joined 同样跨批传递：MAX_JOIN 是「单记录」全局上限，不是每批预算
-        int joined = joinedDoc;
-        int carryLines = 0;
-        long carryEndOff = 0;
 
         using var f = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
         long fileSize = f.Length;
@@ -556,14 +520,8 @@ public sealed class LogDocument : IDisposable
 
             if (lineLen == 0)
             {
-                // 空行：不索引，中断合并。
-                // prevHead/joined 必须一起重置——否则空行后的缩进行仍满足合并判据，
-                // 全量路径（Assemble 不读 CarryLines）会把它蒸发，增量路径（Append 消费 carry）
-                // 却把它吸收进上一条记录，同一字节两条路径结论相反。
-                // 对照：横幅行分支刻意不重置（崩溃堆栈中间的横幅不切断堆栈），两者语义相反，勿「统一」。
-                prev = -1;
-                prevHead = false;
-                joined = 0;
+                // 空行：不是日志记录，不进索引（自然行口径下无状态可重置，仅跳过）。
+                // 此分支是行为契约（空行不索引），变异测试有专用锚点守护，勿并入通用跳过。
                 pos = nl >= 0 ? nl + 1 : data.Length;
                 continue;
             }
@@ -571,30 +529,10 @@ public sealed class LogDocument : IDisposable
             ReadOnlySpan<byte> line = data.AsSpan(lineOff, lineLen);
 
             // 横幅行（--------- beginning of main / ----- timezone:Asia/Kuala_Lumpur 等）
-            // 不是日志记录：不进索引，也不打断续行合并，与实时采集的过滤规则保持一致
+            // 不是日志记录：不进索引，与实时采集的过滤规则保持一致。
+            // 此分支同为行为契约（横幅不索引），变异测试有专用锚点守护，勿并入通用跳过。
             if (LogParser.IsBanner(line))
             {
-                pos = nl >= 0 ? nl + 1 : data.Length;
-                continue;
-            }
-
-            // 续行合并
-            if (join && prevHead && joined < MAX_JOIN && !LogParser.LooksLikeNewRecord(line))
-            {
-                if (prev >= 0)
-                {
-                    lens[prev] = (int)((currentOff + lineLen) - offs[prev]);
-                    flags[prev] = (byte)(flags[prev] | FLAG_MULTILINE);
-                    joinCounts[prev]++;
-                }
-                else
-                {
-                    // prev < 0：并回「上一批末尾那条记录」（由 Append 写回列存储）。
-                    // 该记录若是崩溃，其 LineCount 由 Append 按 CarryLines 补增。
-                    carryLines++;
-                    carryEndOff = currentOff + lineLen;
-                }
-                joined++;
                 pos = nl >= 0 ? nl + 1 : data.Length;
                 continue;
             }
@@ -610,7 +548,6 @@ public sealed class LogDocument : IDisposable
             pids.Add(pr.Pid);
             tids.Add(pr.Tid);
             lvls.Add((byte)pr.Level);
-            joinCounts.Add(0);
 
             int gid = -1;
             if (!string.IsNullOrEmpty(pr.Tag))
@@ -628,11 +565,10 @@ public sealed class LogDocument : IDisposable
                 }
             }
             tagIds.Add(gid);
-            flags.Add(0);
 
-            // ── 崩溃头识别（a 轨，与 Join 无关）──
-            // 字节级快筛零成本放行绝大多数行；命中才解码 msg + 前瞻后续行拼文本做完整提取
-            //（Join=false 时 Process/异常类型行是独立记录，前瞻是拿到它们的唯一途径）
+            // ── 崩溃头识别（a 轨）──
+            // 字节级快筛零成本放行绝大多数行；命中才解码 msg + 前瞻后续行拼文本做完整提取。
+            // 自然行口径下 Process/异常类型行本就是独立记录，前瞻是拿到它们的唯一途径。
             if (CrashExtractor.ContainsCrashKeyword(line))
             {
                 var match = ExtractCrashAt(data, lineOff, lineLen, moff[^1], pos);
@@ -646,15 +582,10 @@ public sealed class LogDocument : IDisposable
                         Pid = pr.Pid,
                         Tid = pr.Tid,
                         Kind = match.Value.Kind,
-                        LineCount = 1,        // 批末按 joinCounts 终算
+                        LineCount = 1,        // 过渡期占位（4.x 删 LineCount 字段时一并清理）
                     });
-                    crashRows.Add(offs.Count - 1);
                 }
             }
-
-            prev = offs.Count - 1;
-            prevHead = pr.WithinMs >= 0 || pr.Level > 0;
-            joined = 0;
 
             pos = nl >= 0 ? nl + 1 : data.Length;
 
@@ -671,51 +602,15 @@ public sealed class LogDocument : IDisposable
             }
         }
 
-        // ── 崩溃事件收尾 ──
-        // 1) LineCount 终算：合并行数 = 批内 joinCounts + 1（跨批 carry 由 Append 补增）
-        for (int i = 0; i < crashes.Count; i++)
-        {
-            var ce = crashes[i];
-            ce.LineCount = joinCounts[ce.Row] + 1;
-            crashes[i] = ce;
-        }
-
-        // 2) c 轨批末补扫：崩溃头缩进并入父记录的合并形态（Join=true），头行不经过 a 轨
-        //    的「新记录行」分支 —— 对 multiline 记录的合并文本统一再提一次（Row 已建的跳过）
-        for (int i = 0; i < offs.Count; i++)
-        {
-            if ((flags[i] & FLAG_MULTILINE) == 0 || crashRows.Contains(i)) continue;
-            int mo = moff[i];
-            int len = lens[i] - mo;
-            if (len <= 0) continue;
-            var span = data.AsSpan((int)(offs[i] - start) + mo, len);
-            if (!CrashExtractor.ContainsCrashKeyword(span)) continue;
-            var match = CrashExtractor.TryExtract(Encoding.UTF8.GetString(span));
-            if (match == null) continue;
-            crashes.Add(new CrashEvent
-            {
-                Row = i,
-                ExcId = Intern(match.Value.ExcType, excMap, excList),
-                PkgId = Intern(match.Value.Pkg, pkgMap, pkgList),
-                Pid = pids[i],
-                Tid = tids[i],
-                Kind = match.Value.Kind,
-                LineCount = joinCounts[i] + 1,
-            });
-            crashRows.Add(i);
-        }
-        crashes.Sort((a, b) => a.Row.CompareTo(b.Row));
-
+        // a 轨已按行序产出事件（offs 本就升序），无需再排序
         return new ScanPart
         {
             Offs = offs.ToArray(), Lens = lens.ToArray(), Moff = moff.ToArray(),
             Minutes = minutes.ToArray(),
             Pids = pids.ToArray(), Tids = tids.ToArray(),
-            Lvls = lvls.ToArray(), TagIds = tagIds.ToArray(), Flags = flags.ToArray(),
+            Lvls = lvls.ToArray(), TagIds = tagIds.ToArray(),
             LocalTags = tagList,
             Crashes = crashes, LocalExcTypes = excList, LocalPkgs = pkgList,
-            CarryLines = carryLines, CarryEndOff = carryEndOff,
-            EndPrevHead = prevHead, EndJoined = joined
         };
     }
 
@@ -787,7 +682,7 @@ public sealed class LogDocument : IDisposable
         Offs = Array.Empty<long>(), Lens = Array.Empty<int>(), Moff = Array.Empty<int>(),
         Minutes = Array.Empty<byte>(),
         Pids = Array.Empty<int>(), Tids = Array.Empty<int>(),
-        Lvls = Array.Empty<byte>(), TagIds = Array.Empty<int>(), Flags = Array.Empty<byte>(),
+        Lvls = Array.Empty<byte>(), TagIds = Array.Empty<int>(),
         LocalTags = new List<byte[]>(),
         Crashes = new List<CrashEvent>(), LocalExcTypes = new List<string>(), LocalPkgs = new List<string>()
     };
@@ -801,7 +696,7 @@ public sealed class LogDocument : IDisposable
         {
             SetColumns(Array.Empty<long>(), Array.Empty<int>(), Array.Empty<int>(),
                        Array.Empty<byte>(), Array.Empty<int>(), Array.Empty<int>(),
-                       Array.Empty<byte>(), Array.Empty<int>(), Array.Empty<byte>());
+                       Array.Empty<byte>(), Array.Empty<int>());
             Tags = new(); TagIndex = new();
             _crashes = new(); ExcTypes = new(); ExcTypeIndex = new();
             Pkgs = new(); PkgIndex = new();
@@ -821,7 +716,7 @@ public sealed class LogDocument : IDisposable
         Tags = tags;
         TagIndex = tagIndex;
 
-        SetColumns(part.Offs, part.Lens, part.Moff, part.Minutes, part.Pids, part.Tids, part.Lvls, part.TagIds, part.Flags);
+        SetColumns(part.Offs, part.Lens, part.Moff, part.Minutes, part.Pids, part.Tids, part.Lvls, part.TagIds);
 
         // ── 崩溃事件落表（单分片：局部 id 即全局 id，无需重映射）──
         // 事件只存行号，时间文本由展示侧经 HeaderBytes(行号) 现取（行序 + 原文，见 CrashTime）
@@ -839,15 +734,14 @@ public sealed class LogDocument : IDisposable
     }
 
     // ── 增量 ──
-    public string Reload(bool? join = null, IProgress<(double, string)>? progress = null, CancellationToken ct = default)
+    public string Reload(IProgress<(double, string)>? progress = null, CancellationToken ct = default)
     {
-        if (join.HasValue) Join = join.Value;
         long newSize = new FileInfo(SourcePath).Length;
         if (newSize == IndexedSize && _view != null)
             return "unchanged";
         if (newSize < IndexedSize || IndexedSize == 0 || _view == null)
         {
-            DoBuild(Join, progress, ct);
+            DoBuild(progress, ct);
             return "rebuilt";
         }
 
@@ -862,19 +756,12 @@ public sealed class LogDocument : IDisposable
 
         if (!headBuf.AsSpan().SequenceEqual(oldHead))
         {
-            DoBuild(Join, progress, ct);
+            DoBuild(progress, ct);
             return "rebuilt";
         }
 
         return Append(newSize, progress, ct);
     }
-
-    // ── 批末合并状态跨批缓存 ──
-    // ScanRange 透传「批末真实状态」（空行已重置、横幅不重置），替代按已索引行反推——
-    // 后者看不见批尾空行，会让全量/增量两路径在批界处结论相反。
-    bool _prevHeadAtEnd;
-    // 批末 joined：自末条记录头起的续行总数，保证 MAX_JOIN 是单记录全局上限而非每批预算
-    int _joinedAtEnd;
 
     string Append(long newSize, IProgress<(double, string)>? progress, CancellationToken ct)
     {
@@ -886,40 +773,13 @@ public sealed class LogDocument : IDisposable
         if (newSize <= IndexedSize)
             return "unchanged";
 
-        var part = ScanRange(SourcePath, IndexedSize, newSize, Join, _prevHeadAtEnd, _joinedAtEnd, progress, ct);
+        var part = ScanRange(SourcePath, IndexedSize, newSize, progress, ct);
         if (ct.IsCancellationRequested) return "unchanged";
-        // 批末状态必须在任何早退分支之前入缓存：整批空行走 "unchanged" 但合并状态已变
-        _prevHeadAtEnd = part.EndPrevHead;
-        _joinedAtEnd = part.EndJoined;
-        LastAppendCarried = part.CarryLines > 0;
-
-        // 跨批次续行：本批开头的续行并回上一批末尾那条记录，
-        // 否则多行日志会在批次边界被切成两条（只影响列存储，文本本体不动）
-        if (part.CarryLines > 0 && _n > 0)
-        {
-            _lens[_n - 1] = (int)(part.CarryEndOff - _offs[_n - 1]);
-            _flags[_n - 1] |= FLAG_MULTILINE;
-
-            // 末记录若是崩溃事件且被本批续行拉长：copy-on-write 补增 LineCount。
-            // 此处先行更新，覆盖「整批都是续行、part.Offs 为空」的早退分支（那里不做崩溃并入）
-            var oldCrashes = _crashes;
-            if (oldCrashes.Count > 0 && oldCrashes[^1].Row == _n - 1)
-            {
-                var last = oldCrashes[^1];
-                last.LineCount += part.CarryLines;
-                _crashes = new List<CrashEvent>(oldCrashes) { [oldCrashes.Count - 1] = last };
-            }
-        }
 
         if (part.Offs.Length == 0)
         {
+            // 本批只有空行/横幅行：无新记录，仅推进索引口径（文本本体不必重映射读取）
             IndexedSize = newSize; Size = newSize;
-            if (part.CarryLines > 0)
-            {
-                // 整批都是续行：末行被拉长了，必须重映射才能读到新增字节
-                OpenMap();
-                return "appended";
-            }
             return "unchanged";
         }
 
@@ -956,7 +816,6 @@ public sealed class LogDocument : IDisposable
         Array.Copy(part.Tids, 0, _tid, n, k);
         Array.Copy(part.Lvls, 0, _lvl, n, k);
         Array.Copy(newTagId, 0, _tagId, n, k);
-        Array.Copy(part.Flags, 0, _flags, n, k);
 
         // ── 崩溃事件并入 ──
         // 局部 ExcType/Pkg id 重映射到全局、Row +n 偏移；

@@ -1006,7 +1006,7 @@ public partial class frmMain : Form, ILocalizedUi
             }
             else
             {
-                doc = await LogDocument.BuildAsync(path, _join,
+                doc = await LogDocument.BuildAsync(path,
                     new Progress<(double pct, string msg)>(p =>
                     {
                         if (_workerGen == gen)
@@ -1096,7 +1096,7 @@ public partial class frmMain : Form, ILocalizedUi
                     }), ct);
 
                 // 索引构建：进度映射到 50–100%；显示路径 = 用户原路径（源路径 = 暂存文件）
-                var doc = await LogDocument.BuildAsync(result.SpoolFilePath, _join,
+                var doc = await LogDocument.BuildAsync(result.SpoolFilePath,
                     new Progress<(double pct, string msg)>(p =>
                     {
                         if (_workerGen == gen)
@@ -1151,7 +1151,7 @@ public partial class frmMain : Form, ILocalizedUi
             {
                 var doc = _doc;
                 if (doc == null) return;
-                kind = await Task.Run(() => doc.Reload(join: _join,
+                kind = await Task.Run(() => doc.Reload(
                     progress: new Progress<(double, string)>(p =>
                     {
                         if (_workerGen == gen) { _pbar.Value = (int)(p.Item1 * 100); ShowStatusRaw(p.Item2); }
@@ -1252,7 +1252,7 @@ public partial class frmMain : Form, ILocalizedUi
     /// 实时采集增量过滤：过滤条件全部逐行独立判定、append 只在尾部加行，
     /// 旧行的匹配结果永不变化，因此只需对 [_filterDocRows, RowCount) 调 FilterTail
     /// 并 AppendRows——不重算旧行、不清虚拟列表缓存，每秒开销从 O(全量) 降到 O(新增行)。
-    /// 末行被续行拉长（LastAppendCarried，message 内容可能变化）或文档重建时，调用方回退全量。
+    /// 文档重建（rebuilt）时调用方回退全量。
     /// </summary>
     async Task ApplyIncremental(LogDocument doc)
     {
@@ -2227,7 +2227,7 @@ public partial class frmMain : Form, ILocalizedUi
                     _adbIndexing = true;
                     RefreshChannelState();
 
-                    var doc = await LogDocument.BuildAsync(_adbTempPath, _join,
+                    var doc = await LogDocument.BuildAsync(_adbTempPath,
                         new Progress<(double, string)>(), cts0.Token);
                     if (_workerGen != gen) { _adbIndexing = false; RefreshChannelState(); return; }
                     _doc = doc;
@@ -2253,7 +2253,7 @@ public partial class frmMain : Form, ILocalizedUi
                     try
                     {
                         kind = await Task.Run(() =>
-                            doc.Reload(join: _join,
+                            doc.Reload(
                                 progress: new Progress<(double, string)>(),
                                 ct: cts.Token), cts.Token);
                     }
@@ -2261,14 +2261,14 @@ public partial class frmMain : Form, ILocalizedUi
                     if (_workerGen != gen) return;
                     if (kind != "unchanged")
                     {
-                        if (kind == "appended" && !doc.LastAppendCarried)
+                        if (kind == "appended")
                         {
                             // 纯尾部追加：增量过滤（旧行结果不变，只判新行）
                             await ApplyIncremental(doc);
                         }
                         else
                         {
-                            // rebuilt（文件重写）或末行被续行拉长（message 变了，匹配结果可能翻转）：
+                            // rebuilt（文件重写，旧行内容可能已变）：
                             // 回退全量。同一文档实例无需 SetDocument，静默刷新避免闪屏
                             var snap = _listView.CaptureView();
                             await ApplyFilter(snap, quiet: true);

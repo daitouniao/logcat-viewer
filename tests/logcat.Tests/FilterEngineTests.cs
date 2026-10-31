@@ -571,22 +571,6 @@ public class FilterEngineTests
     }
 
     [Fact]
-    public void 单行模式把多行记录压成一行()
-    {
-        using var tmp = new TempLogFile(
-            "09-23 18:00:00.000  1  2 E Tag: crash\n    at Foo.bar(Foo.java:1)\n");
-        using var doc = LogDocument.Build(tmp.Path);
-        var outPath = OutPath(tmp);
-        try
-        {
-            FilterEngine.ExportRows(doc, new[] { 0 }, outPath, singleLine: true);
-            Assert.Equal("09-23 18:00:00.000  1  2 E Tag: crash\\n    at Foo.bar(Foo.java:1)\n",
-                File.ReadAllText(outPath));
-        }
-        finally { File.Delete(outPath); }
-    }
-
-    [Fact]
     public void 导出取消时抛出异常()
     {
         using var tmp = new TempLogFile(Data);
@@ -690,15 +674,19 @@ public class FilterEngineTests
             Apply(doc, new FilterSpec { Msg = new[] { "start" }, MsgExclude = true }));
     }
 
+    /// <summary>自然行口径：续行内容以其自身记录参与 message 匹配（spec「物理行作用域」）。</summary>
     [Fact]
-    public void message过滤能命中多行记录的续行内容()
+    public void message过滤_续行内容以自身记录命中()
     {
         using var tmp = new TempLogFile(
             "09-23 18:00:00.000  1  2 E Tag: crash\n    at Foo.bar(Foo.java:1)\n" + Data);
         using var doc = LogDocument.Build(tmp.Path);
 
-        Assert.Equal(new[] { 0 }, Apply(doc, new FilterSpec { Msg = new[] { "Foo.bar" } }));
-        Assert.Equal(new[] { 0 }, Apply(doc, new FilterSpec { Msg = new[] { "java:1" } }));
+        // 续行自身那条记录命中，而非其上方的 crash 记录
+        Assert.Equal(new[] { 1 }, Apply(doc, new FilterSpec { Msg = new[] { "Foo.bar" } }));
+        Assert.Equal(new[] { 1 }, Apply(doc, new FilterSpec { Msg = new[] { "java:1" } }));
+        // 上一条 crash 记录不因续行内容命中
+        Assert.Empty(Apply(doc, new FilterSpec { Msg = new[] { "Foo.bar" }, MsgOp = "and" }).Where(r => r == 0));
     }
 
     [Fact]

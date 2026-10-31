@@ -10,9 +10,10 @@
 为什么需要它：行覆盖率只证明「代码被执行过」，不证明「断言咬得住」。
 本项目实测三处被覆盖率统计覆盖、却一个都测不出来的代码。
 
-依赖：`dotnet test` 在本机跑不起来（testhost 加载 hostfxr.dll 报 0x80070005），
-需先准备反射 runner `%TEMP%/tstrun`（ProjectReference → logcat.Tests.csproj，
-反射扫 [Fact] / [Theory] 按 [InlineData] 展开后 m.Invoke）。
+依赖：反射 runner 存放在仓库内 `.tmp-test/tstrun`（git-ignored；ProjectReference →
+本仓库的 logcat.Tests.csproj，反射扫 [Fact] / [Theory] 按 [InlineData] 展开后 m.Invoke）。
+worktree 里跑必须先在该 worktree 建自己的 runner（ProjectReference 指向所在仓库），
+否则测的是主仓库代码，全部假 SURVIVED。
 
 用法：
     python scripts/mutation-test.py                # 跑全部
@@ -37,7 +38,7 @@ import sys
 import time
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-RUNNER = os.path.join(os.environ.get("TEMP", "/tmp"), "tstrun")
+RUNNER = os.path.join(REPO, ".tmp-test", "tstrun")
 
 # ── 文本替换型变异 ────────────────────────────────────────────────────────────
 # (相对路径, 旧文本, 新文本, 说明)
@@ -201,8 +202,10 @@ TEXT_MUTATIONS = [
      "            if (needle.Length == 0)\n            {\n                if (!opAnd) return true;\n                continue;\n            }",
      "            if (needle.Length == 0)\n            {\n                return !opAnd;\n            }",
      "MatchAny：空 needle 在 and 模式下改为直接不命中"),
+    # 2026-10-31 修回：块扫描重构后 spec.MsgExclude 判定拆为局部变量 exclude，
+    # 逐条路径形态变更（VerdictPass 另有等价判定，随删码/重核再处置）。
     ("Services/FilterEngine.cs",
-     "                if (ok != spec.MsgExclude)\n                    result.Add(r);",
+     "                if (ok != exclude)\n                    result.Add(r);",
      "                if (ok)\n                    result.Add(r);",
      "MsgFilter：忽略 MsgExclude（排除语义失效）"),
     ("Services/FilterEngine.cs",
@@ -477,33 +480,34 @@ TEXT_MUTATIONS = [
 # (相对路径, 1-based 行号, 该行须含的片段, 变异后内容, 说明)
 LINE_MUTATIONS = [
     # 行号会随 FilterEngine.cs 增删漂移（2026-10-04 移除正则后下移约 47 行；
-    # 2026-10-24 minute-byte-column 分钟守卫改写后 pid/tid 各下移 9/7 行）。
+    # 2026-10-24 minute-byte-column 分钟守卫改写后 pid/tid 各下移 9/7 行；
+    # 2026-10-31 核对：漂到 ApplyFilter 808/815/822、FilterTail 877/882/887）。
     # 脚本按「行号 + 该行内容」双重校验，内容不符会 SKIP 而非误改，所以漂移是安全失败、
     # 但会静默漏掉一半变异点 —— 改完引擎记得回来核对行号。
-    ("Services/FilterEngine.cs", 263,
+    ("Services/FilterEngine.cs", 808,
      "if (spec.PidExclude ? hit : !hit) continue;",
      "if (hit) continue;",
-     "ApplyFilter(263)：pid 排除退化为包含"),
-    ("Services/FilterEngine.cs", 270,
+     "ApplyFilter(808)：pid 排除退化为包含"),
+    ("Services/FilterEngine.cs", 815,
      "if (spec.TidExclude ? hit : !hit) continue;",
      "if (spec.TidExclude ? !hit : hit) continue;",
-     "ApplyFilter(270)：tid 排除/包含语义整体反转（对照组）"),
-    ("Services/FilterEngine.cs", 277,
+     "ApplyFilter(815)：tid 排除/包含语义整体反转（对照组）"),
+    ("Services/FilterEngine.cs", 822,
      "if (!minSet.Contains(doc.Minute[i])) continue;",
      "if (!minSet.Contains(doc.Minute[i]) && doc.Minute[i] != 255) continue;",
-     "ApplyFilter(277)：分钟守卫放行哨兵行（无时间戳行反被分钟过滤命中）"),
-    ("Services/FilterEngine.cs", 332,
+     "ApplyFilter(822)：分钟守卫放行哨兵行（无时间戳行反被分钟过滤命中）"),
+    ("Services/FilterEngine.cs", 877,
      "if (spec.PidExclude ? hit : !hit) continue;",
      "if (spec.PidExclude ? !hit : hit) continue;",
-     "FilterTail(332)：pid 排除/包含语义整体反转（对照组）"),
-    ("Services/FilterEngine.cs", 337,
+     "FilterTail(877)：pid 排除/包含语义整体反转（对照组）"),
+    ("Services/FilterEngine.cs", 882,
      "if (spec.TidExclude ? hit : !hit) continue;",
      "if (spec.TidExclude ? !hit : hit) continue;",
-     "FilterTail(337)：tid 排除/包含语义整体反转"),
-    ("Services/FilterEngine.cs", 342,
+     "FilterTail(882)：tid 排除/包含语义整体反转"),
+    ("Services/FilterEngine.cs", 887,
      "if (!minSet.Contains(doc.Minute[i])) continue;",
      "if (!minSet.Contains(doc.Minute[i]) && doc.Minute[i] != 255) continue;",
-     "FilterTail(342)：分钟守卫放行哨兵行（无时间戳行反被分钟过滤命中）"),
+     "FilterTail(887)：分钟守卫放行哨兵行（无时间戳行反被分钟过滤命中）"),
     # 2026-10-18 核对：RenameCategory 空名校验从 280 漂到 336（X-A8 后多次增删）。
     ("Services/CommandStore.cs", 336,
      "if (oldName.Length == 0 || newName.Length == 0) return false;",
@@ -513,12 +517,12 @@ LINE_MUTATIONS = [
      "if (oldName.Length == 0 || newName.Length == 0) return false;",
      "if (false) return false;",
      "RenameCategory：不再拒绝任一空名"),
-    ("Services/LogDocument.cs", 14,
+    # 2026-10-31 核对：MAX_JOIN 从 14 漂到 21；TagOf 从 246 漂到 253。
+    ("Services/LogDocument.cs", 21,
      "const int MAX_JOIN = 200;",
      "const int MAX_JOIN = 1;",
      "MAX_JOIN 200 → 1（续行合并上限）"),
-    # 2026-10-24 核对：TagOf 从 243 漂到 246（分钟列字段/视图插入）。
-    ("Services/LogDocument.cs", 246,
+    ("Services/LogDocument.cs", 253,
      'if (row < 0 || row >= _n) return "";',
      'if (row < 0) return "";',
      "TagOf：去掉上界检查（只挡负数）"),
