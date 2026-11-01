@@ -193,7 +193,7 @@ public class CrashExtractorTests
 public class CrashAggregatorTests
 {
     static CrashEvent E(int row, int excId, int pkgId, byte kind) => new()
-    { Row = row, ExcId = excId, PkgId = pkgId, Kind = kind, Pid = 869, Tid = 869, LineCount = 2 };
+    { Row = row, ExcId = excId, PkgId = pkgId, Kind = kind, Pid = 869, Tid = 869 };
 
     [Fact]
     public void 空清单聚合为空()
@@ -320,8 +320,8 @@ public class CrashAggregatorTests
 }
 
 /// <summary>
-/// LogDocument 崩溃提取集成：独立行形态、缩进合并形态（c 轨补扫）、
-/// Join=false 仍提取、Append 行号偏移、跨批 carry 补增 LineCount。
+/// LogDocument 崩溃提取集成：独立行形态、无头崩溃头行（自然行口径下自成独立记录）、
+/// Append 行号偏移。
 /// </summary>
 public class CrashDocumentTests
 {
@@ -355,47 +355,30 @@ public class CrashDocumentTests
         Assert.Equal(0, ce.Row);
         Assert.Equal(CrashKind.Java, ce.Kind);
         Assert.Equal(869, ce.Pid);
-        Assert.Equal(1, ce.LineCount);                    // 无续行并入
         Assert.Equal(new[] { "java.lang.IllegalStateException" }, doc.ExcTypes);
         Assert.Equal(new[] { "com.example.app" }, doc.Pkgs);
     }
 
+    /// <summary>
+    /// D3 钉死用例：无头崩溃头行（缩进、不自带日志头）在自然行口径下自成独立记录，
+    /// a 轨照常识别崩溃事件，行锚 = 崩溃头行自身（删 c 轨批末补扫后的唯一路径）。
+    /// </summary>
     [Fact]
-    public void Build_缩进合并形态走c轨补扫()
+    public void HeadlessCrashHeader_BecomesStandaloneRecord_EventIdentified_RowEqualsHeaderLine()
     {
-        // 崩溃头是父记录的缩进续行（Join=true 默认合并），a 轨看不到 → 批末 multiline 补扫
         using var tmp = new TempLogFile(
-            Line(T1, 'E', "MyApp", "doing work") +
+            Line(T1, 'I', "MyApp", "doing work") +
             "    FATAL EXCEPTION: main\n" +
             "    Process: com.example.app, PID: 869\n" +
             "    java.lang.NullPointerException: x\n");
         using var doc = LogDocument.Build(tmp.Path);
 
-        Assert.Equal(1, doc.RowCount);
-        Assert.True(doc.IsMultiline(0));
+        Assert.Equal(4, doc.RowCount);                    // 自然行：每行各成一条记录
         var ce = Assert.Single(doc.Crashes);
-        Assert.Equal(0, ce.Row);
+        Assert.Equal(1, ce.Row);                          // 行锚 = 崩溃头行（缩进行自身）
         Assert.Equal(CrashKind.Java, ce.Kind);
-        Assert.Equal(4, ce.LineCount);
         Assert.Equal("java.lang.NullPointerException", Assert.Single(doc.ExcTypes));
         Assert.Equal("com.example.app", Assert.Single(doc.Pkgs));
-    }
-
-    [Fact]
-    public void Build_Join为假时仍提取()
-    {
-        // 提取与 Join 无关（v3 口径）：关掉合并，靠行级前瞻照样拿到 Process 行
-        using var tmp = new TempLogFile(
-            Line(T1, 'E', "AndroidRuntime", "FATAL EXCEPTION: main") +
-            Line(T2, 'E', "AndroidRuntime", "Process: com.example.app, PID: 869") +
-            Line(T3, 'E', "AndroidRuntime", "java.lang.IllegalStateException: boom"));
-        using var doc = LogDocument.Build(tmp.Path, join: false);
-
-        Assert.Equal(3, doc.RowCount);
-        var ce = Assert.Single(doc.Crashes);
-        Assert.Equal(CrashKind.Java, ce.Kind);
-        Assert.Equal("java.lang.IllegalStateException", doc.ExcTypes[ce.ExcId]);
-        Assert.Equal("com.example.app", doc.Pkgs[ce.PkgId]);
     }
 
     [Fact]
@@ -515,38 +498,22 @@ public class CrashDocumentTests
     }
 
     [Fact]
-    public void Append_跨批carry补增末项LineCount()
+    public void Append_跨批堆栈行不影响既有事件()
     {
-        // native 崩溃头单行即可成立（不依赖前瞻），堆栈跨批缩进并入 → LineCount 补增
+        // 自然行口径：跨批追加的缩进堆栈行各成独立记录，既有崩溃事件不再被拉长补增
         using var tmp = new TempLogFile(
             Line(T1, 'E', "Kernel", "Fatal signal 11 (SIGSEGV), code 1 (SEGV_MAPERR), fault addr 0x0"));
         using var doc = LogDocument.Build(tmp.Path);
-        Assert.Equal(1, doc.Crashes[0].LineCount);
+        Assert.Single(doc.Crashes);
 
         tmp.Append("    #00 pc 0000000000012345 /system/lib64/libc.so\n" +
                    "    #01 pc 0000000000023456 /system/lib64/libfoo.so\n");
-        Assert.Equal("appended", doc.Reload());           // 整批都是续行的早退分支
-
-        Assert.Equal(1, doc.RowCount);
-        var ce = doc.Crashes[0];
-        Assert.Equal(3, ce.LineCount);                    // 1 + carry 2
-        Assert.Equal(CrashKind.Native, ce.Kind);
-        Assert.Contains("#00 pc", System.Text.Encoding.UTF8.GetString(doc.LineBytes(0)));
-    }
-
-    [Fact]
-    public void Append_carry之后还有新行也补增LineCount()
-    {
-        using var tmp = new TempLogFile(
-            Line(T1, 'E', "Kernel", "Fatal signal 11 (SIGSEGV), code 1 (SEGV_MAPERR), fault addr 0x0"));
-        using var doc = LogDocument.Build(tmp.Path);
-
-        tmp.Append("    #00 pc 0x1 /lib.so\n" + Line(T2, 'I', "Tag", "after"));
         Assert.Equal("appended", doc.Reload());
 
-        Assert.Equal(2, doc.RowCount);
-        Assert.Equal(2, doc.Crashes[0].LineCount);        // 1 + carry 1；崩溃行本身仍是 Row 0
-        Assert.Equal(0, doc.Crashes[0].Row);
+        Assert.Equal(3, doc.RowCount);
+        var ce = doc.Crashes[0];
+        Assert.Equal(0, ce.Row);
+        Assert.Equal(CrashKind.Native, ce.Kind);
     }
 }
 

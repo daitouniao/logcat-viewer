@@ -20,8 +20,6 @@ static partial class LocTable
         ["保存日志…"] = "Save Log…",
 
         // ── 设置菜单 ──
-        ["续行合并（堆栈并入上一条记录）"] = "Join continuation lines (merge stack into previous record)",
-        ["导出时单行化（换行转 \\n）"] = "Single-line on export (newlines → \\n)",
         ["过滤设置…"] = "Filter Settings…",
         ["字号"] = "Font Size",
 

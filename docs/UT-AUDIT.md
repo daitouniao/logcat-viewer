@@ -18,6 +18,16 @@
 > （663 → 673 → 650，均为本 change 分支口径；与 file-transfer-progress 合入 master 后全量 673）。
 > 另修掉变异脚本 revert 机制缺陷，详见 §0c。
 >
+> **2026-11-01 工具链升级：变异脚本两级调度（A+B），审计提速 2.4 倍。**
+> 一致性校验轮 96/96 判定完全一致；并暴露存量问题——9 个 SKIP 锚点漂移与
+> SURVIVED 1 → 9（其中 2 条待甄别），详见 §0d。
+>
+> **2026-11-01 第四轮：remove-join-merge（索引改自然行口径，删除续行合并机制）。**
+> 变异点 105 → **98**（TEXT 87 + LINE 9）：随码下架 8 条 join/singleLine 锚点、
+> 新增 2 条「不索引」分支锚点、修回 2 条漂移锚点（§0d 存量问题 1 的锚点漂移随之修清，详见 §0e）。
+> 测试侧删 20 条 join 语义用例、新增 8 条真能力用例，`dotnet test` 全绿（744/744）。
+> 详见 §0e。
+>
 > 跑测试与出覆盖率的完整流程见 [`TESTING.md`](TESTING.md)。
 >
 > ⚠️ **口径说明**：下表（§0）是 **2026-10-05 审计时点**的数值，不是当前基线。现行基线（用例数 / 行覆盖率 / 分支覆盖率）以 [`TESTING.md`](TESTING.md) 为准。
@@ -215,6 +225,54 @@ FALLBACK 偏高 = 杀手不在映射的类里（补 `SUBSET_OVERRIDES`）；FULL
    封顶防御、`MessageBytes mlen==0` 边界），但 **`LooksLikeNewRecord` TAB 续行**与
    **`FracToMs` 补零方向**两条历史上是 KILLED——疑与 10-24 删除 23 条年份机制用例有关，
    **待逐条甄别（探针取证后下结论），按 §4 纪律勿凭清单直接定性**。已列入后续审计待办。
+   （2026-11-01 update：本条所列 9 个 SKIP 锚点漂移已随 remove-join-merge 修清，见 §0e；
+   9 条 SURVIVED 的甄别并入 §0e 的删后对照待办。）
+
+---
+
+## 0e. 2026-11-01 第四轮：remove-join-merge（自然行口径）
+
+| 指标 | 第三轮（10-24） | 第四轮（11-01） |
+|---|---|---|
+| 用例数 | 756（master 口径） | **744**（`dotnet test` 全绿） |
+| 变异点总数 | 105（TEXT 95 + LINE 10） | **98**（TEXT 87 + LINE 9） |
+| 删前变异基线 | — | KILLED 92 / SURVIVED 9 / SKIP 1 / 未跑完 3（102/105，日志在 worktree `.tmp-test/`） |
+| 删后对照 | — | **未跑（按用户指示跳过，记待办）**；补跑判据：无新增 SKIP / SURVIVED，SURVIVED 集须 ⊆ §0d 一致性校验轮的 9 条（含其中 2 条待甄别项，甄别结论一并出） |
+
+本 change 删除续行合并机制（`MAX_JOIN` / flags 列 / carry / 批末状态缓存 / c 轨批末补扫 /
+`LastAppendCarried` / `Join` / `SingleLineExport` / `NewlineVis`），索引改自然行口径
+（除空行与横幅行外每物理行各成一条记录）。变异清单同步：
+
+- **随码下架 8 条**：`ScanRange` 忽略 join 开关、空行不再重置合并状态、`Append` prevHeadDoc /
+  joinedDoc / 批末缓存自赋值、横幅行改为中断续行合并、`ExportRows` singleLine、
+  `AppSettings.Join` 默认值、LINE 型 `MAX_JOIN`（代码删除）。
+- **新增 2 条**（design D5 必留清单）：空行分支恒不跳过、横幅分支恒不跳过——
+  「不索引」是自然行口径的两条行为契约，改为 `if (false)` 后 `NaturalRowCount` /
+  `BlankAndBanner` 等用例应咬住。
+- **修回 2 条漂移**：LINE 型 `TagOf` 253 → 240（flags 列与 join 状态字段删除）；
+  TEXT 型 `MsgExclude` 排除判定（块扫描重构后 `spec.MsgExclude` 判定拆为局部变量
+  `exclude`，旧文本匹配数=0）——修回后锚点对准逐条路径现行形态。
+
+**测试侧删改**：删 join 语义用例 20 条（`LogDocumentTests` 14：多行合并 5、跨批 carry 3、
+合并开关 1、批界/批末状态 2、等价性 2、增量全量空行缩进 1；`CrashTests` 4：c 轨补扫 1、
+Join 开关 1、carry 补增 LineCount 2；`FilterEngineTests` 2：单行化导出 1、多行续行匹配 1），
+新增 8 条真能力用例（`NaturalRowCount_EqualsPhysicalLinesMinusBlankAndBanner`、
+`BlankAndBannerLines_NotIndexed`、`HeadlessCrashHeader_*`、
+`Append_跨批堆栈行不影响既有事件`、`message过滤_续行内容以自身记录命中`、
+`RecordsWithoutMetadata_*` 3 条元数据可见性）。另修 8 处编译/断言适配
+（`ZeroCopy` 样本 4→5 行、`AppSettings` 默认值/持久化断言、`Flags` 列断言等）。
+
+**性能基线**（1G 样本）：删前列数组字节量 584.8 MB、索引热轮 12.8–13.3 s、Private 峰值增量 ≈3.5 GiB；
+删后 **637.8 MB**（≤1.0 GB 阈值 ✓，与推算吻合）、热轮 **11.6–11.9 s**（≤×1.15 阈值 ✓）、
+首轮峰值 4.4 GiB（观察项，扫描侧 List 瞬时开销）。完整数字与阈值见 change 的 design §D8。
+
+### 0e.1 本轮新踩的坑
+
+1. **Process 属性有缓存**：探针采样进程 Private 峰值时忘记每次 `Refresh()`，
+   读到的一直是旧值（峰值增量恒 ≈0）。`System.Diagnostics.Process` 的属性读取不是实时的。
+2. **kill 变异脚本会残留变异态文件**（§5.3 旧坑复现）：本轮 102/105 处用户叫停，
+   `CommandStore.cs` 残留变异体——kill 后先 `git status` + `git diff --stat` 核对，
+   对「运行前本来就干净」的文件直接 `git restore` 是安全的（HEAD 即脚本本应回写的原文）。
 
 ---
 

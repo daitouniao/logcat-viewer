@@ -193,7 +193,6 @@ public class StorePersistenceTests
 
         var s = AppSettings.LoadFrom(file.Path);
 
-        Assert.True(s.Join);
         Assert.Equal(10, s.FontPt);
         Assert.Equal(file.Path, s.StorePath);
         Assert.False(file.Exists);                   // 只读不写
@@ -205,7 +204,6 @@ public class StorePersistenceTests
         using var file = new TempStoreFile(null);
         var s = new AppSettings(file.Path)
         {
-            Join = false,
             FontPt = 14,
             WindowLocation = new Point(120, 80),
             WindowSize = new Size(1280, 800),
@@ -218,7 +216,6 @@ public class StorePersistenceTests
         Assert.DoesNotContain("StorePath", file.Read());   // 路径是运行时绑定，不进配置文件
 
         var again = AppSettings.LoadFrom(file.Path);
-        Assert.False(again.Join);
         Assert.Equal(14, again.FontPt);
         Assert.Equal(new Point(120, 80), again.WindowLocation);
         Assert.Equal(new Size(1280, 800), again.WindowSize);
@@ -234,7 +231,6 @@ public class StorePersistenceTests
 
         var s = AppSettings.LoadFrom(file.Path);
 
-        Assert.True(s.Join);
         Assert.Equal(10, s.FontPt);
     }
 

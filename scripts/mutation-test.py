@@ -10,9 +10,10 @@
 为什么需要它：行覆盖率只证明「代码被执行过」，不证明「断言咬得住」。
 本项目实测三处被覆盖率统计覆盖、却一个都测不出来的代码。
 
-依赖：`dotnet test` 在本机跑不起来（testhost 加载 hostfxr.dll 报 0x80070005），
-需先准备反射 runner `%TEMP%/tstrun`（ProjectReference → logcat.Tests.csproj，
-反射扫 [Fact] / [Theory] 按 [InlineData] 展开后 m.Invoke）。
+依赖：反射 runner 存放在仓库内 `.tmp-test/tstrun`（git-ignored；ProjectReference →
+本仓库的 logcat.Tests.csproj，反射扫 [Fact] / [Theory] 按 [InlineData] 展开后 m.Invoke）。
+worktree 里跑必须先在该 worktree 建自己的 runner（ProjectReference 指向所在仓库），
+否则测的是主仓库代码，全部假 SURVIVED。
 
 用法：
     python scripts/mutation-test.py                # 跑全部（两级模式，见下）
@@ -49,7 +50,7 @@ import sys
 import time
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-RUNNER = os.path.join(os.environ.get("TEMP", "/tmp"), "tstrun")
+RUNNER = os.path.join(REPO, ".tmp-test", "tstrun")
 
 SUBSET_TIMEOUT = 600   # 子集轮超时（正常 ~5s；变异死循环时尽快止损）
 FULL_TIMEOUT = 1800    # 全量轮超时（维持旧值）
@@ -106,32 +107,25 @@ TEXT_MUTATIONS = [
      "                long q = -1;\n                for (long p = end - 1; p >= start; p--)\n                {\n                    f.Position = p;\n                    if (f.ReadByte() == '\\n') { q = p; break; }\n                }\n                end = q >= 0 ? q + 1 : start;",
      "                f.Position = end;\n                int b2 = f.ReadByte();\n                while (b2 >= 0 && b2 != '\\n') b2 = f.ReadByte();\n                end = b2 < 0 ? start : f.Position;",
      "ScanRange：end 对齐改为「向后推进到下一换行」（旧 bug）"),
-    ("Services/LogDocument.cs",
-     "            if (join && prevHead && joined < MAX_JOIN && !LogParser.LooksLikeNewRecord(line))",
-     "            if (prevHead && joined < MAX_JOIN && !LogParser.LooksLikeNewRecord(line))",
-     "ScanRange：忽略 join 开关，无条件合并续行"),
 
-    # ── LogDocument：续行合并规则 ──
+    # ── 2026-11-01 remove-join-merge：join 机制整体删除，以下锚点随码移除 ──
+    # （ScanRange 忽略 join 开关 / 空行不再重置合并状态 / Append prevHeadDoc / joinedDoc /
+    #   批末缓存自赋值 / 横幅行改为中断续行合并 / MAX_JOIN 行号型 / AppSettings.Join）
+    # 替补两个「不索引」分支锚点（见下方 空行分支 / 横幅分支 恒不跳过）。
+
+    # ── LogDocument：解析细节 ──
+
+    # ── LogDocument：自然行口径「不索引」两分支（remove-join-merge 新增，D5 必留清单）──
+    # 空行分支被跳过 → 空行被索引成记录（NaturalRowCount / BlankAndBanner 用例应咬住）
     ("Services/LogDocument.cs",
-     "                prev = -1;\n                prevHead = false;\n                joined = 0;\n                pos = nl >= 0 ? nl + 1 : data.Length;\n                continue;",
-     "                prev = 0;\n                pos = nl >= 0 ? nl + 1 : data.Length;\n                continue;",
-     "空行不再重置合并状态（回退修法 A）"),
-    ("Services/LogDocument.cs",
-     "        var part = ScanRange(SourcePath, IndexedSize, newSize, Join, _prevHeadAtEnd, _joinedAtEnd, progress, ct);",
-     "        var part = ScanRange(SourcePath, IndexedSize, newSize, Join, true, _joinedAtEnd, progress, ct);",
-     "Append：prevHeadDoc 改回恒 true（批界合并缓存失效）"),
-    ("Services/LogDocument.cs",
-     "        var part = ScanRange(SourcePath, IndexedSize, newSize, Join, _prevHeadAtEnd, _joinedAtEnd, progress, ct);",
-     "        var part = ScanRange(SourcePath, IndexedSize, newSize, Join, _prevHeadAtEnd, 0, progress, ct);",
-     "Append：joinedDoc 改回每批清零（MAX_JOIN 退化为每批预算）"),
-    ("Services/LogDocument.cs",
-     "        // 批末状态必须在任何早退分支之前入缓存：整批空行走 \"unchanged\" 但合并状态已变\n        _prevHeadAtEnd = part.EndPrevHead;",
-     "        // 批末状态必须在任何早退分支之前入缓存：整批空行走 \"unchanged\" 但合并状态已变\n        _prevHeadAtEnd = _prevHeadAtEnd;",
-     "Append：批末合并状态缓存自赋值（永不更新）"),
+     "            if (lineLen == 0)\n            {\n                // 空行：不是日志记录，不进索引",
+     "            if (false)\n            {\n                // 空行：不是日志记录，不进索引",
+     "空行分支恒不跳过（空行反被索引）"),
+    # 横幅分支被跳过 → 横幅被索引成记录（Build_横幅行不进索引 等用例应咬住）
     ("Services/LogDocument.cs",
      "            if (LogParser.IsBanner(line))\n            {\n                pos = nl >= 0 ? nl + 1 : data.Length;\n                continue;\n            }",
-     "            if (LogParser.IsBanner(line))\n            {\n                prev = -1;\n                pos = nl >= 0 ? nl + 1 : data.Length;\n                continue;\n            }",
-     "横幅行改为中断续行合并"),
+     "            if (false)\n            {\n                pos = nl >= 0 ? nl + 1 : data.Length;\n                continue;\n            }",
+     "横幅分支恒不跳过（横幅反被索引）"),
 
     # ── LogDocument：解析细节 ──
     ("Services/LogDocument.cs",
@@ -216,8 +210,10 @@ TEXT_MUTATIONS = [
      "            if (needle.Length == 0)\n            {\n                if (!opAnd) return true;\n                continue;\n            }",
      "            if (needle.Length == 0)\n            {\n                return !opAnd;\n            }",
      "MatchAny：空 needle 在 and 模式下改为直接不命中"),
+    # 2026-10-31 修回：块扫描重构后 spec.MsgExclude 判定拆为局部变量 exclude，
+    # 逐条路径形态变更（VerdictPass 另有等价判定，随删码/重核再处置）。
     ("Services/FilterEngine.cs",
-     "                if (ok != spec.MsgExclude)\n                    result.Add(r);",
+     "                if (ok != exclude)\n                    result.Add(r);",
      "                if (ok)\n                    result.Add(r);",
      "MsgFilter：忽略 MsgExclude（排除语义失效）"),
     ("Services/FilterEngine.cs",
@@ -254,10 +250,7 @@ TEXT_MUTATIONS = [
      "FilterTail：起始行等于行数时不再返回空（等价变异）"),
 
     # ── FilterEngine：导出 ──
-    ("Services/FilterEngine.cs",
-     "                if (singleLine)\n                {\n                    string text = Encoding.UTF8.GetString(line);\n                    text = text.Replace(\"\\r\\n\", \"\\\\n\").Replace(\"\\n\", \"\\\\n\").Replace(\"\\r\", \"\\\\n\");\n                    line = Encoding.UTF8.GetBytes(text);\n                }",
-     "                if (singleLine)\n                {\n                    string text = Encoding.UTF8.GetString(line);\n                    text = text.Replace(\"\\r\\n\", \"\\\\n\");\n                    line = Encoding.UTF8.GetBytes(text);\n                }",
-     "ExportRows：singleLine 只替换 \\r\\n（裸 \\n 不转义）"),
+    # （remove-join-merge：singleLine 整条删除，导出恒一行一条）
     ("Services/FilterEngine.cs",
      "            written = e;\n            progress?.Report",
      "            progress?.Report",
@@ -316,10 +309,7 @@ TEXT_MUTATIONS = [
      "PathEquals：本机路径也区分大小写"),
 
     # ── AppSettings ──
-    ("Services/AppSettings.cs",
-     "    public bool Join { get; set; } = true;",
-     "    public bool Join { get; set; }",
-     "AppSettings：Join 默认值 true → false"),
+    # （remove-join-merge：AppSettings.Join 字段删除，锚点随码移除）
     ("Services/AppSettings.cs",
      "    public int FontPt { get; set; } = 10;",
      "    public int FontPt { get; set; } = 11;",
@@ -492,33 +482,34 @@ TEXT_MUTATIONS = [
 # (相对路径, 1-based 行号, 该行须含的片段, 变异后内容, 说明)
 LINE_MUTATIONS = [
     # 行号会随 FilterEngine.cs 增删漂移（2026-10-04 移除正则后下移约 47 行；
-    # 2026-10-24 minute-byte-column 分钟守卫改写后 pid/tid 各下移 9/7 行）。
+    # 2026-10-24 minute-byte-column 分钟守卫改写后 pid/tid 各下移 9/7 行；
+    # 2026-10-31 核对：漂到 ApplyFilter 808/815/822、FilterTail 877/882/887）。
     # 脚本按「行号 + 该行内容」双重校验，内容不符会 SKIP 而非误改，所以漂移是安全失败、
     # 但会静默漏掉一半变异点 —— 改完引擎记得回来核对行号。
-    ("Services/FilterEngine.cs", 263,
+    ("Services/FilterEngine.cs", 808,
      "if (spec.PidExclude ? hit : !hit) continue;",
      "if (hit) continue;",
-     "ApplyFilter(263)：pid 排除退化为包含"),
-    ("Services/FilterEngine.cs", 270,
+     "ApplyFilter(808)：pid 排除退化为包含"),
+    ("Services/FilterEngine.cs", 815,
      "if (spec.TidExclude ? hit : !hit) continue;",
      "if (spec.TidExclude ? !hit : hit) continue;",
-     "ApplyFilter(270)：tid 排除/包含语义整体反转（对照组）"),
-    ("Services/FilterEngine.cs", 277,
+     "ApplyFilter(815)：tid 排除/包含语义整体反转（对照组）"),
+    ("Services/FilterEngine.cs", 822,
      "if (!minSet.Contains(doc.Minute[i])) continue;",
      "if (!minSet.Contains(doc.Minute[i]) && doc.Minute[i] != 255) continue;",
-     "ApplyFilter(277)：分钟守卫放行哨兵行（无时间戳行反被分钟过滤命中）"),
-    ("Services/FilterEngine.cs", 332,
+     "ApplyFilter(822)：分钟守卫放行哨兵行（无时间戳行反被分钟过滤命中）"),
+    ("Services/FilterEngine.cs", 877,
      "if (spec.PidExclude ? hit : !hit) continue;",
      "if (spec.PidExclude ? !hit : hit) continue;",
-     "FilterTail(332)：pid 排除/包含语义整体反转（对照组）"),
-    ("Services/FilterEngine.cs", 337,
+     "FilterTail(877)：pid 排除/包含语义整体反转（对照组）"),
+    ("Services/FilterEngine.cs", 882,
      "if (spec.TidExclude ? hit : !hit) continue;",
      "if (spec.TidExclude ? !hit : hit) continue;",
-     "FilterTail(337)：tid 排除/包含语义整体反转"),
-    ("Services/FilterEngine.cs", 342,
+     "FilterTail(882)：tid 排除/包含语义整体反转"),
+    ("Services/FilterEngine.cs", 887,
      "if (!minSet.Contains(doc.Minute[i])) continue;",
      "if (!minSet.Contains(doc.Minute[i]) && doc.Minute[i] != 255) continue;",
-     "FilterTail(342)：分钟守卫放行哨兵行（无时间戳行反被分钟过滤命中）"),
+     "FilterTail(887)：分钟守卫放行哨兵行（无时间戳行反被分钟过滤命中）"),
     # 2026-10-18 核对：RenameCategory 空名校验从 280 漂到 336（X-A8 后多次增删）。
     ("Services/CommandStore.cs", 336,
      "if (oldName.Length == 0 || newName.Length == 0) return false;",
@@ -528,12 +519,9 @@ LINE_MUTATIONS = [
      "if (oldName.Length == 0 || newName.Length == 0) return false;",
      "if (false) return false;",
      "RenameCategory：不再拒绝任一空名"),
-    ("Services/LogDocument.cs", 14,
-     "const int MAX_JOIN = 200;",
-     "const int MAX_JOIN = 1;",
-     "MAX_JOIN 200 → 1（续行合并上限）"),
-    # 2026-10-24 核对：TagOf 从 243 漂到 246（分钟列字段/视图插入）。
-    ("Services/LogDocument.cs", 246,
+    # 2026-11-01 remove-join-merge：MAX_JOIN 锚点随码删除；
+    # TagOf 从 253 漂到 240（flags 列与 join 状态字段删除）。
+    ("Services/LogDocument.cs", 240,
      'if (row < 0 || row >= _n) return "";',
      'if (row < 0) return "";',
      "TagOf：去掉上界检查（只挡负数）"),

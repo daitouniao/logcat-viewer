@@ -4,8 +4,8 @@
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
 [![Platform: Windows](https://img.shields.io/badge/platform-Windows-lightgrey)](#requirements)
 [![CI](https://github.com/daitouniao/logcat-viewer/actions/workflows/ci.yml/badge.svg)](https://github.com/daitouniao/logcat-viewer/actions/workflows/ci.yml)
-[![Tests: 756 passing](https://img.shields.io/badge/tests-756%20passing-green)](docs/TESTING.md)
-[![Coverage: 97.46% lines](https://img.shields.io/badge/coverage-97.46%25%20lines-blue)](docs/TESTING.md)
+[![Tests: 744 passing](https://img.shields.io/badge/tests-744%20passing-green)](docs/TESTING.md)
+[![Coverage: 97.42% lines](https://img.shields.io/badge/coverage-97.42%25%20lines-blue)](docs/TESTING.md)
 
 A Windows desktop viewer for Android logs (`logcat`). Built with WinForms on .NET 10, it opens and scrolls through **tens of millions of log lines** smoothly using memory-mapped files and a columnar index — and it also drives your device over ADB: live capture, screenshots, screen recording, two-pane file transfer, and APK install/uninstall.
 
@@ -34,7 +34,6 @@ Most logcat viewers choke on large captures. This one keeps the text on disk (mm
 | **Huge files, low memory**     | Memory-mapped text + columnar index; index build runs under a cancellable progress bar                   |
 | **Virtual list**               | Only visible rows are rendered, so scrolling stays smooth at 10M+ rows                                   |
 | **Six formats auto-detected**  | `threadtime` / `time` / `long` / `brief` / `tag` / `ymd`, via a byte-level fast path with regex fallback |
-| **Multi-line joining**         | Stack traces and wrapped messages fold back into their parent record (toggleable)                        |
 | **Level colours**              | V/D/I/W/E/F/A colour-coded                                                                               |
 | **Full record view**           | Double-click a row (`Enter`) to see the untruncated original text                                        |
 | **Incremental reload**         | `F5` re-reads only the appended tail, with line-boundary alignment across batch edges                    |
@@ -54,7 +53,7 @@ Most logcat viewers choke on large captures. This one keeps the text on disk (mm
 
 - Press `M` (or double-click the line-number column) to mark/unmark; `F2` / `Shift+F2` jump between marks
 - Right-click to filter directly by that tag / PID / TID / minute
-- Export the current result, or only marked rows; optional "single-line" mode (newlines become `\n`) for spreadsheets
+- Export the current result, or only marked rows (one physical log line per record)
 - Copy as raw text or as tab-separated table rows
 
 ## ADB device features
@@ -189,7 +188,7 @@ dotnet test tests/logcat.Tests/logcat.Tests.csproj --collect:"XPlat Code Coverag
 python tests/coverage-report.py     # writes tests/coverage-report.html
 ```
 
-Current status: **756 tests, all passing**; **97.46%** line coverage (3,766 / 3,864 lines), **88.67%** branch coverage.
+Current status: **744 tests, all passing**; **97.42%** line coverage (3,663 / 3,760 lines), **88.75%** branch coverage.
 
 The scope is defined in `tests/logcat.Tests/coverlet.runsettings` and excludes two groups:
 
@@ -268,7 +267,7 @@ Services/
   DpiFix.cs             High-DPI layout fallback (expands overflowing TLP rows and fixed-height button bars)
   StartupLog.cs         Startup diagnostic log (exe-relative `Log\startup.log`)
   LogDocument.cs        Columnar index document (mmap + columnar index, incremental reload)
-  LogParser.cs          Line parser (six formats + continuation detection)
+  LogParser.cs          Line parser (six formats + new-record shape detection)
   CrashExtractor.cs     Crash / ANR / native fault signal detection bound to the index scan
   CrashAggregator.cs    Groups crash events by type and package for the summary window
   FilterEngine.cs       Filter engine (pre-filter → message match (block scan for large docs, per-row for incremental) → export)
@@ -281,7 +280,7 @@ Services/
   AppInfo.cs            Product name and version (reads Assembly InformationalVersion)
 tests/
   coverage-report.py    Coverage report generation (coverlet cobertura XML → readable HTML)
-  logcat.Tests/         xUnit test project (756 tests: log parsing / columnar index / filter engine / crash extraction / persistence / localization)
+  logcat.Tests/         xUnit test project (744 tests: log parsing / columnar index / filter engine / crash extraction / persistence / localization)
     coverlet.runsettings Coverage scope (Include / Exclude rules)
 docs/
   BUILDING.md            How to build and publish — the two `dotnet publish` commands, artifact verification, pitfall table
@@ -310,7 +309,7 @@ DISCLAIMER.md           Disclaimer full text
 
 ## Data storage
 
-- User settings (window position/size/state, continuation merging, auto-apply, font size, newline visibility, **UI language**, last browse paths, install/uninstall options) are persisted as JSON to `settings.json` (next to the exe)
+- User settings (window position/size/state, auto-apply, font size, **UI language**, last browse paths, install/uninstall options) are persisted as JSON to `settings.json` (next to the exe)
 - Favourites (device/local directories with aliases, run-as packages, APK paths, app packages, tag/message filter conditions; up to 60 per list, most-recent first) go to `favorites.json` (next to the exe)
 - Command categories, favourites, history, and placeholder values go to `commands.json` (next to the exe, first open writes the built-in library)
 - Live capture writes to `logcat_live_*.log` in the system temp directory, cleaned up on window close

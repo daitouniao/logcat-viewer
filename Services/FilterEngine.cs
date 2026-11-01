@@ -903,14 +903,15 @@ public static class FilterEngine
     }
 
     // ── 导出 ──
+    // 导出恒为「一行一条」：每条记录原文一行（自然行口径下记录正文不含换行）。
     public static async Task<int> ExportRowsAsync(LogDocument doc, int[] rows, string outPath,
-        bool singleLine = false, IProgress<(double, string)>? progress = null, CancellationToken ct = default)
+        IProgress<(double, string)>? progress = null, CancellationToken ct = default)
     {
-        return await Task.Run(() => ExportRows(doc, rows, outPath, singleLine, progress, ct), ct);
+        return await Task.Run(() => ExportRows(doc, rows, outPath, progress, ct), ct);
     }
 
     public static int ExportRows(LogDocument doc, int[] rows, string outPath,
-        bool singleLine = false, IProgress<(double, string)>? progress = null, CancellationToken ct = default)
+        IProgress<(double, string)>? progress = null, CancellationToken ct = default)
     {
         int total = rows.Length;
         if (total == 0)
@@ -927,12 +928,6 @@ public static class FilterEngine
             for (int i = s; i < e; i++)
             {
                 byte[] line = doc.LineBytes(rows[i]);
-                if (singleLine)
-                {
-                    string text = Encoding.UTF8.GetString(line);
-                    text = text.Replace("\r\n", "\\n").Replace("\n", "\\n").Replace("\r", "\\n");
-                    line = Encoding.UTF8.GetBytes(text);
-                }
                 f.Write(line, 0, line.Length);
                 f.WriteByte((byte)'\n');
             }

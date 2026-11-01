@@ -17,11 +17,12 @@ public class LogDocumentZeroCopyTests
     const string T4 = "09-23 18:00:03.000";
 
     /// <summary>
-    /// 4 行样本：
+    /// 5 行样本（自然行口径，每物理行一条记录）：
     /// 0  普通 threadtime 行（大小写混合 ASCII 正文）
-    /// 1  多行记录首行（续行 "    at Foo.bar(Foo.java:1)"，正文跨两个物理行）
-    /// 2  中文正文行（含非 ASCII 字节）
-    /// 3  无正文行（tag 冒号结尾，消息偏移等于行长）
+    /// 1  crash 行
+    /// 2  无头缩进行（未知行形态，无 tag，正文为整行）
+    /// 3  中文正文行（含非 ASCII 字节）
+    /// 4  无正文行（tag 冒号结尾，消息偏移等于行长）
     /// </summary>
     static string Sample() =>
         TestData.Threadtime(T1, 1, 2, 'I', "AlphaTag", "Hello World") +
@@ -35,7 +36,7 @@ public class LogDocumentZeroCopyTests
     {
         using var tmp = new TempLogFile(Sample());
         using var doc = LogDocument.Build(tmp.Path);
-        Assert.Equal(4, doc.RowCount);
+        Assert.Equal(5, doc.RowCount);
 
         using var session = doc.OpenMessageSession();
         for (int row = 0; row < doc.RowCount; row++)
@@ -94,12 +95,12 @@ public class LogDocumentZeroCopyTests
         using var tmp = new TempLogFile(Sample());
         using var doc = LogDocument.Build(tmp.Path);
 
-        // 第 3 行 tag 冒号结尾、无正文（MessageBytes 同为空）
-        Assert.True(doc.MessageBytes(3).Length == 0);
+        // 第 4 行 tag 冒号结尾、无正文（MessageBytes 同为空）
+        Assert.True(doc.MessageBytes(4).Length == 0);
 
         using var session = doc.OpenMessageSession();
         int calls = 0;
-        session.ReadMessage(3, span => { calls++; Assert.True(span.IsEmpty); });
+        session.ReadMessage(4, span => { calls++; Assert.True(span.IsEmpty); });
         Assert.Equal(1, calls);
     }
 

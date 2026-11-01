@@ -234,7 +234,7 @@ public static class LogParser
 
         // 其余形态（日期起首的 threadtime / time / brief）都由快速路径处理并 return，
         // 走到慢路径时只剩「方括号」形式能匹配，因此这里只有 ReLong 一条规则，
-        // 不匹配说明这行不是日志记录（返回空结果由调用方按续行/正文处理）。
+        // 不匹配说明这行不是日志记录（返回空结果由调用方按未知行/正文处理）。
         return new ParseResult(-1, -1, -1, -1, -1, LVL_UNKNOWN, "", 0);
     }
 
@@ -353,7 +353,7 @@ public static class LogParser
     /// 判定一行是否为 logcat 分段横幅 / ROM 自报头。
     /// 典型：<c>--------- beginning of main</c>、<c>--------- switch to system</c>、
     /// <c>----- timezone:Asia/Kuala_Lumpur</c>。
-    /// 这类行不是日志记录：不参与索引，也不参与续行合并。
+    /// 这类行不是日志记录：不参与索引。
     /// </summary>
     public static bool IsBanner(ReadOnlySpan<byte> line)
     {
@@ -375,10 +375,11 @@ public static class LogParser
         return j >= line.Length || line[j] == ' ' || line[j] == '\t';
     }
 
-    // ── 续行判定 ──
+    // ── 新记录特征判定 ──
     /// <summary>
-    /// 判定一行是否像「一条新记录的开头」。
-    /// 缩进的堆栈帧、Caused by: 等视为续行。
+    /// 判定一行是否像「一条新记录的开头」（缩进视为续行特征）。
+    /// 这是格式层能力，与索引无关：索引已改为自然行口径（除空行与横幅行外每物理行各成一条记录），
+    /// 删 join 后生产侧无调用点，保留供外部 / 未来使用（不标 [Obsolete]，仓库无此先例）。
     /// </summary>
     public static bool LooksLikeNewRecord(ReadOnlySpan<byte> line)
     {
