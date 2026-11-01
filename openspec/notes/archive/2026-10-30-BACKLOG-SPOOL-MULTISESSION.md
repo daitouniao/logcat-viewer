@@ -1,9 +1,9 @@
 # 待重启卡 A3：跨 Windows 会话暂存目录互删
 
-- 状态：已实施并归档 change，**手工验收四项开放（暂定放行，维护者暂无验证环境）**（重启卡：未结项条目一卡一条 `openspec/notes/BACKLOG-*.md`，结项后移入 `openspec/notes/archive/`）
-- 日期：2026-10-18 立项；2026-10-21 登记；2026-10-29 从登记簿拆为独立卡片
-- 关联提交：`5c74470`（change `fix-spool-multisession`，已归档：`openspec/changes/archive/2026-10-18-fix-spool-multisession/`）
-- 验收结论：待多会话环境验收
+- 状态：**已验收并归档**（2026-10-30；change 已归档：`openspec/changes/archive/2026-10-18-fix-spool-multisession/`）
+- 日期：2026-10-18 立项；2026-10-21 登记；2026-10-29 从登记簿拆为独立卡片；2026-10-30 归档
+- 关联提交：`5c74470`（change `fix-spool-multisession`）
+- 验收结论：已验收（2026-10-30，维护者确认）
 - 来源：原 bug 报告已归档（`docs/archive/bug/2026-10-21-MULTISESSION-SPOOL-DELETION.md`，快照类不再维护）；本卡自包含需求要点
 
 ## 基础需求
@@ -25,7 +25,7 @@
 - 已实施并归档（`5c74470`）。
 - 自动化：`SpoolLivenessTests`（锁语义四边界）、`SpoolCleanupTests`（判据改锁持有）、`LogDocumentProxiedTests`（Close 后释放）、`FileProxyLoopbackTests`（取消/短读无泄漏）。
 
-## 开放项（手工验收，暂定放行）
+## 开放项（2026-10-30 已验收关闭）
 
 1. 真双进程互斥冒烟：同会话再启第二实例即时退出，且第一实例暂存目录不被启动清理误删。
 2. 双 RDP 会话并存：两个 Windows 会话各运行一个实例、各开一个代理文档，互不删除对方暂存目录（核心缺陷场景）。

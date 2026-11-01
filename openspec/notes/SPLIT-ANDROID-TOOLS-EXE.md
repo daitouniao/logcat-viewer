@@ -1,7 +1,7 @@
 # 探索结论：拆分为 logcat.exe + 安卓工具 exe
 
-- 状态：探索结论；2026-10-25 复核补充 4 项新决策（D8/D10/D11/D12-D13），其中配置共享方式（D9）已拍板
-- 日期：2026-10-21（初版）/ 2026-10-25（复核修订）
+- 状态：探索结论；2026-10-25 复核补充 4 项新决策（D8/D10/D11/D12-D13），其中配置共享方式（D9）已拍板；**2026-10-31 复核后全部待拍板项已收口**（决策台账见 §三）
+- 日期：2026-10-21（初版）/ 2026-10-25（复核修订）/ 2026-10-31（决策收口）
 - 关联提交：无（探索阶段，未改动代码）
 - 验收结论：待定
 
@@ -168,3 +168,84 @@ logcat.exe（单 exe，net10.0-windows WinForms）
 ## 下一步
 
 拍板 D8、#1、#2 后走 `/opsx:propose` 生成 OpenSpec change（proposal + specs delta + design + tasks）。D9 已定，design 直接按"按归属拆文件 + 语言独立小文件"写。specs 现状以 §复核修正 第 1 条为准，原文"仅有 fileproxy"的判断不再适用。编码前不在探索阶段动手。
+
+---
+
+## 2026-10-31 复核与决策收口
+
+- 状态：本节结论取代上文 §复核修正、§待拍板、§下一步 中已过时的部分；上文内容保留作决策沿革
+- 日期：2026-10-31
+- 关联提交：无（探索阶段，未改动代码）
+- 验收结论：不适用
+
+### 一、笔记之后发生了什么（2026-10-25 → 2026-10-31）
+
+| 笔记里的判断                    | 今天的实际                                                                                                            |
+| ------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| D8：`device-scoped-file-browser-path` 在途，拆分要等它 | **已归档**（`openspec/changes/archive/2026-10-26-device-scoped-file-browser-path`），实施分支已合入 master（`ec2e445` / `60b40c0`）→ **D8 自动关闭** |
+| §复核修正 第 1 条：现有 5 个 capability | 现在 **7 个**（新增 `file-browser`、`message-filter`）→ 该条再次过期                                            |
+| 在途 change 是 device-scoped 那个 | 换成了 `chunked-progressive-load`（0/13，2026-10-30 建），只碰 `Services/LogDocument.cs`（logcat 侧，不搬）→ **与拆分零文件重叠** |
+| 依赖面清单                      | 新增 `DeviceLastDir`、`TryOpenOutcome`、`StartDirResolver`、`TransferProgress`（均属安卓侧）、`AdbServerSelfHealResult`（属 Core） |
+
+另有两个并行探索（`REMOVE-JOIN-MERGE.md`、`DLT-INTEGRATION.md`）都是 logcat 侧，与拆分不抢文件。
+
+### 二、代码复核新增的 6 条事实
+
+1. **D9 改变了「#2 部署目录」的成本结构**（原笔记未更新）。D9 拆文件后，两个 exe 真正共享的只剩 `language.json` 一个小文件（`settings.json` 归 logcat、`andtools.json` 归 andtools）→「同目录 vs 分目录」从「共享一大把配置」降级为「共享一个小文件」，同目录几乎免费。
+2. **D9 未覆盖「迁移归属与时序」**。旧 `settings.json` 里有 11 个安卓侧键（`LastLocalPath` / `LastRunAsRelayDir` / `DeviceLastDirs` / `DevicePaneColumnWidths` / `LocalPaneColumnWidths` / `ApkInstallViaPm` / `ApkInstallFlags` / `ApkTmpDir` / `ApkUninstallViaPm` / `ApkKeepData` / `ApkUseRoot`）+ 1 个共享键 `Language`。谁迁、何时迁，原笔记留空 → 见 §四 的 N3。
+3. **「#1 共享代码组织」实际有两个变体**，原笔记只写了一个：搬进子目录（`git mv`）vs 源码原地不动（csproj 显式文件清单）。
+4. **本地化源码扫描测试对路径写死了**（D13 的隐藏成本）。`tests/logcat.Tests/LocTableTests.cs` 的 `EnumerateSourceFiles` 排除规则写死 `rel.StartsWith("Services/LocTable.")`，另有 3 处 `[InlineData("Forms/CommandEditDialog.cs")]` 等硬编码相对路径。Core 化后不改，译文表自身会被当成调用点扫。好在这些测试以 repoRoot 递归扫描，目录变了照样扫得到，只要排除规则跟着改（约 4 行）。
+5. **其余散点**：`InternalsVisibleTo("logcat.Tests")` 要挪到 Core 的 csproj；`Controls/DeviceFilePane.resx` 随控件走；`Services/SingleInstance.cs` 的 `MutexName` 是 const，两个 exe 要不同名就得参数化（连带 6 处测试）；`Loc.SetLang` 内部调 `AppSettings.Default.Save()`（全量覆盖），拆文件后改成只写 `language.json` → D9 想解决的覆盖问题自然消失。
+6. **andtools 需要自己的窗口几何** —— `andtools.json` 要新增 `WindowLocation/Size/State` 三键（D9 的自然推论，原笔记未写）。
+
+### 三、决策台账（N1–N17）
+
+| #   | 决策                     | 结论                                                                                       |
+| --- | ------------------------ | ------------------------------------------------------------------------------------------ |
+| N1  | 共享代码组织             | A1：共享类库 `logcat.Core/`，`git mv` 搬进子目录                                          |
+| N2  | 部署目录                 | 甲：两个 exe 同目录                                                                         |
+| N3  | 迁移归属与时序           | schema 版本化自动拆分（见 §四）                                                            |
+| N4  | 「设备操作」入口         | 甲：logcat 保留为启动器                                                                     |
+| N5  | 单实例与唤醒             | 甲：独立互斥量 + 命名事件 + `AllowSetForegroundWindow`                                      |
+| N6  | 发布形态                 | 折叠进 N2：一个 zip，两 exe 并列                                                            |
+| N7  | 版本号口径               | 甲：统一版本号，抽 `Directory.Build.props`                                                  |
+| N8  | 跨进程语言实时跟随       | 甲：重启生效                                                                                 |
+| N9  | 是否建 capability        | 建 `android-toolbox`                                                                        |
+| N10 | 命名与标识               | `logcat-andtools.exe`，沿用 `app.ico`                                                       |
+| N11 | 测试工程结构             | 一个 `tests/logcat.Tests`，引 Core 与两个 exe，改路径规则                                  |
+| N12 | andtools 窗口几何        | `andtools.json` 新增三键                                                                    |
+| N13 | StartupLog               | andtools 写自己的 `Log/startup-andtools.log`                                                |
+| N14 | 与 `chunked-progressive-load` 的时序 | 文件零重叠，可并行；建议顺序走以免 `git mv` 批量 rename 制造噪音                   |
+| N17 | Core 命名空间            | 保持 `namespace logcat`（只搬文件不改名），程序集名仍 `logcat.Core`                        |
+
+N7–N14 按推荐默认收口；N1/N2/N3/N4/N5/N17 为本轮逐条拍板。
+
+### 四、N3 迁移协议（版本化自动拆分）
+
+配置文件各带 `SchemaVersion`：版本 1 = 旧布局（`settings.json` 装全部键），版本 2 = 拆分布局（`settings.json` 归 logcat、`andtools.json` 归 andtools）。迁移逻辑落 Core，两个 exe 调同一份 `ConfigMigration.EnsureSplit()`。
+
+```
+andtools 启动:
+  andtools.json 存在且版本=2   -> 直接用，它是权威
+  否则                          -> 从旧 settings.json 读 11 个安卓侧键 -> 写 andtools.json(版本2)
+
+logcat 启动:
+  settings.json 版本=2          -> 直接用
+  否则(版本1/缺失)              -> ① 把 11 个安卓侧键「复制」进 andtools.json(版本2)
+                                   ② 自己只留 logcat 侧键，settings.json 存为版本2
+```
+
+协议要点：
+
+- 迁移时安卓侧键是**复制**不是**移动** —— logcat 先跑、andtools 从没启动过时，键已躺在 `andtools.json` 里，不丢。
+- `andtools.json` 已存在（版本 2）时**不回填** legacy —— 它可能比旧文件新。
+- **幂等**：两个 exe 反复启动不重复迁移、不丢键；反向顺序由 andtools 侧回退分支覆盖。
+
+### 五、两个新浮现的事实（消解了原以为存在的风险）
+
+1. **双进程共用 adb server 不会互踩**。`Services/AdbManager.cs` 的 `EnsureServerRunningAsync` 是 **start-only**（探测不到时只跑 `adb start-server`，从不 `kill-server`），`RestartMonitor()` 也只重自己那份监控 → 两个 exe 各自持有 `AdbManager` 实例、各自探各自拉起，最坏是两次并发 `start-server`，第二个由 adb 自己兜住。
+2. **新增项目无 `Properties/` 冲突**。`Properties/` 下只有 `PublishProfiles/FolderProfile.pubxml`（VS 用的，隐式绑 `logcat.csproj`），无 `AssemblyInfo.cs`。两个 exe 同目录 publish 时共享运行时文件内容相同、后 publish 的覆盖无害；`*.deps.json` / `*.runtimeconfig.json` 按 exe 名区分不冲突；`logcat.Core.dll` 只出一份。
+
+### 六、下一步（取代上文 §下一步）
+
+N1/N2/N3/N4/N5/N17 已拍板 → 走 `/opsx:propose` 建 change（proposal + specs delta + design + tasks），按 §四 写迁移协议、§三 写决策台账。design 需覆盖：Core 目录结构与 `git mv` 清单、`namespace logcat` 保持不变的 diff 策略、命名事件唤醒的 Windows 前台锁处理、测试路径规则改动、两个 exe 的 publish 流程与 BUILDING/README 同步。编码前不在探索阶段动手。

@@ -1,9 +1,9 @@
 # 待重启卡 A1：ADB root 检测与初始化（RootMode 三态）
 
-- 状态：已实施，**真机手工验收开放**（重启卡：未结项条目一卡一条 `openspec/notes/BACKLOG-*.md`，结项后移入 `openspec/notes/archive/`）
-- 日期：2026-10-21 登记；2026-10-29 从登记簿拆为独立卡片
+- 状态：**已验收并归档**（2026-10-30）
+- 日期：2026-10-21 登记；2026-10-29 从登记簿拆为独立卡片；2026-10-30 归档
 - 关联提交：`2589f47`（feat: root 检测升级 RootMode 三态（Su/Adbd/None），探测带超时防授权框挂起）
-- 验收结论：待真机验收
+- 验收结论：已验收（2026-10-30，维护者确认）
 - 来源：原设计文档已归档（`docs/archive/design/2026-10-21-ADB-ROOT-DETECTION.md`，快照类不再维护）；本卡自包含需求要点，不依赖该快照
 
 ## 基础需求
@@ -26,7 +26,7 @@
 - 已编码（提交 `2589f47`）：`Models/DeviceInfo.cs`（`RootMode`、`RootDetectEntry`）、`Services/AdbManager.cs`（`DetectRootAsync`、`TryProbeAsync`、`_rootCache`、`ShouldRedetect`、`BuildRootShellCmd`）、`frmMain.AdbRefreshManualAsync`、`DeviceOpsDialog.MaybeOfferRootRetry`。
 - 新增单测 20 条（`ModelTests`），实施时点 tstrun 全量 519/519 过。
 
-## 开放项
+## 开放项（2026-10-30 已验收关闭）
 
 1. 真机验证 Adbd / Su / None 三态判定与真机实际一致。
 2. su 探测不再让 root 授权框反复重弹。

@@ -1,9 +1,9 @@
 # 待重启卡 A2：adb server 自愈（刷新设备误报「无设备」）
 
-- 状态：已实施并归档 change，**真机手工验收三项开放**（重启卡：未结项条目一卡一条 `openspec/notes/BACKLOG-*.md`，结项后移入 `openspec/notes/archive/`）
-- 日期：2026-10-21 登记；2026-10-29 从登记簿拆为独立卡片
-- 关联提交：随 change `fix-adb-server-self-heal` 实施（已归档：`openspec/changes/archive/2026-10-21-fix-adb-server-self-heal/`，需求并入主规范 `openspec/specs/adb-server/`）
-- 验收结论：待真机验收
+- 状态：**已验收并归档**（2026-10-30；change 已归档：`openspec/changes/archive/2026-10-21-fix-adb-server-self-heal/`）
+- 日期：2026-10-21 登记；2026-10-29 从登记簿拆为独立卡片；2026-10-30 归档
+- 关联提交：随 change `fix-adb-server-self-heal` 实施（需求并入主规范 `openspec/specs/adb-server/`）
+- 验收结论：已验收（2026-10-30，维护者确认）
 - 来源：原 bug 报告已归档（`docs/archive/bug/2026-10-21-ADB-SERVER-SELF-HEAL.md`，快照类不再维护）；本卡自包含需求要点
 
 ## 基础需求
@@ -29,7 +29,7 @@
 - 已实施并归档；主规范 `openspec/specs/adb-server/` 覆盖该行为。
 - 自动化：`AdbManagerServerSelfHealTests` 9 条（注入四个 seam，零触网）；实施时点 tstrun 全量 637 过 / 0 失败。
 
-## 开放项（手工验收）
+## 开放项（2026-10-30 已验收关闭）
 
 1. 真机自愈：`adb kill-server` 后点「刷新设备」→ server 自动拉起、设备恢复枚举（需 5555 无线设备重连配合）。
 2. adb 不在 PATH（或临时改名模拟）：点刷新 → 状态栏出现手动处理提示、设备下拉清空、再点刷新可重试（**不误报「无设备」**）。
