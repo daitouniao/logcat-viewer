@@ -388,6 +388,7 @@ public static class FilterEngine
     /// 忽略大小写时另做一轮 ≥0x80 字节定位，把这些行交回既有折叠路径判定（D3 完备性红线）；
     /// 最后按候选行序逐行合并 and/or/exclude（行序与逐条匹配路径一致）。
     /// 返回 null 表示无法块扫描（空映射 / 无内容），调用方回退逐条匹配。
+    /// 增量形态（<see cref="MsgScanSession"/>）复用同一 <see cref="ScanBlockRounds"/> 与 <see cref="VerdictPass"/>。
     /// </summary>
     static unsafe int[]? MsgFilterBlockScan(LogDocument doc, LogDocument.MessageSession session,
         byte* raw, long cap, int[] cand, byte[][] keys, bool[] keyAscii,
@@ -405,8 +406,34 @@ public static class FilterEngine
                 if (keys[i].Length == 0)
                     return exclude ? Array.Empty<int>() : cand;
 
-        int scannable = 0, ndMax = 0;
-        bool andBlocked = false;      // CI 下存在非空但非 ASCII 的词 → 纯 ASCII 行的 and 恒不成立
+        PlanBlockScan(keys, keyAscii, needFold, opAnd,
+            out int scannable, out int ndMax, out bool andBlocked);
+        // and 且无任何可扫词（全为空词）：MatchAny 的 and 分支返回 opAnd=true，不进扫描。
+        // or 无空词时不成立（关键词都非空但都不可扫 = CI 非 ASCII 词），必须走下方折叠判定。
+        if (opAnd && scannable == 0 && !andBlocked) return exclude ? Array.Empty<int>() : cand;
+
+        // 扫描上界取「最后一行末尾」与映射容量的较小值：索引区之后的尾巴不是记录，
+        // 扫它只会产出必然被段边界复核剔除的命中点。
+        long dataEnd = Math.Min(cap, doc.Offs[n - 1] + doc.Lens[n - 1]);
+        if (dataEnd <= 0) return null;
+
+        var counts = new byte[n];                              // 每行累计命中关键词数
+        byte[]? nonAscii = needFold ? new byte[n] : null;      // 含 ≥0x80 字节的行（回退折叠路径）
+        ScanBlockRounds(doc, raw, cap, counts, nonAscii, 0, dataEnd,
+            keys, keyAscii, needFold, opAnd, ndMax, blockSize, ciMode, ct, progress, doc, cand);
+        return VerdictPass(session, cand, counts, nonAscii, keys, keyAscii,
+            needFold, opAnd, exclude, scannable, andBlocked);
+    }
+
+    /// <summary>
+    /// 块扫描计划（全量轮与增量轮共用）：可扫词数、最长词长度、andBlocked
+    /// （CI 下存在非空但非 ASCII 的词 → 纯 ASCII 行的 and 恒不成立）。
+    /// </summary>
+    static void PlanBlockScan(byte[][] keys, bool[] keyAscii, bool needFold, bool opAnd,
+        out int scannable, out int ndMax, out bool andBlocked)
+    {
+        scannable = 0; ndMax = 0;
+        andBlocked = false;
         for (int i = 0; i < keys.Length; i++)
         {
             if (keys[i].Length == 0) continue;                 // and 模式跳过、不构成否决
@@ -418,21 +445,33 @@ public static class FilterEngine
             scannable++;
             if (keys[i].Length > ndMax) ndMax = keys[i].Length;
         }
-        // and 且无任何可扫词（全为空词）：MatchAny 的 and 分支返回 opAnd=true，不进扫描。
-        // or 无空词时不成立（关键词都非空但都不可扫 = CI 非 ASCII 词），必须走下方折叠判定。
-        if (opAnd && scannable == 0 && !andBlocked) return exclude ? Array.Empty<int>() : cand;
+    }
 
-        // 扫描上界取「最后一行末尾」与映射容量的较小值：索引区之后的尾巴不是记录，
-        // 扫它只会产出必然被段边界复核剔除的命中点。
+    /// <summary>
+    /// 区间轮（design 决策 4 增量形态与全量形态共用）：对字节归属区间 [from, to) 跑
+    /// 逐关键词并行块扫描 + 非 ASCII 标记轮，命中只归属行首落在 [from, to) 的记录，
+    /// counts / nonAscii 由调用方持有并跨轮累积。全量路径等价于 from = 0、to = 末条记录末尾。
+    /// <paramref name="progDoc"/> / <paramref name="progCand"/> 仅全量路径的进度换算用，增量轮传 null。
+    /// </summary>
+    static unsafe void ScanBlockRounds(LogDocument doc, byte* raw, long cap,
+        byte[] counts, byte[]? nonAscii, long from, long to,
+        byte[][] keys, bool[] keyAscii, bool needFold, bool opAnd, int ndMax,
+        int blockSize, BlockScanCiMode ciMode, CancellationToken ct,
+        IProgress<(double, string)>? progress = null,
+        LogDocument? progDoc = null, int[]? progCand = null)
+    {
+        int n = doc.RowCount;
+        if (n <= 0 || to <= from) return;
         long dataEnd = Math.Min(cap, doc.Offs[n - 1] + doc.Lens[n - 1]);
-        if (dataEnd <= 0) return null;
+        if (to > dataEnd) to = dataEnd;                        // 护栏：归属区间不得越过末条记录末尾
+        if (to <= from) return;
 
         long overlap = ndMax > 0 ? ndMax - 1 : 0;              // D2：重叠防跨块关键词漏配
-        int nBlocks = checked((int)((dataEnd + blockSize - 1) / blockSize));
-        int rounds = scannable + (needFold ? 1 : 0);
-        var prog = new BlockScanProgress(progress, doc, cand, dataEnd, rounds);
-        var counts = new byte[n];                              // 每行累计命中关键词数
-        byte[]? nonAscii = needFold ? new byte[n] : null;      // 含 ≥0x80 字节的行（回退折叠路径）
+        int nBlocks = checked((int)((to - from + blockSize - 1) / blockSize));
+        int rounds = CountScannableKeys(keys, keyAscii, needFold) + (needFold ? 1 : 0);
+        BlockScanProgress? prog = progress != null && progDoc != null && progCand != null
+            ? new BlockScanProgress(progress, progDoc, progCand, dataEnd, Math.Max(1, rounds))
+            : null;
         bool ciSimd = ciMode switch
         {
             BlockScanCiMode.Simd => true,
@@ -454,8 +493,8 @@ public static class FilterEngine
             Parallel.For(0, nBlocks, options, b =>
             {
                 var offs = doc.Offs; var lens = doc.Lens; var moff = doc.Moff;
-                long rawStart = (long)b * blockSize;
-                long rawEnd = Math.Min(dataEnd, rawStart + blockSize);
+                long rawStart = from + (long)b * blockSize;
+                long rawEnd = Math.Min(to, rawStart + blockSize);
                 long scanEnd = BlockScanEnd(offs, lens, rawStart, rawEnd, overlap, cap);
                 int len = checked((int)(scanEnd - rawStart));
                 if (len >= needle.Length)
@@ -472,26 +511,32 @@ public static class FilterEngine
                     else
                         ScanCsBlock(raw + rawStart, len, needle, ref sink, offs, lens, moff);
                 }
-                prog.BlockDone(scanEnd - rawStart);
+                prog?.BlockDone(scanEnd - rawStart);
             });
             ct.ThrowIfCancellationRequested();
         }
 
-        if (needFold)
+        if (needFold && nonAscii != null)
         {
             Parallel.For(0, nBlocks, options, b =>
             {
                 var offs = doc.Offs; var lens = doc.Lens; var moff = doc.Moff;
-                long rawStart = (long)b * blockSize;
-                long rawEnd = Math.Min(dataEnd, rawStart + blockSize);
+                long rawStart = from + (long)b * blockSize;
+                long rawEnd = Math.Min(to, rawStart + blockSize);
                 long scanEnd = BlockScanEnd(offs, lens, rawStart, rawEnd, overlap, cap);
-                ScanNonAsciiBlock(raw, rawStart, scanEnd, rawEnd, nonAscii!, cap, n, offs, lens, moff);
-                prog.BlockDone(scanEnd - rawStart);
+                ScanNonAsciiBlock(raw, rawStart, scanEnd, rawEnd, nonAscii, cap, n, offs, lens, moff);
+                prog?.BlockDone(scanEnd - rawStart);
             });
         }
+    }
 
-        return VerdictPass(session, cand, counts, nonAscii, keys, keyAscii,
-            needFold, opAnd, exclude, scannable, andBlocked);
+    /// <summary>可扫关键词数（非空、且 CI 下全 ASCII）——进度轮数估算用。</summary>
+    static int CountScannableKeys(byte[][] keys, bool[] keyAscii, bool needFold)
+    {
+        int c = 0;
+        for (int i = 0; i < keys.Length; i++)
+            if (keys[i].Length > 0 && !(needFold && !keyAscii[i])) c++;
+        return c;
     }
 
     /// <summary>
@@ -852,8 +897,147 @@ public static class FilterEngine
         return cand;
     }
 
+    // ── 增量块扫描会话（加载期 Message 过滤，design 决策 4=C′）──
+
+    /// <summary>
+    /// 加载期增量块扫描会话：把全量块扫描「全文档一轮」拆为跨轮持久的累计数组
+    /// （counts / nonAscii）+ 可指定字节区间的增量轮（<see cref="ScanBlockRounds"/>）+
+    /// 行段判定（<see cref="VerdictPass"/> 只跑本轮新增候选行）。
+    /// 每轮只扫 [上轮末条记录末尾, 本轮末条记录末尾)，结论与全量块扫描一致（测试钉住）。
+    /// </summary>
+    /// <remarks>
+    /// 生命周期约束：同一 FilterSpec（关键词 / 大小写 / and-or / exclude）连续使用；
+    /// 过滤条件变化或文档映射被替换（Reload → OpenMap）时调用方必须丢弃重建，
+    /// 否则指针读到旧映射内容（分块加载期间无 OpenMap，长持安全）。
+    /// 中途某轮回退逐条（分派条件不满足）不破坏连续性：会话游标停在原地，
+    /// 下一轮从游标补扫被跳过的字节，跳过批的行不会再走会话判定，计数多余但无消费方。
+    /// </remarks>
+    public sealed unsafe class MsgScanSession : IDisposable
+    {
+        readonly LogDocument _doc;
+        readonly LogDocument.MessageSession _session;
+        readonly byte* _raw;
+        readonly long _cap;
+        readonly byte[][] _keys;
+        readonly bool[] _keyAscii;
+        readonly bool _needFold, _opAnd, _exclude;
+        readonly int _blockSize;
+        byte[] _counts = Array.Empty<byte>();
+        byte[]? _nonAscii;
+        long _scannedTo;       // 已扫到的字节偏移（上轮末条记录末尾）
+
+        MsgScanSession(LogDocument doc, LogDocument.MessageSession session,
+            byte* raw, long cap, byte[][] keys, bool[] keyAscii,
+            bool needFold, bool opAnd, bool exclude, long scannedTo)
+        {
+            _doc = doc; _session = session; _raw = raw; _cap = cap;
+            _keys = keys; _keyAscii = keyAscii;
+            _needFold = needFold; _opAnd = opAnd; _exclude = exclude;
+            _blockSize = BLOCK_SCAN_BLOCK;
+            _scannedTo = scannedTo;
+            if (needFold) _nonAscii = Array.Empty<byte>();
+        }
+
+        /// <summary>已扫到的字节偏移（诊断 / 测试用）。</summary>
+        public long ScannedTo => _scannedTo;
+
+        /// <summary>测试钩子：绕过每轮规模条件（行数 / 候选占比），强制走增量块扫描轮。</summary>
+        internal bool ForceRound { get; set; }
+
+        /// <summary>
+        /// 建会话：<paramref name="scannedTo"/> 为起始游标（0 = 从头；全量重过滤后
+        /// 传当前末条记录末尾，已发布前缀不重扫）。关键词不可块扫（非 ASCII 词 /
+        /// 超词数上限）或拿不到映射基指针时返回 null，调用方回退逐条增量。
+        /// </summary>
+        internal static unsafe MsgScanSession? TryCreate(LogDocument doc, Models.FilterSpec spec, long scannedTo = 0)
+        {
+            if (!BlockScanKeysUsable(spec.Msg)) return null;
+            bool needFold = !spec.MsgCase;
+            var keys = spec.Msg.Select(t =>
+            {
+                var bytes = Encoding.UTF8.GetBytes(t);
+                return spec.MsgCase ? bytes : Encoding.UTF8.GetBytes(t.ToLowerInvariant());
+            }).ToArray();
+            bool[] keyAscii = needFold
+                ? keys.Select(k => Ascii.IsValid(k)).ToArray()
+                : Array.Empty<bool>();
+
+            var session = doc.OpenMessageSession();
+            if (!session.TryAcquireRaw(out byte* raw, out long cap) || cap <= 0)
+            {
+                session.Dispose();
+                return null;
+            }
+            return new MsgScanSession(doc, session, raw, cap, keys, keyAscii,
+                needFold, spec.MsgOp == "and", spec.MsgExclude, scannedTo);
+        }
+
+        /// <summary>
+        /// 推进一轮：扫描 [游标, 本轮末条记录末尾)，只对 <paramref name="newCand"/>
+        /// （本轮新增候选行，升序）做行段判定，返回本批命中行（候选序）。
+        /// 无新记录返回空数组；返回 null = 会话失效（映射容量不足，如 Reload 后未重建），
+        /// 调用方应回退逐条并重建会话。
+        /// </summary>
+        internal unsafe int[]? ScanRound(int[] newCand)
+        {
+            int n = _doc.RowCount;
+            if (n == 0 || newCand.Length == 0) return Array.Empty<int>();
+            // 可扫三条件中的规模条件（行数 / 候选占比）逐轮评估：不满足回退逐条增量
+            // （关键词可用性条件在建会话时已过滤）。游标停在原地，下轮从游标补扫。
+            if (!ForceRound && !BlockScanScaleOk(n, newCand.Length)) return null;
+            long dataEnd = Math.Min(_cap, _doc.Offs[n - 1] + _doc.Lens[n - 1]);
+            if (dataEnd > _cap) return null;                       // 映射已被替换：会话失效
+            if (dataEnd <= _scannedTo) return Array.Empty<int>();  // 无新记录（本轮只有空行/横幅）
+
+            // 空 needle 短路：or 模式整体立即成立（exclude 下整体不成立），与全量块扫描一致
+            if (!_opAnd)
+                for (int i = 0; i < _keys.Length; i++)
+                    if (_keys[i].Length == 0)
+                    {
+                        _scannedTo = dataEnd;
+                        return _exclude ? Array.Empty<int>() : (int[])newCand.Clone();
+                    }
+
+            PlanBlockScan(_keys, _keyAscii, _needFold, _opAnd,
+                out int scannable, out int ndMax, out bool andBlocked);
+            if (_opAnd && scannable == 0 && !andBlocked)
+            {
+                _scannedTo = dataEnd;
+                return _exclude ? Array.Empty<int>() : (int[])newCand.Clone();
+            }
+
+            EnsureCapacity(n);
+            ScanBlockRounds(_doc, _raw, _cap, _counts, _nonAscii, _scannedTo, dataEnd,
+                _keys, _keyAscii, _needFold, _opAnd, ndMax, _blockSize, BlockScanCiMode.Auto,
+                CancellationToken.None);
+            _scannedTo = dataEnd;
+            return VerdictPass(_session, newCand, _counts, _nonAscii, _keys, _keyAscii,
+                _needFold, _opAnd, _exclude, scannable, andBlocked);
+        }
+
+        /// <summary>累计数组扩容（文档行数增长时）：保留旧内容，新增区零填充。</summary>
+        void EnsureCapacity(int n)
+        {
+            if (_counts.Length < n)
+            {
+                var counts = new byte[Math.Max(n, _counts.Length * 2)];
+                Array.Copy(_counts, counts, _counts.Length);
+                _counts = counts;
+            }
+            if (_nonAscii != null && _nonAscii.Length < n)
+            {
+                var nonAscii = new byte[Math.Max(n, _nonAscii.Length * 2)];
+                Array.Copy(_nonAscii, nonAscii, _nonAscii.Length);
+                _nonAscii = nonAscii;
+            }
+        }
+
+        public void Dispose() => _session.Dispose();
+    }
+
     // ── 增量过滤（实时采集用）──
-    public static int[] FilterTail(LogDocument doc, Models.FilterSpec spec, int start, HashSet<int>? marked = null)
+    public static int[] FilterTail(LogDocument doc, Models.FilterSpec spec, int start,
+        HashSet<int>? marked = null, MsgScanSession? scanSession = null)
     {
         int n = doc.RowCount;
         if (n <= start) return Array.Empty<int>();
@@ -894,11 +1078,20 @@ public static class FilterEngine
             result.Add(i);
         }
 
-        // Message 过滤（增量固定走逐条匹配：行数少，逐条已是最优，块扫描的整文档语义不适配增量）
+        // Message 过滤：有增量会话且本轮命中可扫三条件走增量块扫描（一轮区间扫 +
+        // 行段判定，结论与全量一致）；否则回退逐条增量（forceBlockScan=false，
+        // 现状路径）。会话游标停在原地，后续轮从游标补扫，连续性不破坏。
         if (spec.Msg.Length > 0)
-            return MsgFilterCore(doc, result.ToArray(), spec, null, CancellationToken.None,
+        {
+            var newCand = result.ToArray();
+            if (scanSession != null)
+            {
+                var hits = scanSession.ScanRound(newCand);
+                if (hits != null) return hits;
+            }
+            return MsgFilterCore(doc, newCand, spec, null, CancellationToken.None,
                 forceBlockScan: false);
-
+        }
         return result.ToArray();
     }
 

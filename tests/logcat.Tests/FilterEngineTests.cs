@@ -1457,4 +1457,223 @@ public class FilterEngineTests
         var res = Apply(doc, new FilterSpec { Msg = new[] { "Foo.bar" } });
         Assert.Equal(new[] { 1 }, res);              // 无头续行照常参与匹配并命中
     }
+
+    // ── 增量块扫描（chunked-progressive-load 任务 4.1/4.2，design 决策 4=C′）──
+
+    const string TAIL_T1 = "09-23 18:00:00.000";
+
+    /// <summary>增量过滤共用样本：关键词在行首/行尾交替出现，混入非 ASCII 行、空行与横幅行。</summary>
+    static string LoadSample(int rows)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("--------- beginning of main");
+        for (int i = 0; i < rows; i++)
+        {
+            string msg = (i % 5) switch
+            {
+                0 => $"err at start of message {i}",
+                1 => $"message tail err",
+                2 => $"plain message {i} nothing here",
+                3 => $"中文错误消息 {i} 包含错误字样",   // 非 ASCII 行（CI 走折叠回退）
+                _ => $"err and error mixed {i}",
+            };
+            sb.AppendLine($"{TAIL_T1[..8]} 18:{i / 60:00}:{i % 60:00}.000  {100 + i}  {200 + i} {(i % 2 == 0 ? 'I' : 'E')} Tag{i % 4}: {msg}");
+            if (i % 7 == 0) sb.AppendLine();                                  // 空行
+            if (i % 11 == 0) sb.AppendLine("----- timezone:Asia/Kuala_Lumpur"); // 横幅行
+        }
+        return sb.ToString();
+    }
+
+    static FilterSpec MsgSpec(string[] terms, string op = "or", bool cs = false, bool exclude = false) =>
+        new() { Msg = terms, MsgOp = op, MsgCase = cs, MsgExclude = exclude };
+
+    sealed record LoadRun(TempLogFile Tmp, LogDocument Doc,
+        FilterEngine.MsgScanSession? Session, List<int[]> Batches) : IDisposable
+    {
+        public void Dispose() { Session?.Dispose(); Doc.Dispose(); Tmp.Dispose(); }
+    }
+
+    /// <summary>
+    /// 模拟分块加载：按块 MergePart 增长文档，每块发布后用 FilterTail(带会话) 过滤增量，
+    /// 收集每批命中。块末对齐与 EOF 残行语义与 ChunkScan 一致。
+    /// </summary>
+    static LoadRun GrowAndTail(string content, FilterSpec spec, long block,
+        bool useSession, bool forceRound = true)
+    {
+        var tmp = new TempLogFile(content);
+        var doc = new LogDocument(tmp.Path);
+        typeof(LogDocument).GetMethod("OpenMap", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
+            .Invoke(doc, null);
+        var trim = typeof(LogDocument).GetMethod("TrimPartial", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
+        var session = useSession ? FilterEngine.MsgScanSession.TryCreate(doc, spec) : null;
+        if (session != null) session.ForceRound = forceRound;
+
+        var batches = new List<int[]>();
+        long size = tmp.Length, start = 0;
+        while (start < size)
+        {
+            long end = Math.Min(size, start + block);
+            if (end < size)
+            {
+                end = (long)trim.Invoke(doc, new object[] { end, start })!;
+                if (end <= start) end = size;   // 块内无换行（单行超块长）：推到文件末尾
+            }
+            int prevN = doc.RowCount;
+            doc.MergePart(LogDocument.ScanRange(tmp.Path, start, end), end);
+            batches.Add(FilterEngine.FilterTail(doc, spec, prevN, null, session));
+            start = end;
+        }
+        return new LoadRun(tmp, doc, session, batches);
+    }
+
+    /// <summary>增量区间轮（多轮累积）与全量块扫描 / 逐条匹配的命中集合一致，多块长参数化。</summary>
+    [Theory]
+    [InlineData(97)]
+    [InlineData(300)]
+    [InlineData(1024)]
+    public void 增量区间轮与全量块扫描命中集合一致(long block)
+    {
+        var spec = MsgSpec(new[] { "err" });
+        using var run = GrowAndTail(LoadSample(120), spec, block, useSession: true);
+        Assert.NotNull(run.Session);
+
+        var concat = run.Batches.SelectMany(b => b).ToArray();
+        var all = Enumerable.Range(0, run.Doc.RowCount).ToArray();
+        var viaBlocks = FilterEngine.MsgFilterCore(run.Doc, all, spec, null, CancellationToken.None,
+            forceBlockScan: true, blockSizeOverride: 128);
+        var viaRows = FilterEngine.MsgFilterCore(run.Doc, all, spec, null, CancellationToken.None,
+            forceBlockScan: false);
+
+        Assert.Equal(viaRows, viaBlocks);   // 全量两路径互证
+        Assert.Equal(viaRows, concat);      // 增量多轮累积 = 全量
+    }
+
+    /// <summary>
+    /// 跨轮边界关键词命中不遗漏不重复：关键词贴着轮边界两侧（前行末尾 / 后行行首）。
+    /// 小块长把轮边界切到每两行之间，命中集合须与全量一致且无重复（升序严格递增）。
+    /// </summary>
+    [Fact]
+    public void 跨轮边界关键词命中不遗漏不重复()
+    {
+        var spec = MsgSpec(new[] { "err" });
+        using var run = GrowAndTail(LoadSample(80), spec, 61, useSession: true);
+
+        var concat = run.Batches.SelectMany(b => b).ToArray();
+        Assert.Equal(concat, concat.Distinct().ToArray());   // 无重复
+        Assert.Equal(concat, concat.OrderBy(x => x).ToArray()); // 升序
+        var all = Enumerable.Range(0, run.Doc.RowCount).ToArray();
+        var expected = FilterEngine.MsgFilterCore(run.Doc, all, spec, null, CancellationToken.None,
+            forceBlockScan: false);
+        Assert.Equal(expected, concat);
+    }
+
+    /// <summary>加载期含 Message 关键词的增量过滤（FilterTail + 会话）与全量过滤结论一致（or/and/大小写/exclude 组合）。</summary>
+    [Theory]
+    [InlineData("or", false, false)]
+    [InlineData("and", false, false)]
+    [InlineData("or", true, false)]
+    [InlineData("or", false, true)]
+    public void 加载期含Message关键词增量过滤与全量结论一致(string op, bool cs, bool exclude)
+    {
+        var spec = MsgSpec(new[] { "err", "error" }, op, cs, exclude);
+        using var run = GrowAndTail(LoadSample(100), spec, 200, useSession: true);
+        Assert.NotNull(run.Session);
+
+        var concat = run.Batches.SelectMany(b => b).ToArray();
+        Assert.Equal(Apply(run.Doc, spec), concat);
+    }
+
+    /// <summary>非 ASCII 关键词不可块扫：建会话返回 null，FilterTail 回退逐条增量，结论与全量一致。</summary>
+    [Fact]
+    public void 非ASCII关键词增量路径回退逐条()
+    {
+        using var tmp0 = new TempLogFile(LoadSample(10));
+        using var doc0 = new LogDocument(tmp0.Path);
+        typeof(LogDocument).GetMethod("OpenMap", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
+            .Invoke(doc0, null);
+
+        var spec = MsgSpec(new[] { "错误" });
+        Assert.Null(FilterEngine.MsgScanSession.TryCreate(doc0, spec));   // 关键词不可块扫
+
+        using var run = GrowAndTail(LoadSample(80), spec, 200, useSession: true);
+        Assert.Null(run.Session);                                          // 建会话失败 → 逐条
+        var concat = run.Batches.SelectMany(b => b).ToArray();
+        Assert.Equal(Apply(run.Doc, spec), concat);
+    }
+
+    /// <summary>规模条件（行数 / 候选占比）不满足时逐轮回退逐条增量，结论仍与全量一致（会话游标停原地不破坏连续性）。</summary>
+    [Fact]
+    public void 规模条件不满足时增量回退逐条()
+    {
+        var spec = MsgSpec(new[] { "err" });
+        // 小文档 + 不强制：每轮规模条件都不满足 → 全部回退逐条
+        using var run = GrowAndTail(LoadSample(60), spec, 200, useSession: true, forceRound: false);
+        Assert.NotNull(run.Session);
+        var concat = run.Batches.SelectMany(b => b).ToArray();
+        Assert.Equal(Apply(run.Doc, spec), concat);
+    }
+
+    /// <summary>
+    /// 加载期修改过滤条件：已发布前缀走既有全量路径，新会话以当前游标续扫增量，
+    /// 最终结果与「整份构建后按新条件全量过滤」一致。
+    /// </summary>
+    [Fact]
+    public void 加载期修改过滤条件_前缀全量后恢复增量()
+    {
+        var spec1 = MsgSpec(new[] { "err" });
+        var spec2 = MsgSpec(new[] { "error" }, op: "and", cs: true);
+        var tmp = new TempLogFile(LoadSample(100));
+        var doc = new LogDocument(tmp.Path);
+        typeof(LogDocument).GetMethod("OpenMap", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
+            .Invoke(doc, null);
+        var trim = typeof(LogDocument).GetMethod("TrimPartial", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
+        FilterEngine.MsgScanSession? session = null;
+        try
+        {
+            var view = new List<int>();          // 模拟加载期视图（spec1 → spec2 切换）
+            long size = tmp.Length, start = 0;
+            int blocks = 0;
+            while (start < size)
+            {
+                long end = Math.Min(size, start + 250);
+                if (end < size)
+                {
+                    end = (long)trim.Invoke(doc, new object[] { end, start })!;
+                    if (end <= start) end = size;
+                }
+                int prevN = doc.RowCount;
+                doc.MergePart(LogDocument.ScanRange(tmp.Path, start, end), end);
+                start = end;
+                blocks++;
+
+                if (blocks == 3)
+                {
+                    // 过滤条件变化：对已发布前缀走既有全量路径，重建会话（游标 = 当前末条末尾）
+                    view.Clear();
+                    view.AddRange(Apply(doc, spec2));
+                    session?.Dispose();
+                    long dataEnd = doc.Offs[doc.RowCount - 1] + doc.Lens[doc.RowCount - 1];
+                    session = FilterEngine.MsgScanSession.TryCreate(doc, spec2, scannedTo: dataEnd);
+                    Assert.NotNull(session);
+                    session!.ForceRound = true;
+                }
+                else if (session == null)
+                {
+                    view.AddRange(FilterEngine.FilterTail(doc, spec1, prevN));   // 切换前按 spec1 增量
+                }
+                else
+                {
+                    view.AddRange(FilterEngine.FilterTail(doc, spec2, prevN, null, session));
+                }
+            }
+
+            Assert.Equal(Apply(doc, spec2), view);
+        }
+        finally
+        {
+            session?.Dispose();
+            doc.Dispose();
+            tmp.Dispose();
+        }
+    }
 }

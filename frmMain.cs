@@ -108,6 +108,9 @@ public partial class frmMain : Form, ILocalizedUi
     // 崩溃汇总窗口（非模态，悬浮在主窗口之上）
     CrashSummaryForm? _crashSummary;
 
+    // 加载期置灰入口（chunked-progressive-load 任务 4.3，spec「加载期 UI 状态」）
+    ToolStripMenuItem _actExport = null!, _actExportMarked = null!, _actCrashSummary = null!;
+
     readonly ILogger _logger;
 
     // ── 窗口几何（多屏安全）──
@@ -151,6 +154,8 @@ public partial class frmMain : Form, ILocalizedUi
         var actReload = Loc.Bind(new ToolStripMenuItem("重载", null, (_, _) => Reload(), Keys.F5), "重载");
         var actExport = Loc.Bind(new ToolStripMenuItem("导出结果…", null, (_, _) => ExportRows(false), Keys.Control | Keys.E), "导出结果…");
         var actExportMarked = Loc.Bind(new ToolStripMenuItem("导出标记行…", null, (_, _) => ExportRows(true)), "导出标记行…");
+        _actExport = actExport;
+        _actExportMarked = actExportMarked;
         var actQuit = Loc.Bind(new ToolStripMenuItem("退出", null, (_, _) => Close(), Keys.Control | Keys.Q), "退出");
         _actSaveLog = Loc.Bind(new ToolStripMenuItem("保存日志…", null, (_, _) => AdbSaveLog()) { Enabled = false }, "保存日志…");
         _mruMenu = Loc.Bind(new ToolStripMenuItem("最近打开"), "最近打开");
@@ -163,8 +168,10 @@ public partial class frmMain : Form, ILocalizedUi
         mSet.DropDownItems.Add(Loc.Bind(new ToolStripMenuItem("文件代理…", null, (_, _) => ShowFileProxyDialog()), "文件代理…"));
 
         // ── 情报菜单：崩溃等情报分析入口 ──
+        var actCrashSummary = Loc.Bind(new ToolStripMenuItem("崩溃汇总…", null, (_, _) => ShowCrashSummary()), "崩溃汇总…");
+        _actCrashSummary = actCrashSummary;
         var mIntel = Loc.Bind(new ToolStripMenuItem("情报"), "情报");
-        mIntel.DropDownItems.Add(Loc.Bind(new ToolStripMenuItem("崩溃汇总…", null, (_, _) => ShowCrashSummary()), "崩溃汇总…"));
+        mIntel.DropDownItems.Add(actCrashSummary);
 
         // ── 帮助菜单 ──
         var mHelp = Loc.Bind(new ToolStripMenuItem("帮助"), "帮助");
@@ -227,7 +234,7 @@ public partial class frmMain : Form, ILocalizedUi
         _chkToolbarMarkedOnly = Loc.Bind(new CheckBox { AutoSize = true }, "仅标记行");
         _chkToolbarMarkedOnly.CheckedChanged += (_, _) => { if (!_syncingFilter) OnFilterChanged(); };
         _chkToolbarFollow = Loc.Bind(new CheckBox { AutoSize = true }, "跟随尾部");
-        _chkToolbarFollow.CheckedChanged += (_, _) => { if (!_syncingFilter && _chkToolbarFollow.Checked && _listView.Rows.Length > 0) ScrollBottom(); };
+        _chkToolbarFollow.CheckedChanged += (_, _) => { if (!_syncingFilter && _chkToolbarFollow.Checked && _listView.RowCount > 0) ScrollBottom(); };
 
         _tbMin = Loc.BindTip(new ToolStripTextBox { Width = 80 }, "如 05 20（空格分隔）");
         _tbMin.TextChanged += (_, _) => { SyncToolbarToPanel(_tbMin, _edMin); RefreshFixedOrBoxStyle(); };
@@ -993,33 +1000,42 @@ public partial class frmMain : Form, ILocalizedUi
                 // 分流段：关旧文档之后、构建之前（spec「分流时序」）；
                 // spool 进度 0–50%，构建进度 50–100%（分段映射）
                 doc = await LoadViaProxyAsync(path, gen, cts.Token);
-            }
-            else
-            {
-                doc = await LogDocument.BuildAsync(path,
-                    new Progress<(double pct, string msg)>(p =>
-                    {
-                        if (_workerGen == gen)
-                        {
-                            _pbar.Value = (int)(p.pct * 100);
-                            ShowStatusRaw(p.msg);
-                        }
-                    }), cts.Token);
+
+                if (_workerGen != gen) return;
+                sw.Stop();
+                _indexMs = sw.Elapsed.TotalMilliseconds;
+                _doc = doc;
+                _listView.SetDocument(doc);
+                _lblFile.Text = $"{doc.Path}   ({HumanSize(doc.Size)})";
+                RefreshChannelState();   // 新文档就位：按当前渠道重算
+                if (FavoritesStore.Default.AddRecentFile(doc.Path))
+                {
+                    FavoritesStore.Default.Save();
+                    RebuildRecentMenu();   // 即时刷新排序并恢复子菜单 Enabled
+                }
+                await ApplyFilter();
+                return;
             }
 
-            if (_workerGen != gen) return;
+            // 本地文件：分块渐进加载（design 决策 1/6/7/8）。首块 4 MB 出首屏、稳态 32 MB；
+            // 加载期过滤器与时间过滤增量生效、发布 100 ms 节流上屏；完成时视图已按条件
+            // 增量构建，无需全量重过滤。取消：worker 在块边界抛 OCE，整份清空回空状态。
+            var chunked = await RunChunkedLoadAsync(path, gen, cts.Token);
+            if (chunked == null || _workerGen != gen) return;
+
             sw.Stop();
             _indexMs = sw.Elapsed.TotalMilliseconds;
-            _doc = doc;
-            _listView.SetDocument(doc);
-            _lblFile.Text = $"{doc.Path}   ({HumanSize(doc.Size)})";
+            _doc = chunked;   // 加载期已由 FlushLoadOps 接管视图；此处确保引用就位
+            _lblFile.Text = $"{chunked.Path}   ({HumanSize(chunked.Size)})";
             RefreshChannelState();   // 新文档就位：按当前渠道重算
-            if (FavoritesStore.Default.AddRecentFile(doc.Path))
+            if (FavoritesStore.Default.AddRecentFile(chunked.Path))
             {
                 FavoritesStore.Default.Save();
                 RebuildRecentMenu();   // 即时刷新排序并恢复子菜单 Enabled
             }
-            await ApplyFilter();
+            ShowStatusRaw($"加载 {chunked.RowCount:N0} 行，{_indexMs:N0} ms");
+            if (_crashSummary != null && !_crashSummary.IsDisposed)
+                _crashSummary.RefreshFrom(_doc);
         }
         catch (OperationCanceledException) { }
         catch (FileProxyException fpex)
@@ -1085,8 +1101,10 @@ public partial class frmMain : Form, ILocalizedUi
                         }
                     }), ct);
 
-                // 索引构建：进度映射到 50–100%；显示路径 = 用户原路径（源路径 = 暂存文件）
-                var doc = await LogDocument.BuildAsync(result.SpoolFilePath,
+                // 索引构建：进度映射到 50–100%；显示路径 = 用户原路径（源路径 = 暂存文件）。
+                // 与本地路径同一条流式管线（design 决策 8=D8 路径统一），无渐进发布、UI 行为不变
+                var doc = await LogDocument.BuildChunkedAsync(result.SpoolFilePath,
+                    publish: null,
                     new Progress<(double pct, string msg)>(p =>
                     {
                         if (_workerGen == gen)
@@ -1123,6 +1141,7 @@ public partial class frmMain : Form, ILocalizedUi
     async void Reload()
     {
         if (_doc == null) { OpenFile(); return; }
+        if (_loading) { ShowStatus("加载中，请稍候…"); return; }   // 渐进加载进行中：避免与加载 worker 并发
         // 代理文档转全量重建（spec「Reload」）：增量 Reload 对暂存文件无意义，
         // 按显示路径重新走完整装载流程（含重新分流判定 / spool），显示路径不变
         if (_doc.IsProxied) { StartIndex(_doc.Path); return; }
@@ -1168,6 +1187,20 @@ public partial class frmMain : Form, ILocalizedUi
     // keep：刷新前的视图快照；quiet：静默刷新（实时采集增量同步），不显示进度条、不重置文档，避免闪屏
     async Task ApplyFilter(LogListView.ViewSnapshot? keep = null, bool quiet = false)
     {
+        if (_loading)
+        {
+            // 分块渐进加载中（spec「加载期过滤行为」）：收集条件后由 worker 在下一块边界
+            // 对已发布前缀走既有全量路径重过滤，之后恢复增量——不与加载扫描并发。
+            _autoTimer.Stop();
+            FilterSpec pendingSpec;
+            try { pendingSpec = CollectSpec(); }
+            catch (Exception ex) { ShowError(ex.Message); return; }
+            _spec = pendingSpec;
+            _lblSpec.Text = pendingSpec.Describe();
+            Volatile.Write(ref _pendingLoadSpec, pendingSpec);
+            return;
+        }
+
         if (_doc == null) return;
         _autoTimer.Stop();
 
@@ -1334,8 +1367,7 @@ public partial class frmMain : Form, ILocalizedUi
 
     void GotoMark(bool back)
     {
-        var rows = _listView.Rows;
-        if (rows.Length == 0) return;
+        if (_listView.RowCount == 0) return;
         var markedModelRows = _marked
             .Select(dr => _listView.ModelRowOf(dr))
             .Where(mr => mr >= 0)
@@ -1374,7 +1406,7 @@ public partial class frmMain : Form, ILocalizedUi
         }
         else
         {
-            rows = _listView.Rows;
+            rows = _listView.GetRowsCopy();
             hint = "filtered";
         }
         if (rows.Length == 0) { ShowError(Loc.T("没有可导出的行")); return; }
@@ -1536,14 +1568,14 @@ public partial class frmMain : Form, ILocalizedUi
 
     void FindStep(bool back)
     {
-        if (_doc == null || _listView.Rows.Length == 0) return;
+        if (_doc == null || _listView.RowCount == 0) return;
 
         var terms = FilterEngine.SplitTerms(_edMsg.Text, _cbMsgOp.SelectedItem?.ToString() ?? "or");
         if (terms.Count == 0) { ShowStatus("请先在 Message 框里填写检索词"); return; }
 
         bool opAnd = (_cbMsgOp.SelectedItem?.ToString() ?? "or") == "and";
         var keys = terms.Select(t => t.ToLowerInvariant()).ToArray();
-        int total = _listView.Rows.Length;
+        int total = _listView.RowCount;
         int cur = _listView.SelectedIndices.Count > 0 ? _listView.SelectedIndices[0] : -1;
         if (cur < 0) cur = back ? total - 1 : TopRow();
         if (cur < 0) cur = 0;
@@ -1581,7 +1613,7 @@ public partial class frmMain : Form, ILocalizedUi
 
     void SelectRow(int modelRow, bool center = true)
     {
-        if (modelRow < 0 || modelRow >= _listView.Rows.Length) return;
+        if (modelRow < 0 || modelRow >= _listView.RowCount) return;
         _listView.SelectedIndices.Clear();
         _listView.SelectedIndices.Add(modelRow);
         _listView.EnsureVisible(modelRow);
@@ -1589,9 +1621,9 @@ public partial class frmMain : Form, ILocalizedUi
 
     void ScrollBottom()
     {
-        if (_listView.Rows.Length == 0) return;
+        if (_listView.RowCount == 0) return;
         _programScroll = true;
-        try { _listView.EnsureVisible(_listView.Rows.Length - 1); }
+        try { _listView.EnsureVisible(_listView.RowCount - 1); }
         finally { _programScroll = false; }
         _lastVsb = _listView.TopItem?.Index ?? -1;
     }
@@ -1608,7 +1640,7 @@ public partial class frmMain : Form, ILocalizedUi
         if (top >= 0 && _doc != null)
         {
             int dr = _listView.DocRow(top);
-            _lblPos.Text = Loc.F("视口 {0:N0}/{1:N0} (记录 #{2})", top + 1, _listView.Rows.Length, dr + 1);
+            _lblPos.Text = Loc.F("视口 {0:N0}/{1:N0} (记录 #{2})", top + 1, _listView.RowCount, dr + 1);
         }
     }
 
@@ -1616,7 +1648,7 @@ public partial class frmMain : Form, ILocalizedUi
     {
         int total = _doc?.RowCount ?? 0;
         _lblStat.Text = Loc.F("总 {0:N0} 条 | 命中 {1:N0} | 标记 {2:N0} | 索引 {3:F0} ms | 过滤 {4:F0} ms",
-            total, _listView.Rows.Length, _marked.Count, _indexMs, _filterMs);
+            total, _listView.RowCount, _marked.Count, _indexMs, _filterMs);
         // WinForms StatusStrip 偶发塌缩：本标签被某次布局算成零宽后，仅改自身文本
         // 不会触发整条重排，项保持不可见（实测改相邻标签文本如 _lblPos 会连带恢复）。
         // 写完文本强制重排一次，保证统计必定按新文本重新测量上屏。
@@ -1644,7 +1676,7 @@ public partial class frmMain : Form, ILocalizedUi
         if (top >= 0 && _doc != null)
         {
             int dr = _listView.DocRow(top);
-            _lblPos.Text = Loc.F("视口 {0:N0}/{1:N0} (记录 #{2})", top + 1, _listView.Rows.Length, dr + 1);
+            _lblPos.Text = Loc.F("视口 {0:N0}/{1:N0} (记录 #{2})", top + 1, _listView.RowCount, dr + 1);
         }
         else _lblPos.Text = "";
 

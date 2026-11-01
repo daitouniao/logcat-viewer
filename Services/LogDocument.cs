@@ -391,6 +391,128 @@ public sealed class LogDocument : IDisposable
         IndexedSize = Size;
     }
 
+    // ── 分块渐进加载（design 决策 1/2/3/10）──
+    /// <summary>首块块长：抢首屏（spec 首屏 ≤ 0.5 s）。internal：单元测试注入小块验证分块语义。</summary>
+    internal const int FirstChunkBytes = 4 << 20;
+    /// <summary>稳态块长：吞吐优先，降块数与过滤轮次开销（design 决策 2，探针复测定稿）。</summary>
+    internal const int SteadyChunkBytes = 32 << 20;
+
+    /// <summary>
+    /// 分块渐进构建（worker 线程调用）：首块 <see cref="FirstChunkBytes"/> 抢首屏、
+    /// 稳态 <see cref="SteadyChunkBytes"/> 提吞吐；块末对齐换行符（<see cref="TrimPartial"/>，
+    /// 不完整行留待下一块），每块 <see cref="ScanRange"/> → <see cref="MergePart"/> 并入后经
+    /// <paramref name="publish"/> 发布新完成记录区间 [fromRow, toRow)。已发布前缀字节由此
+    /// 天然不再变化（自然行口径，记录互不延伸）。EOF 收尾：末块终点 = 文件长度，尾部
+    /// 无换行的残行随末块一次性发布，无内容滞留。取消：任意块边界检查 token，抛
+    /// OperationCanceledException（spec「取消加载整份清空」由调用方丢弃文档实现）。
+    /// 小文件单块即整份，无独立路径（design 决策 8=D8 统一流式）。
+    /// 块内无完整行（单行超块长）时直接推到文件末尾，由末块整行发布，不死循环。
+    /// </summary>
+    public static async Task<LogDocument> BuildChunkedAsync(string path,
+        Action<LogDocument, int, int>? publish = null,
+        IProgress<(double pct, string msg)>? progress = null,
+        CancellationToken ct = default,
+        string? displayPath = null,
+        int firstChunkBytes = FirstChunkBytes,
+        int steadyChunkBytes = SteadyChunkBytes)
+        => await Task.Run(() => BuildChunkedCore(path, publish, progress, ct, displayPath,
+            firstChunkBytes, steadyChunkBytes), ct);
+
+    /// <summary>internal：单元测试直接验证分块等价性与边界语义（见 InternalsVisibleTo）。</summary>
+    internal static LogDocument BuildChunkedCore(string path,
+        Action<LogDocument, int, int>? publish = null,
+        IProgress<(double pct, string msg)>? progress = null,
+        CancellationToken ct = default,
+        string? displayPath = null,
+        int firstChunkBytes = FirstChunkBytes,
+        int steadyChunkBytes = SteadyChunkBytes)
+    {
+        var doc = new LogDocument(path, displayPath: displayPath);
+        doc.Size = new FileInfo(path).Length;
+        doc.OpenMap();   // 映射在解析推进前就绪（任务 1.3 已核实），加载期保持整文件映射（design 决策 5）
+        doc.ChunkScan(0, doc.Size, publish, progress, ct, firstChunkBytes, steadyChunkBytes);
+        if (doc.IndexedSize < doc.Size) doc.IndexedSize = doc.Size;   // 空文件：循环未跑，推进索引口径
+        return doc;
+    }
+
+    /// <summary>
+    /// 分块循环推进 [start, size)：块末换行对齐 + 前瞻重叠 + 区间扫描 + 增量并入 + 逐块发布。
+    /// 首次加载（<see cref="BuildChunkedCore"/>，start = 0）与 Reload 增长续扫（start = IndexedSize）
+    /// 共用同一条管线（design 决策 10 路径统一），不再维护独立的 Append 拼列代码。
+    /// </summary>
+    void ChunkScan(long start, long size, Action<LogDocument, int, int>? publish,
+        IProgress<(double, string)>? progress, CancellationToken ct,
+        int firstChunkBytes, int steadyChunkBytes)
+    {
+        long chunk = firstChunkBytes;
+        bool capacityEstimated = false;
+        while (start < size)
+        {
+            ct.ThrowIfCancellationRequested();
+            long end = Math.Min(size, start + chunk);
+            if (end < size)
+            {
+                // 块末对齐换行符：不完整行留待下一块（前缀稳定，spec「已发布前缀稳定」）
+                end = TrimPartial(end, start);
+                if (end <= start) end = size;   // 块内无换行（单行超块长）：推到文件末尾整行发布
+            }
+            // 前瞻重叠：崩溃提取（a 轨）需要本行 + 最多 3 行前瞻，块边界会把前瞻窗口截断
+            // → 跨界崩溃事件丢失/降级。扫描多读对齐末尾之后 3 行但只索引到 end（行首归属唯一），
+            // 前瞻区行由下一块正常索引提取，事件不重不漏，与整份扫描等价。
+            long scanEnd = end < size ? EndAfterLines(SourcePath, end, size, 3) : end;
+            var part = ScanRange(SourcePath, start, scanEnd, progress, ct, indexEnd: end);
+            int prevN = _n;
+            MergePart(part, end);
+            if (_n > prevN)
+            {
+                publish?.Invoke(this, prevN, _n);
+                // 容量预分配（首个有记录的分块后按实测行密度一次性估满）：
+                // 消除后续 Array.Resize 的 LOH 重复分配/拷贝——大文件下翻倍扩容的
+                // 瞬时峰值（旧+新并存）与 GC 压力是内存峰值与总时长的主要开销。
+                // 密度来自实测（首块行数 / 字节数），对超长行、密行文件自适应；
+                // 估计失败（行数 ≤ 已有行数或首块全为空行/横幅）则退回增量扩容，不影响正确性。
+                if (!capacityEstimated)
+                {
+                    capacityEstimated = true;
+                    long scanned = end;
+                    long est = (long)((double)_n / scanned * size) + 1;
+                    if (est > _n && est <= size && est < int.MaxValue)
+                        EnsureCap((int)est);
+                }
+            }
+            progress?.Report(((double)end / size, Loc.T("加载中…")));
+            start = end;
+            chunk = steadyChunkBytes;
+        }
+    }
+
+    /// <summary>
+    /// 返回 from 之后第 lines 个换行之后的位置（不足 lines 个换行则为 limit，即文件末尾）。
+    /// 分块加载的前瞻重叠扫描终点：让崩溃提取的 3 行前瞻跨过块边界仍然完整。
+    /// </summary>
+    static long EndAfterLines(string path, long from, long limit, int lines)
+    {
+        using var f = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+        if (from >= limit) return limit;
+        f.Position = from;
+        var buf = new byte[64 * 1024];
+        long pos = from;
+        int found = 0, n;
+        while (found < lines && (n = f.Read(buf, 0, buf.Length)) > 0)
+        {
+            for (int i = 0; i < n; i++)
+            {
+                if (buf[i] == (byte)'\n')
+                {
+                    found++;
+                    if (found >= lines) return pos + i + 1;
+                }
+            }
+            pos += n;
+        }
+        return limit;
+    }
+
     // ── 扫描 ──
     /// <summary>internal：单元测试直接验证区间扫描的行边界对齐（见 InternalsVisibleTo）。</summary>
     internal struct ScanPart
@@ -410,10 +532,14 @@ public sealed class LogDocument : IDisposable
     /// <summary>
     /// 扫描 [start, end) 区间并按行切分。两端都对齐到行边界：start 落在行中间时跳到下一行行首
     /// （前半段已由上一批索引），end 落在行中间时回退到该行行首（不完整行留待下次追加）。
+    /// <paramref name="indexEnd"/>（前瞻重叠语义，分块加载用）：数据读到 end、但只索引行首
+    /// 落在 [start, indexEnd) 的记录——indexEnd 之后的行只为上一批末行崩溃提取的 3 行前瞻
+    /// 提供上下文，它们由下一批正常索引与提取（行首归属唯一，不重复）。
     /// internal：单元测试直接验证对齐语义（见 InternalsVisibleTo）。
     /// </summary>
     internal static ScanPart ScanRange(string path, long start, long end,
-        IProgress<(double, string)>? progress = null, CancellationToken ct = default)
+        IProgress<(double, string)>? progress = null, CancellationToken ct = default,
+        long? indexEnd = null)
     {
         var offs = new List<long>();
         var lens = new List<int>();
@@ -479,6 +605,9 @@ public sealed class LogDocument : IDisposable
 
         if (start >= end) return EmptyPart();
 
+        // 前瞻重叠：索引上界（行首 < indexLimit 才索引/提取），数据仍读到 end 供前瞻
+        long indexLimit = Math.Min(indexEnd ?? end, end);
+
         // 读取区间数据
         long rangeSize = end - start;
         byte[] data = new byte[rangeSize];
@@ -532,6 +661,14 @@ public sealed class LogDocument : IDisposable
             // 不是日志记录：不进索引，与实时采集的过滤规则保持一致。
             // 此分支同为行为契约（横幅不索引），变异测试有专用锚点守护，勿并入通用跳过。
             if (LogParser.IsBanner(line))
+            {
+                pos = nl >= 0 ? nl + 1 : data.Length;
+                continue;
+            }
+
+            // 前瞻重叠区（行首 >= indexLimit）：只为上一索引行的崩溃提取提供前瞻上下文，
+            // 不索引、不提取——它们由下一批正常处理（行首归属唯一，事件不重不漏）
+            if (currentOff >= indexLimit)
             {
                 pos = nl >= 0 ? nl + 1 : data.Length;
                 continue;
@@ -733,7 +870,8 @@ public sealed class LogDocument : IDisposable
     }
 
     // ── 增量 ──
-    public string Reload(IProgress<(double, string)>? progress = null, CancellationToken ct = default)
+    public string Reload(IProgress<(double, string)>? progress = null, CancellationToken ct = default,
+        Action<LogDocument, int, int>? publish = null)
     {
         long newSize = new FileInfo(SourcePath).Length;
         if (newSize == IndexedSize && _view != null)
@@ -759,29 +897,37 @@ public sealed class LogDocument : IDisposable
             return "rebuilt";
         }
 
-        return Append(newSize, progress, ct);
-    }
-
-    string Append(long newSize, IProgress<(double, string)>? progress, CancellationToken ct)
-    {
+        // 头部一致：增长部分交给分块管线从 IndexedSize 续扫（design 决策 10 路径统一，
+        // 与首次加载同一条 ChunkScan 循环）；文件增长后视图容量须跟着扩展。
+        // 语义沿用旧 Append：取消返回 unchanged 不抛（沿用旧口径，取消时点在块边界）；
+        // 增长段零记录（全空行/横幅）返回 unchanged 但索引边界照常推进。
         progress?.Report((0.0, Loc.T("追加新内容…")));
-
-        // 裁掉末尾不完整行（流式写入的 flush 边界可能切在行中间），
-        // 未完部分留待下次追加，避免同一行被拆成两条记录
         newSize = TrimPartial(newSize, IndexedSize);
         if (newSize <= IndexedSize)
             return "unchanged";
-
-        var part = ScanRange(SourcePath, IndexedSize, newSize, progress, ct);
-        if (ct.IsCancellationRequested) return "unchanged";
-
-        if (part.Offs.Length == 0)
+        int n0 = _n;
+        Size = newSize;
+        try
         {
-            // 本批只有空行/横幅行：无新记录，仅推进索引口径（文本本体不必重映射读取）
-            IndexedSize = newSize; Size = newSize;
+            ChunkScan(IndexedSize, newSize, publish, progress, ct, SteadyChunkBytes, SteadyChunkBytes);
+        }
+        catch (OperationCanceledException)
+        {
             return "unchanged";
         }
+        OpenMap();
+        return _n > n0 ? "appended" : "unchanged";
+    }
 
+    /// <summary>
+    /// 把一个扫描批次并入既有列（列拼接、tag 重映射、崩溃事件行号偏移），
+    /// 并把 IndexedSize 推进到 <paramref name="newIndexedSize"/>、_n 加上批次行数。
+    /// 分块加载循环（同一线程内多次并入既有文档）与文件增长路径共用的并入核心。
+    /// 不触碰视图映射、不改 Size——OpenMap 时机与 Size 由调用方决定。
+    /// internal：单元测试直接验证多次并入与一次并入等价（见 InternalsVisibleTo）。
+    /// </summary>
+    internal void MergePart(ScanPart part, long newIndexedSize)
+    {
         // 重映射 tag
         var remap = new int[part.LocalTags.Count + 1];
         remap[0] = -1;
@@ -859,10 +1005,8 @@ public sealed class LogDocument : IDisposable
             _crashes = merged;
         }
 
-        IndexedSize = newSize; Size = newSize;
-        OpenMap();
+        IndexedSize = newIndexedSize;
         _n = n + k;
-        return "appended";
     }
 
     /// <summary>把 size 回退到最后一个换行之后；若无完整行则返回 floor。</summary>

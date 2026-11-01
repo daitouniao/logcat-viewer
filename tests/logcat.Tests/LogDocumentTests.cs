@@ -1,3 +1,4 @@
+using System.Reflection;
 using System.Text;
 using logcat.Services;
 using Xunit;
@@ -17,7 +18,7 @@ public class LogDocumentTests
     const string T3 = "09-23 18:00:10.000";
     const string T4 = "09-23 18:00:20.000";
 
-    static string Line(string time, char level, string tag, string msg) =>
+    internal static string Line(string time, char level, string tag, string msg) =>
         TestData.Threadtime(time, 1, 2, level, tag, msg);
 
     static string Text(byte[] bytes) => Encoding.UTF8.GetString(bytes);
@@ -69,6 +70,27 @@ public class LogDocumentTests
         Assert.Equal(0, doc.RowCount);
     }
 
+    /// <summary>
+    /// 分块渐进加载的前提（design 决策 5）：文档映射在解析推进期间即已就绪，
+    /// OpenMessageSession 可取得消息读取基指针——DoBuild 的顺序是 OpenMap 先于
+    /// ScanRange，这里按同一顺序在「行尚未索引」的加载期状态开基指针会话，
+    /// 验证容量护栏生效（容量 ≥ 建映射时刻的文件长度）。
+    /// </summary>
+    [Fact]
+    public void 加载期可取得消息读取基指针()
+    {
+        using var tmp = new TempLogFile(Line(T1, 'I', "Tag", "a"));
+        using var doc = new LogDocument(tmp.Path);
+
+        // 复刻 DoBuild 的加载期顺序：OpenMap 先于扫描。此刻 _n == 0，基指针必须已可用。
+        typeof(LogDocument).GetMethod("OpenMap", BindingFlags.NonPublic | BindingFlags.Instance)!
+            .Invoke(doc, null);
+        Assert.Equal(0, doc.RowCount);
+
+        using var session = doc.OpenMessageSession();
+        Assert.True(session.Capacity >= tmp.Length);
+    }
+
     [Fact]
     public void Build_CRLF行尾不把回车带进记录()
     {
@@ -112,6 +134,271 @@ public class LogDocumentTests
         using var doc = LogDocument.Build(tmp.Path);
 
         Assert.Equal(2, doc.RowCount);
+    }
+
+    /// <summary>
+    /// 分块加载管线的并入核心（任务 3.1）：同一文档上多次 MergePart（分块循环消费）
+    /// 与一次整份 Build 逐元素等价——列、tag 字典重映射、崩溃事件行号偏移与字典去重。
+    /// 样本含两类 tag、Java/Native 崩溃、空行、横幅行与未知形态行，块长 200 字节
+    /// 保证块边界切在各类行之间。
+    /// </summary>
+    [Fact]
+    public void 多次增量并入与一次并入结果一致()
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("--------- beginning of main");
+        for (int i = 0; i < 200; i++)
+        {
+            sb.AppendLine(Line($"09-23 18:{i / 60:00}:{i % 60:00}.000", i % 2 == 0 ? 'I' : 'D',
+                i % 3 == 0 ? "TagA" : "TagB", $"message body {i}"));
+            if (i == 50)
+            {
+                sb.AppendLine(Line(T1, 'E', "AndroidRuntime", "FATAL EXCEPTION: main"));
+                sb.AppendLine(Line(T2, 'E', "AndroidRuntime", "Process: com.example.app, PID: 869"));
+                sb.AppendLine(Line(T3, 'E', "AndroidRuntime", "java.lang.IllegalStateException: boom"));
+                sb.AppendLine();                                   // 空行
+                sb.AppendLine("----- timezone:Asia/Kuala_Lumpur"); // 横幅行
+            }
+            if (i == 120)
+                sb.AppendLine(Line(T4, 'E', "libc",
+                    "Fatal signal 11 (SIGSEGV), code 1 (SEGV_MAPERR), fault addr 0x0 in tid 869 (com.example.app)"));
+        }
+        using var tmp = new TempLogFile(sb.ToString());
+
+        // 参照：整份 Build（一次并入）
+        using var whole = LogDocument.Build(tmp.Path);
+        Assert.True(whole.RowCount > 200);
+
+        // 多次并入：分块 ScanRange → MergePart 循环（复刻分块管线核心，
+        // 块末对齐走生产代码 TrimPartial，与管线同一语义）
+        using var chunked = new LogDocument(tmp.Path);
+        typeof(LogDocument).GetMethod("OpenMap", BindingFlags.NonPublic | BindingFlags.Instance)!
+            .Invoke(chunked, null);
+        var trim = typeof(LogDocument).GetMethod("TrimPartial", BindingFlags.NonPublic | BindingFlags.Instance)!;
+        long size = tmp.Length, start = 0;
+        const long block = 200;
+        while (start < size)
+        {
+            long end = Math.Min(size, start + block);
+            end = (long)trim.Invoke(chunked, new object[] { end, start })!;   // 末尾不完整行留待下一块
+            if (end > start)
+                chunked.MergePart(LogDocument.ScanRange(tmp.Path, start, end), end);
+            start = Math.Max(end, start + 1);
+        }
+
+        Assert.Equal(whole.RowCount, chunked.RowCount);
+        for (int r = 0; r < whole.RowCount; r++)
+        {
+            Assert.Equal(whole.Offs[r], chunked.Offs[r]);
+            Assert.Equal(whole.Lens[r], chunked.Lens[r]);
+            Assert.Equal(whole.Lvl[r], chunked.Lvl[r]);
+            Assert.Equal(whole.Pid[r], chunked.Pid[r]);
+            Assert.Equal(whole.Tid[r], chunked.Tid[r]);
+            Assert.Equal(whole.Minute[r], chunked.Minute[r]);
+            Assert.Equal(whole.TagOf(r), chunked.TagOf(r));
+        }
+        Assert.Equal(whole.Tags, chunked.Tags);
+
+        // 崩溃事件：行号偏移与 id 重映射后应与整份一致
+        Assert.Equal(whole.Crashes.Select(c => (c.Row, c.Kind, c.ExcId, c.PkgId, c.Pid)),
+                     chunked.Crashes.Select(c => (c.Row, c.Kind, c.ExcId, c.PkgId, c.Pid)));
+        Assert.Equal(whole.ExcTypes, chunked.ExcTypes);
+        Assert.Equal(whole.Pkgs, chunked.Pkgs);
+    }
+
+    /// <summary>分块测试共用样本：两类 tag 交替 + Java/Native 崩溃 + 空行 + 横幅行。</summary>
+    static string ChunkySample(int rows)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("--------- beginning of main");
+        for (int i = 0; i < rows; i++)
+        {
+            sb.AppendLine(Line($"09-23 18:{i / 60:00}:{i % 60:00}.000", i % 2 == 0 ? 'I' : 'D',
+                i % 3 == 0 ? "TagA" : "TagB", $"message body {i} with some padding text"));
+            if (i == rows / 3)
+            {
+                sb.AppendLine(Line(T1, 'E', "AndroidRuntime", "FATAL EXCEPTION: main"));
+                sb.AppendLine(Line(T2, 'E', "AndroidRuntime", "Process: com.example.app, PID: 869"));
+                sb.AppendLine(Line(T3, 'E', "AndroidRuntime", "java.lang.IllegalStateException: boom"));
+                sb.AppendLine();
+                sb.AppendLine("----- timezone:Asia/Kuala_Lumpur");
+            }
+            if (i == 2 * rows / 3)
+                sb.AppendLine(Line(T4, 'E', "libc",
+                    "Fatal signal 11 (SIGSEGV), code 1 (SEGV_MAPERR), fault addr 0x0 in tid 869 (com.example.app)"));
+        }
+        return sb.ToString();
+    }
+
+    /// <summary>分块加载 vs 整份构建逐元素等价（多块长）＋ 发布前缀稳定（append-only，永不回改）。</summary>
+    [Theory]
+    [InlineData(100, 300)]      // 首块 < 稳态
+    [InlineData(200, 200)]      // 等块长
+    [InlineData(1024, 4096)]    // 常规比例
+    public void 分块加载与整份构建逐元素等价_多块长(int firstBlock, int steadyBlock)
+    {
+        using var tmp = new TempLogFile(ChunkySample(300));
+        using var whole = LogDocument.Build(tmp.Path);
+
+        // 发布轨迹：append-only 记录，最终与整份逐元素比对 → 同时锁「前缀稳定」
+        var pubOffs = new List<long>();
+        var pubLens = new List<int>();
+        var pubLvls = new List<byte>();
+        int lastPublished = 0;
+
+        using var doc = LogDocument.BuildChunkedCore(tmp.Path,
+            (d, from, to) =>
+            {
+                Assert.Equal(lastPublished, from);            // 区间连续无重叠
+                for (int r = from; r < to; r++)
+                {
+                    pubOffs.Add(d.Offs[r]);
+                    pubLens.Add(d.Lens[r]);
+                    pubLvls.Add(d.Lvl[r]);
+                }
+                lastPublished = to;
+            }, progress: null, ct: default, displayPath: null,
+               firstChunkBytes: firstBlock, steadyChunkBytes: steadyBlock);
+
+        Assert.Equal(whole.RowCount, doc.RowCount);
+        Assert.Equal(lastPublished, doc.RowCount);            // 发布区间覆盖全部记录
+        Assert.Equal(tmp.Length, doc.IndexedSize);
+        for (int r = 0; r < whole.RowCount; r++)
+        {
+            Assert.Equal(whole.Offs[r], pubOffs[r]);          // 已发布内容 = 最终内容（前缀稳定）
+            Assert.Equal(whole.Lens[r], pubLens[r]);
+            Assert.Equal(whole.Lvl[r], pubLvls[r]);
+            Assert.Equal(whole.Offs[r], doc.Offs[r]);
+            Assert.Equal(whole.Lens[r], doc.Lens[r]);
+            Assert.Equal(whole.Lvl[r], doc.Lvl[r]);
+        }
+        Assert.Equal(whole.Tags, doc.Tags);
+        Assert.Equal(whole.Crashes.Select(c => c.Row), doc.Crashes.Select(c => c.Row));
+    }
+
+    /// <summary>
+    /// 跨块边界记录一致（spec「跨块边界记录一致」）：块边界切在某条物理行中间时，
+    /// 该行不被拆成两条、不丢失，两种路径下 (off, len) 一致。
+    /// </summary>
+    [Fact]
+    public void 跨块边界不产生多余或缺失记录()
+    {
+        using var tmp = new TempLogFile(ChunkySample(200));
+        using var whole = LogDocument.Build(tmp.Path);
+
+        const long boundary = 500;   // 首块边界，样本行长约 60 字节 → 必切在行中间
+        using var doc = LogDocument.BuildChunkedCore(tmp.Path,
+            publish: null, progress: null, ct: default, displayPath: null,
+            firstChunkBytes: (int)boundary, steadyChunkBytes: 300);
+
+        Assert.Equal(whole.RowCount, doc.RowCount);
+
+        // 找到跨界记录（off < boundary < off+len）：两条路径下恰好各出现一次且等长
+        var straddle = new List<int>();
+        for (int r = 0; r < whole.RowCount; r++)
+            if (whole.Offs[r] < boundary && whole.Offs[r] + whole.Lens[r] > boundary)
+                straddle.Add(r);
+        Assert.NotEmpty(straddle);                            // 样本确实存在跨界行
+        Assert.All(straddle, r =>
+        {
+            Assert.Equal(whole.Offs[r], doc.Offs[r]);
+            Assert.Equal(whole.Lens[r], doc.Lens[r]);
+            Assert.Equal(whole.Lvl[r], doc.Lvl[r]);
+        });
+        // 全表逐元素兜底（多余或缺失记录会在行数或错位上暴露）
+        for (int r = 0; r < whole.RowCount; r++)
+        {
+            Assert.Equal(whole.Offs[r], doc.Offs[r]);
+            Assert.Equal(whole.Lens[r], doc.Lens[r]);
+        }
+    }
+
+    /// <summary>
+    /// 块末不完整行留待下一块发布（spec「已发布前缀稳定」）：发布回调里
+    /// 每条已发布行必须是完整行（off+len ≤ 本块对齐末尾），文件末尾无换行的
+    /// 残行随末块一次性完整发布，无内容滞留。
+    /// </summary>
+    [Fact]
+    public void 块末不完整行留待下一块发布()
+    {
+        // 末行不带换行：EOF 残行必须在末块以完整内容发布
+        var text = ChunkySample(200);
+        using var tmp = new TempLogFile(text.TrimEnd('\n'));
+        using var whole = LogDocument.Build(tmp.Path);
+
+        var publishedLens = new List<(long indexedSize, int rows, long lastOff, int lastLen)>();
+        using var doc = LogDocument.BuildChunkedCore(tmp.Path,
+            (d, from, to) =>
+            {
+                // 块末对齐语义：除末块（end = 文件长度）外，所有已发布行必须完整落在 IndexedSize 内
+                bool isFinal = d.IndexedSize >= d.Size;
+                for (int r = from; r < to; r++)
+                    Assert.True(isFinal || d.Offs[r] + d.Lens[r] <= d.IndexedSize,
+                        "块末对齐前不应发布不完整行");
+                publishedLens.Add((d.IndexedSize, to, d.Offs[to - 1], d.Lens[to - 1]));
+            }, progress: null, ct: default, displayPath: null,
+               firstChunkBytes: 500, steadyChunkBytes: 300);
+
+        Assert.Equal(whole.RowCount, doc.RowCount);
+        // 末行（EOF 残行）最终以完整长度发布
+        Assert.Equal(whole.Lens[whole.RowCount - 1], doc.Lens[whole.RowCount - 1]);
+        Assert.Equal(whole.RowCount, publishedLens[^1].rows);
+    }
+
+    /// <summary>
+    /// 小文件统一走同一条流式管线（design 决策 8=D8）：文件小于首块块长时单块即整份，
+    /// 无独立路径——结果与整份构建等价，发布恰为一整批；空文件零发布、索引口径推进。
+    /// </summary>
+    [Fact]
+    public void 小文件单块加载与整份构建等价()
+    {
+        using var tmp = new TempLogFile(ChunkySample(20));   // 远小于 4 MB 首块
+        using var whole = LogDocument.Build(tmp.Path);
+
+        var publishes = new List<(int from, int to)>();
+        using var doc = LogDocument.BuildChunkedCore(tmp.Path,
+            (d, from, to) => publishes.Add((from, to)));
+
+        Assert.Equal(whole.RowCount, doc.RowCount);
+        Assert.Equal(tmp.Length, doc.IndexedSize);
+        Assert.Equal(whole.Offs.ToArray(), doc.Offs.ToArray());
+        Assert.Equal(whole.Lens.ToArray(), doc.Lens.ToArray());
+        Assert.Equal(whole.Tags, doc.Tags);
+
+        // 单块：一次发布覆盖全部记录
+        var p = Assert.Single(publishes);
+        Assert.Equal((0, whole.RowCount), p);
+
+        // 空文件：零发布，无记录，索引口径不落后
+        using var empty = new TempLogFile("");
+        using var emptyDoc = LogDocument.BuildChunkedCore(empty.Path);
+        Assert.Equal(0, emptyDoc.RowCount);
+        Assert.Equal(0, emptyDoc.IndexedSize);
+        Assert.Equal(0, emptyDoc.Size);
+    }
+
+    /// <summary>
+    /// 取消加载（任务 3.5，design 决策 7）：块边界检查取消令牌，抛 OperationCanceledException，
+    /// 不返回半份文档——调用方（frmMain）据此丢弃本次加载产物、整份清空回空状态。
+    /// 首块发布后即取消：验证取消点在块边界生效、发布过的前缀不进入任何返回值。
+    /// </summary>
+    [Fact]
+    public async Task 取消加载后文档回到空状态()
+    {
+        using var tmp = new TempLogFile(ChunkySample(400));
+
+        // 预取消：一个块都不扫
+        using var cts0 = new CancellationTokenSource();
+        cts0.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            LogDocument.BuildChunkedAsync(tmp.Path, ct: cts0.Token));
+
+        // 首块发布后取消：抛 OCE，无文档提交
+        using var cts = new CancellationTokenSource();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            LogDocument.BuildChunkedAsync(tmp.Path,
+                publish: (d, from, to) => cts.Cancel(), ct: cts.Token,
+                firstChunkBytes: 2048, steadyChunkBytes: 2048));
     }
 
     [Fact]
@@ -400,6 +687,64 @@ public class LogDocumentTests
     }
 
     static long IndexedOf(TempLogFile f) => new FileInfo(f.Path).Length;
+
+    /// <summary>
+    /// Reload 增长路径统一（任务 3.4，design 决策 10）：头部一致时增长部分交给
+    /// 分块管线从 IndexedSize 续扫（与首次加载同一条 ChunkScan 循环），
+    /// 结果与整份重建逐元素等价（含 tag 字典与崩溃事件）。
+    /// </summary>
+    [Fact]
+    public void 增长续扫与整份重建结果一致()
+    {
+        using var tmp = new TempLogFile(ChunkySample(60));
+        using var doc = LogDocument.Build(tmp.Path);
+        int rowsBefore = doc.RowCount;
+
+        tmp.Append(ChunkySample(80));
+        Assert.Equal("appended", doc.Reload());
+
+        using var whole = LogDocument.Build(tmp.Path);
+        Assert.Equal(whole.RowCount, doc.RowCount);
+        Assert.True(doc.RowCount > rowsBefore);
+        Assert.Equal(tmp.Length, doc.IndexedSize);
+        for (int r = 0; r < whole.RowCount; r++)
+        {
+            Assert.Equal(whole.Offs[r], doc.Offs[r]);
+            Assert.Equal(whole.Lens[r], doc.Lens[r]);
+            Assert.Equal(whole.Lvl[r], doc.Lvl[r]);
+            Assert.Equal(whole.TagOf(r), doc.TagOf(r));
+        }
+        Assert.Equal(whole.Tags, doc.Tags);
+        Assert.Equal(whole.Crashes.Select(c => (c.Row, c.Kind, c.ExcId, c.PkgId)),
+                     doc.Crashes.Select(c => (c.Row, c.Kind, c.ExcId, c.PkgId)));
+    }
+
+    /// <summary>
+    /// Reload 头部变化 → 回退整体重建，结果与新文件内容一致。
+    /// 注：mmap 与文件共享页缓存（见 <c>Reload_文件长度不变时不感知等长改写</c>），
+    /// 就地等长改写对视图永远可见，64 KB 头部比对两端都是当前内容——该分支是
+    /// 跨平台防御代码（如 rename 替换场景），Windows 上不可直接触发。
+    /// 本用例走等价的重建入口：文件被整体改写（新头部 + 增长）后 Reload 回退重建。
+    /// </summary>
+    [Fact]
+    public void 头部变化触发整体重建()
+    {
+        using var tmp = new TempLogFile(ChunkySample(60));
+        using var doc = LogDocument.Build(tmp.Path);
+
+        // 整体重写：头部（首条日志行时间戳）变化 + 文件增长（Windows 下须先释放映射）
+        doc.Close();
+        tmp.Overwrite("--------- beginning of main\n" +
+            Line("09-24 12:00:00.000", 'I', "TagA", "rewritten head") +
+            ChunkySample(80));
+
+        Assert.Equal("rebuilt", doc.Reload());
+        Assert.Equal("09-24 12:00:00.000", Text(doc.HeaderBytes(0)));
+        using var whole = LogDocument.Build(tmp.Path);
+        Assert.Equal(whole.RowCount, doc.RowCount);
+        Assert.Equal(whole.Offs.ToArray(), doc.Offs.ToArray());
+        Assert.Equal(whole.Tags, doc.Tags);
+    }
 
     [Fact]
     public void Reload_文件变小时重建()

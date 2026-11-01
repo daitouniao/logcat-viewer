@@ -97,6 +97,7 @@ static partial class LocTable
         ["建立索引…"] = "Building index…",
         ["建立索引失败：{0}"] = "Indexing failed: {0}",
         ["检查更新…"] = "Checking for changes…",
+        ["加载中，请稍候…"] = "Loading, please wait…",
         ["文件无变化"] = "File unchanged",
         ["重载失败：{0}"] = "Reload failed: {0}",
         ["过滤…"] = "Filtering…",

@@ -29,16 +29,41 @@ public class LogListView : ListView
 
     // 数据源
     LogDocument? _doc;
-    int[] _rows = Array.Empty<int>();
     HashSet<int> _marked = new();
     int _fontPt = 10;
+
+    // ── 分段行号结构（design 决策 6）──
+    // 原「整表替换数组」在分块加载下逐块整表拷贝，O(n²) 已实测成立（4 MB 块占 9%、1 MB 占 26%）。
+    // 改为分段块数组 + 段前缀和：AppendRows 只填尾段或新建段，不再整表拷贝。
+    // 不变式：段内升序、段间升序拼接，整体等价于一条升序文档行号序列（DocRow/ModelRowOf/NearestModelRow 语义不变）。
+    readonly struct Seg
+    {
+        public readonly int[] Buf;   // 容量缓冲
+        public readonly int Len;     // 有效长度（<= Buf.Length）
+        public Seg(int[] buf, int len) { Buf = buf; Len = len; }
+    }
+    readonly List<Seg> _segs = new();
+    int[] _starts = Array.Empty<int>();   // 段起始模型行号前缀和：_starts[i] = 段 i 起点，_starts[段数] = 总行数
+    int _rowCount;
+
+    /// <summary>把分段起点前缀和重建到 _starts。仅段列表结构变化（增段）时调用，O(段数)。</summary>
+    void RefreshStarts()
+    {
+        if (_starts.Length < _segs.Count + 1)
+            _starts = new int[(_segs.Count + 1) * 2];
+        int acc = 0;
+        for (int i = 0; i < _segs.Count; i++) { _starts[i] = acc; acc += _segs[i].Len; }
+        _starts[_segs.Count] = acc;
+        _rowCount = acc;
+    }
 
     // 缓存
     readonly Dictionary<int, ListViewItem> _cache = new();
     const int CACHE_SIZE = 20000;
 
     public LogDocument? Document { get => _doc; }
-    public int[] Rows { get => _rows; }
+    /// <summary>模型行总数（分段结构的整表行数，O(1)）。</summary>
+    public int RowCount => _rowCount;
     public HashSet<int> Marked { get => _marked; }
     public int FontPt { get => _fontPt; }
 
@@ -73,30 +98,75 @@ public class LogListView : ListView
     public void SetDocument(LogDocument? doc)
     {
         _doc = doc;
-        _rows = Array.Empty<int>();
+        _segs.Clear();
+        RefreshStarts();
         ClearCache();
         VirtualListSize = 0;
     }
 
     public void SetRows(int[] rows)
     {
-        _rows = rows;
+        _segs.Clear();
+        // 语义同旧整表实现：取得数组所有权，不复制
+        if (rows.Length > 0)
+            _segs.Add(new Seg(rows, rows.Length));
+        RefreshStarts();
         ClearCache();
         // 抑制中间重绘，避免实时采集每秒刷新时闪屏
         BeginUpdate();
-        try { VirtualListSize = rows.Length; }
+        try { VirtualListSize = _rowCount; }
         finally { EndUpdate(); }
     }
 
     public void AppendRows(int[] newRows)
     {
         if (newRows.Length == 0) return;
-        int oldLen = _rows.Length;
-        var combined = new int[oldLen + newRows.Length];
-        Array.Copy(_rows, combined, oldLen);
-        Array.Copy(newRows, 0, combined, oldLen, newRows.Length);
-        _rows = combined;
-        VirtualListSize = _rows.Length;
+        int n = newRows.Length;
+
+        if (_segs.Count == 0)
+        {
+            // 空表：防御性复制（旧实现也复制调用方数组）
+            var buf = new int[n];
+            Array.Copy(newRows, buf, n);
+            _segs.Add(new Seg(buf, n));
+            RefreshStarts();
+        }
+        else
+        {
+            var tail = _segs[^1];
+            int free = tail.Buf.Length - tail.Len;
+            if (n <= free)
+            {
+                // 尾段容量足够：原地填入，段结构不变
+                Array.Copy(newRows, 0, tail.Buf, tail.Len, n);
+                _segs[^1] = new Seg(tail.Buf, tail.Len + n);
+                _rowCount += n;
+                _starts[_segs.Count] = _rowCount;   // 仅末端边界变化
+            }
+            else
+            {
+                // 尾段放不下：新建段（容量留 50% 余量，吸收后续小追加），原尾段冻结
+                var buf = new int[n + (n >> 1)];
+                Array.Copy(newRows, buf, n);
+                _segs.Add(new Seg(buf, n));
+                RefreshStarts();
+            }
+        }
+        VirtualListSize = _rowCount;
+    }
+
+    /// <summary>整表快照（导出等一次性消费；分段结构 O(n) 物化，勿在热路径调用）。</summary>
+    public int[] GetRowsCopy()
+    {
+        var all = new int[_rowCount];
+        int w = 0;
+        for (int i = 0; i < _segs.Count; i++)
+        {
+            var s = _segs[i];
+            Array.Copy(s.Buf, 0, all, w, s.Len);
+            w += s.Len;
+        }
+        return all;
     }
 
     public void SetMarked(HashSet<int> marked)
@@ -235,30 +305,63 @@ public class LogListView : ListView
         return DocRow(mr);
     }
 
-    /// <summary>在 _rows（升序文档行号）中找与 docRow 最近的存活行。</summary>
+    /// <summary>在升序文档行号序列（分段拼接）中找与 docRow 最近的存活行。</summary>
     public int NearestModelRow(int docRow)
     {
-        if (_rows.Length == 0) return -1;
-        int pos = Array.BinarySearch(_rows, docRow);
-        if (pos >= 0) return pos;
-        int after = ~pos;          // 第一个大于 docRow 的位置
-        int before = after - 1;
-        if (before < 0 && after >= _rows.Length) return -1;
+        if (_rowCount == 0) return -1;
+        int seg = SegLastGe(docRow);
+        if (seg < 0) return _rowCount - 1;   // 所有段末元素都 < docRow → 最近的是末行
+
+        var t = _segs[seg];
+        int bs = Array.BinarySearch(t.Buf, 0, t.Len, docRow);
+        if (bs >= 0) return _starts[seg] + bs;
+        int idx = ~bs;                       // 段内插入点
+        int after = idx < t.Len ? _starts[seg] + idx : -1;
+        int before = idx > 0 ? _starts[seg] + idx - 1
+                   : seg > 0 ? _starts[seg] - 1 : -1;
         if (before < 0) return after;
-        if (after >= _rows.Length) return before;
-        long dB = (long)docRow - _rows[before];
-        long dA = (long)_rows[after] - docRow;
+        if (after < 0) return before;
+        long dA = (long)DocRow(after) - docRow;
+        long dB = (long)docRow - DocRow(before);
         return dA < dB ? after : before;
     }
 
+    /// <summary>第一个「末元素 >= docRow」的段（段间升序，末元素即段内最大文档行号）；无则 -1。</summary>
+    int SegLastGe(int docRow)
+    {
+        int lo = 0, hi = _segs.Count - 1, ans = -1;
+        while (lo <= hi)
+        {
+            int mid = (lo + hi) / 2;
+            var s = _segs[mid];
+            if (s.Len > 0 && s.Buf[s.Len - 1] >= docRow) { ans = mid; hi = mid - 1; }
+            else lo = mid + 1;
+        }
+        return ans;
+    }
+
     // ── 行号换算 ──
-    public int DocRow(int modelRow) =>
-        modelRow >= 0 && modelRow < _rows.Length ? _rows[modelRow] : -1;
+    public int DocRow(int modelRow)
+    {
+        if (modelRow < 0 || modelRow >= _rowCount) return -1;
+        int lo = 0, hi = _segs.Count - 1, seg = 0;
+        while (lo <= hi)
+        {
+            int mid = (lo + hi) / 2;
+            if (_starts[mid] <= modelRow) { seg = mid; lo = mid + 1; }
+            else hi = mid - 1;
+        }
+        return _segs[seg].Buf[modelRow - _starts[seg]];
+    }
 
     public int ModelRowOf(int docRow)
     {
-        int pos = Array.BinarySearch(_rows, docRow);
-        return pos >= 0 ? pos : -1;
+        if (docRow < 0 || _rowCount == 0) return -1;
+        int seg = SegLastGe(docRow);
+        if (seg < 0) return -1;              // docRow 比所有段都大
+        var t = _segs[seg];
+        int bs = Array.BinarySearch(t.Buf, 0, t.Len, docRow);
+        return bs >= 0 ? _starts[seg] + bs : -1;   // bs < 0 = 落在段间空隙
     }
 
     // ── 字号 ──
@@ -321,10 +424,10 @@ public class LogListView : ListView
 
         try
         {
-            if (_doc == null || modelRow < 0 || modelRow >= _rows.Length)
+            if (_doc == null || modelRow < 0 || modelRow >= _rowCount)
                 return item;
 
-            int docRow = _rows[modelRow];
+            int docRow = DocRow(modelRow);
             if (docRow < 0 || docRow >= _doc.RowCount)
                 return item;
 
