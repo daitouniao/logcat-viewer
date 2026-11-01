@@ -1,11 +1,11 @@
 # logcat viewer
 
-[![Version: V0.1.6](https://img.shields.io/badge/version-V0.1.6-green)](logcat.csproj)
+[![Version: V0.1.7](https://img.shields.io/badge/version-V0.1.7-green)](logcat.csproj)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
 [![Platform: Windows](https://img.shields.io/badge/platform-Windows-lightgrey)](#环境要求)
 [![CI](https://github.com/daitouniao/logcat-viewer/actions/workflows/ci.yml/badge.svg)](https://github.com/daitouniao/logcat-viewer/actions/workflows/ci.yml)
-[![Tests: 744 passing](https://img.shields.io/badge/tests-744%20passing-green)](docs/TESTING.md)
-[![Coverage: 97.42% lines](https://img.shields.io/badge/coverage-97.42%25%20lines-blue)](docs/TESTING.md)
+[![Tests: 791 passing](https://img.shields.io/badge/tests-791%20passing-green)](docs/TESTING.md)
+[![Coverage: 97.31% lines](https://img.shields.io/badge/coverage-97.31%25%20lines-blue)](docs/TESTING.md)
 
 Windows 桌面端 Android 日志（logcat）查看器。基于 WinForms，使用内存映射文件 + 列式索引，可直接打开并流畅浏览千万行级别的日志文件，同时支持通过 ADB 实时采集设备日志、截图、录屏、文件互传、APK 安装/卸载与分类收藏常用命令。
 
@@ -19,7 +19,7 @@ Windows 桌面端 Android 日志（logcat）查看器。基于 WinForms，使用
 
 > 镜像仓库（GitHub / GitCode）的更新会稍慢于主仓库——提交与 Release 同步到镜像有延迟，最新内容以 Gitee 为准。
 
-> 当前版本 **V0.1.6**。版本号以 [logcat.csproj](logcat.csproj) 的 `<Version>` 为唯一来源，发布时只改该处，程序标题、关于对话框与 exe 文件属性会自动同步。
+> 当前版本 **V0.1.7**。版本号以 [logcat.csproj](logcat.csproj) 的 `<Version>` 为唯一来源，发布时只改该处，程序标题、关于对话框与 exe 文件属性会自动同步。
 >
 > 界面**中英双语**，`帮助 → 语言` 运行时即时切换，选择记在 `settings.json`；首次启动跟随系统区域。
 
@@ -27,16 +27,17 @@ Windows 桌面端 Android 日志（logcat）查看器。基于 WinForms，使用
 
 ## 日志查看
 
-大多数 logcat 查看器在处理大日志文件时会卡顿。本工具把正文原样留在磁盘上（mmap），内存里只放定宽列数据。打开时要顺序扫描一遍建索引，耗时随文件大小线性增长（进度条可随时取消）：1 GB 量级约十几秒（视机器而定），更大的文件按比例增加，不是瞬时打开；打开之后滚动只按虚拟行号从映射区按需取数，帧率稳定，也不会把整份日志读进内存。
+大多数 logcat 查看器在处理大日志文件时会卡顿。本工具把正文原样留在磁盘上（mmap），内存里只放定宽列数据。打开时按块分批扫描建索引（首块小、稳态块大，块末对齐换行符），**边扫边上屏**——不用等整份索引建完就能看到日志；耗时随文件大小线性增长（进度条可随时取消，取消即整份清空）：1 GB 量级约十几秒（视机器而定），更大的文件按比例增加，不是瞬时打开。加载期间过滤条件即时生效，已命中的前缀同步刷新；打开之后滚动只按虚拟行号从映射区按需取数，帧率稳定，也不会把整份日志读进内存。
 
 | 能力                 | 实现                                                                                |
 | -------------------- | ----------------------------------------------------------------------------------- |
-| **大文件低内存**     | 内存映射 + 列式索引，建索引过程有可取消进度条                                       |
+| **大文件低内存**     | 内存映射 + 列式索引，分块渐进加载，边扫边上屏，建索引过程有可取消进度条                              |
 | **虚拟列表**         | 只渲染可见行，10M+ 行时滚动依然流畅                                                 |
 | **六种格式自动识别** | `threadtime` / `time` / `long` / `brief` / `tag` / `ymd`，字节级快速路径 + 正则回退 |
 | **级别配色**         | V/D/I/W/E/F/A 分色显示                                                              |
 | **完整记录查看**     | 双击行或 `Enter` 查看未被截断的原文                                                 |
 | **增量重载**         | `F5` 只重读追加的尾部，批次边界做行对齐                                             |
+| **加载期过滤**       | 加载期间修改过滤条件即时生效：已发布前缀全量重滤，后续块走增量过滤                                  |
 
 ## 过滤
 
@@ -188,7 +189,7 @@ dotnet test tests/logcat.Tests/logcat.Tests.csproj --collect:"XPlat Code Coverag
 python tests/coverage-report.py     # 输出 tests/coverage-report.html
 ```
 
-当前状态：**744 个用例全部通过**，行覆盖率 **97.42%**（3,663 / 3,760 行），分支覆盖率 **88.75%**。
+当前状态：**791 个用例全部通过**，行覆盖率 **97.31%**（3,828 / 3,934 行），分支覆盖率 **88.65%**。
 
 覆盖口径见 `tests/logcat.Tests/coverlet.runsettings`，排除两类代码：
 - **UI 层**：`Forms` / `Controls` / `frmMain` / `Program`，以及 `DpiFix` / `DpiDiag` / `Loc`。`Loc`（本地化运行时）与 `DpiFix` 同理——它一半的代码是控件树遍历、字体替换与文本像素测量，没有真实窗体与消息泵无从验证
@@ -281,7 +282,7 @@ Services/
   AppInfo.cs            产品名与版本号（读取程序集 InformationalVersion，标题与关于对话框共用）
 tests/
   coverage-report.py      覆盖率报告生成（coverlet 的 cobertura XML → 可读 HTML）
-  logcat.Tests/           xUnit 测试工程（744 个用例：日志解析 / 列式索引 / 过滤引擎 / 崩溃提取 / 持久化 / 本地化）
+  logcat.Tests/           xUnit 测试工程（791 个用例：日志解析 / 列式索引 / 过滤引擎 / 崩溃提取 / 持久化 / 本地化）
     coverlet.runsettings  覆盖率统计口径（Include / Exclude 规则）
 docs/
   BUILDING.md             怎么编译与发布（两个包各自的命令与产物验证）

@@ -1,11 +1,11 @@
 # logcat viewer
 
-[![Version: V0.1.6](https://img.shields.io/badge/version-V0.1.6-green)](logcat.csproj)
+[![Version: V0.1.7](https://img.shields.io/badge/version-V0.1.7-green)](logcat.csproj)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
 [![Platform: Windows](https://img.shields.io/badge/platform-Windows-lightgrey)](#requirements)
 [![CI](https://github.com/daitouniao/logcat-viewer/actions/workflows/ci.yml/badge.svg)](https://github.com/daitouniao/logcat-viewer/actions/workflows/ci.yml)
-[![Tests: 744 passing](https://img.shields.io/badge/tests-744%20passing-green)](docs/TESTING.md)
-[![Coverage: 97.42% lines](https://img.shields.io/badge/coverage-97.42%25%20lines-blue)](docs/TESTING.md)
+[![Tests: 791 passing](https://img.shields.io/badge/tests-791%20passing-green)](docs/TESTING.md)
+[![Coverage: 97.31% lines](https://img.shields.io/badge/coverage-97.31%25%20lines-blue)](docs/TESTING.md)
 
 A Windows desktop viewer for Android logs (`logcat`). Built with WinForms on .NET 10, it opens and scrolls through **tens of millions of log lines** smoothly using memory-mapped files and a columnar index — and it also drives your device over ADB: live capture, screenshots, screen recording, two-pane file transfer, and APK install/uninstall.
 
@@ -19,7 +19,7 @@ Repositories:
 
 > Mirrors (GitHub / GitCode) lag behind the primary — pushes are synced there with a delay, so the latest commits and releases always land on Gitee first.
 
-> Current version **V0.1.6**. The single source of truth is `<Version>` in [logcat.csproj](logcat.csproj) — the window title, the about dialog and the exe's file properties all read from it.
+> Current version **V0.1.7**. The single source of truth is `<Version>` in [logcat.csproj](logcat.csproj) — the window title, the about dialog and the exe's file properties all read from it.
 >
 > The UI speaks **both Chinese and English** and switches at runtime — `Help → Language`, no restart. First launch follows your system locale; the choice is remembered in `settings.json`.
 
@@ -27,16 +27,17 @@ Repositories:
 
 ## Log viewing
 
-Most logcat viewers choke on large captures. This one keeps the text on disk (mmap) and holds only the fixed-width columns in memory. Opening means one sequential pass to build the index, so it scales linearly with file size (the progress bar can be cancelled): a 1 GB file takes on the order of ten seconds (machine-dependent) and larger files scale up accordingly — it is not an instant open. After that, scrolling reads rows from the mapping on demand — the file is never pulled into RAM, and the frame rate stays steady.
+Most logcat viewers choke on large captures. This one keeps the text on disk (mmap) and holds only the fixed-width columns in memory. Opening scans the file in chunks (small first chunk, large steady-state chunks, chunk ends aligned to line boundaries) and **publishes rows progressively** — you see logs on screen while the index is still building. Cost scales linearly with file size (the progress bar can be cancelled, which clears the load): a 1 GB file takes on the order of ten seconds (machine-dependent) and larger files scale up accordingly — it is not an instant open. While loading, filter changes take effect immediately on the already-published prefix; after that, scrolling reads rows from the mapping on demand — the file is never pulled into RAM, and the frame rate stays steady.
 
 | Capability                     | How it works                                                                                             |
 | ------------------------------ | -------------------------------------------------------------------------------------------------------- |
-| **Huge files, low memory**     | Memory-mapped text + columnar index; index build runs under a cancellable progress bar                   |
+| **Huge files, low memory**     | Memory-mapped text + columnar index, chunked progressive loading (rows appear while scanning), cancellable progress bar |
 | **Virtual list**               | Only visible rows are rendered, so scrolling stays smooth at 10M+ rows                                   |
 | **Six formats auto-detected**  | `threadtime` / `time` / `long` / `brief` / `tag` / `ymd`, via a byte-level fast path with regex fallback |
 | **Level colours**              | V/D/I/W/E/F/A colour-coded                                                                               |
 | **Full record view**           | Double-click a row (`Enter`) to see the untruncated original text                                        |
 | **Incremental reload**         | `F5` re-reads only the appended tail, with line-boundary alignment across batch edges                    |
+| **Filter while loading**       | Filter edits during a load apply immediately: the published prefix is re-filtered in full, later chunks go through incremental filtering |
 
 ## Filtering
 
@@ -188,7 +189,7 @@ dotnet test tests/logcat.Tests/logcat.Tests.csproj --collect:"XPlat Code Coverag
 python tests/coverage-report.py     # writes tests/coverage-report.html
 ```
 
-Current status: **744 tests, all passing**; **97.42%** line coverage (3,663 / 3,760 lines), **88.75%** branch coverage.
+Current status: **791 tests, all passing**; **97.31%** line coverage (3,828 / 3,934 lines), **88.65%** branch coverage.
 
 The scope is defined in `tests/logcat.Tests/coverlet.runsettings` and excludes two groups:
 
@@ -280,7 +281,7 @@ Services/
   AppInfo.cs            Product name and version (reads Assembly InformationalVersion)
 tests/
   coverage-report.py    Coverage report generation (coverlet cobertura XML → readable HTML)
-  logcat.Tests/         xUnit test project (744 tests: log parsing / columnar index / filter engine / crash extraction / persistence / localization)
+  logcat.Tests/         xUnit test project (791 tests: log parsing / columnar index / filter engine / crash extraction / persistence / localization)
     coverlet.runsettings Coverage scope (Include / Exclude rules)
 docs/
   BUILDING.md            How to build and publish — the two `dotnet publish` commands, artifact verification, pitfall table

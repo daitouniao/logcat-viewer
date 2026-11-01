@@ -28,6 +28,12 @@
 > 测试侧删 20 条 join 语义用例、新增 8 条真能力用例，`dotnet test` 全绿（744/744）。
 > 详见 §0e。
 >
+> **2026-11-01 第五轮（发版前 V0.1.7）：chunked-progressive-load 锚点首次纳入 + 第四轮删后对照补跑。**
+> 变异点 98 → **102**（TEXT 93 + LINE 9）：chunked 管线新增 4 条锚点（3 KILLED + 1 等价）、
+> 修回 6 条漂移的 LINE 锚点。最终 **KILLED 92 / SURVIVED 10 / SKIP 0 / BUILD-FAIL 0**，
+> SURVIVED 全部有定性；§0d 的 2 条待甄别项（`LooksLikeNewRecord` TAB、`FracToMs`）甄别收尾。
+> 详见 §0f。
+>
 > 跑测试与出覆盖率的完整流程见 [`TESTING.md`](TESTING.md)。
 >
 > ⚠️ **口径说明**：下表（§0）是 **2026-10-05 审计时点**的数值，不是当前基线。现行基线（用例数 / 行覆盖率 / 分支覆盖率）以 [`TESTING.md`](TESTING.md) 为准。
@@ -273,6 +279,68 @@ Join 开关 1、carry 补增 LineCount 2；`FilterEngineTests` 2：单行化导�
 2. **kill 变异脚本会残留变异态文件**（§5.3 旧坑复现）：本轮 102/105 处用户叫停，
    `CommandStore.cs` 残留变异体——kill 后先 `git status` + `git diff --stat` 核对，
    对「运行前本来就干净」的文件直接 `git restore` 是安全的（HEAD 即脚本本应回写的原文）。
+
+---
+
+## 0f. 2026-11-01 第五轮：chunked 锚点补挂 + 删后对照补跑（发版前 V0.1.7）
+
+| 指标 | 第四轮（11-01） | 第五轮（11-01，发版前） |
+|---|---|---|
+| 用例数 | 744 | **791**（`dotnet test` Release / Debug / en-US 三口径全绿） |
+| 变异点总数 | 98 | **102**（TEXT 93 + LINE 9） |
+| KILLED | 92（删前基线口径） | **92** |
+| SURVIVED | 9（待甄别 2 条） | **10（全部有定性，0 待办）** |
+| SKIP / BUILD-FAIL | 1 / 0 | **0 / 0** |
+
+本轮三件事：
+
+**① chunked-progressive-load 锚点首次纳入（+4）**。该 change 只承诺了 UT + 覆盖率，
+变异侧此前是空白；分块管线属核心解析层（§7 建议变异时机），发版前补挂。杀手均为
+tstrun 可见的 `[Fact]`（`ChunkedEquivalenceTests` 是 `MemberData` 参数化，tstrun 不跑，
+不作杀手指望——见下方盲区注记）：
+
+| # | 锚点 | 判定 | 抓住它的用例 |
+|---|---|---|---|
+| C1 | `ChunkScan` 块末不对齐 `TrimPartial` | SURVIVED（等价，见 ④） | — |
+| C2 | `MergePart` 崩溃事件行号不偏移（`e.Row += n` → `+= 0`） | KILLED | `多次增量并入与一次并入结果一致` |
+| C3 | `MergePart` 异常类型 id 不重映射 | KILLED | 同上（ExcId 断言） |
+| C4 | `VerdictPass` 不按候选行判定（`cand[i]` → `i`） | KILLED | FilterEngineTests 块扫描系列 |
+
+初版清单里 C4 的位置曾是一条 `ScanRound` 游标变异（从头重扫），实测等价后撤换：
+计数按行段累加、新行只被本轮扫到，重扫只双计**前缀行**的计数，而前缀行的结论不会
+再算——游标漂移只退化性能不改变结果。
+
+**② 第四轮删后对照补跑（§0e 待办收尾）**。判据「无新增 SKIP / SURVIVED，
+SURVIVED 集 ⊆ §0d 一致性校验轮的 9 条」**达成**：SURVIVED 恰为那 9 条，
+6 条 LINE 锚点漂移已修号（853/860/867、1061/1066/1071，chunked 改动使
+FilterEngine.cs 整体下移 45/184 行不等），复跑全部 KILLED。
+
+**③ §0d 两条待甄别项收尾**（探针/数据流取证后定性，均为**等价或生产失效，存活是正确信号**）：
+
+- **`FracToMs` 补零方向**：变异在循环体内加 `scale > 0 ?` 三元，而循环条件本身就是
+  `i < end && scale > 0`——三元条件恒真，`*100` 分支不可达，**等价变异**。
+  §4.4（10-05 复核）对本变异已有同一份数据流分析，本轮结论与其一致；
+  「历史上 KILLED」疑为早期变异形态不同（直接改算式而非加恒真三元），现形态存活正确。
+- **`LooksLikeNewRecord` TAB 续行**：两层定性——① 删 join 后该方法**生产侧无调用点**
+  （docstring 明言保留供外部/未来使用），行为差异不可观测；② 逻辑上 TAB 首字节落到
+  后续判定链最终仍 `return false`（`_lc` 不含 TAB、`line[1] != SLASH`、横线/时间戳
+  前缀均对不上），常规输入下等价。历史上 KILLED 因 join 时代的续行合并用例消费了
+  这个区分，机制删除后存活是正确信号。
+
+**④ 新确认 1 条等价变异（C1）**：块末对齐是**纵深防御**——即使 `ChunkScan` 不裁残行，
+`ScanRange` 的 end 向后对齐也会把不完整行留给下一块（行首归属唯一），单点变异被下游
+自愈；锚点保留并标注等价。教训：**被多层防御覆盖的逻辑，单点变异只能证明某一层的
+必要性，全部等价 ≠ 该层无用**。
+
+> ⚠️ **runner 盲区注记**：tstrun 不跑 `MemberData`/`ClassData`（§3.2），而 chunked
+> 等价性主要靠 `ChunkedEquivalenceTests` 的 18 例参数化钉住。变异侧已用 `[Fact]`
+> 锚点补位（C2/C3/C4），但 `EndAfterLines` 3 行前瞻等仅由 MemberData 消费的分支
+> 在 tstrun 口径下无杀手——该口径出报告时记得声明。
+
+**tier 校准观察**：全量轮 FALLBACK 占比 71%（27/96 SUBSET-HIT），单独复跑
+FilterEngine 子集时命中率 89%——FALLBACK 偏高集中在 LogParser/LogDocument 的
+锚点（杀手不在映射类里或为 MemberData）。映射漂移只变慢不失真，校准列入后续
+工具链待办，不阻塞发版。
 
 ---
 

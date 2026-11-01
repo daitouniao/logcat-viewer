@@ -1,6 +1,6 @@
 # 单元测试与覆盖率实操指南
 
-> 最后更新：2026-10-30
+> 最后更新：2026-11-01
 > 本文是「怎么把测试跑起来、覆盖率怎么出」的**唯一操作入口**。
 > 有效性审计（变异测试）见 [`UT-AUDIT.md`](UT-AUDIT.md)。
 > **CI 语言环境陷阱**（本地全绿、推送就红）见 §3.4。
@@ -14,6 +14,12 @@
 | 分支覆盖率 | **88.65%** (1,625 / 1,833)                                   |
 | 方法覆盖率 | **95.61%** (414 / 433，判据「方法内 ≥1 行命中」)             |
 | 统计口径   | 仅 Services + Models（UI 与设备/系统集成层已排除，见 §4）    |
+
+> 2026-11-01 **发版前复验（V0.1.7）**：`dotnet test` Release / Debug / en-US 三口径
+> 实测 **791/791 全过，无跳过**，与基线一致。变异测试同批第五轮（chunked 锚点补挂 +
+> remove-join-merge 删后对照补跑 + 2 条待甄别项收尾）：102 变异点
+> **KILLED 92 / SURVIVED 10（全部等价/性能/纵深防御）/ SKIP 0 / BUILD-FAIL 0**，
+> 详见 [`UT-AUDIT.md`](UT-AUDIT.md) §0f。覆盖率未重采（用例与代码自 chunked 重采后未变）。
 
 > 2026-11-01 **chunked-progressive-load**：744 → **791**（+47：分块加载管线 / 增量块扫描与
 > 加载期过滤 / 视图分段行号结构与发布节流 / frmMain 接线与取消清空，及 6 样本 × 3 块长
@@ -144,7 +150,7 @@
 - 用 tstrun 报告结果必须带口径声明：**tstrun 口径 N 条**（`[Fact]` 全部 + `[Theory]` 按 `[InlineData]` 展开），
   并声明已知跳过类别——`MemberData` / `ClassData` 驱动的 Theory 会被 runner **静默跳过**（§3.2 坑 3），
   汇总行里看不到它们。
-- 交叉验证：tstrun 口径条数应与上表基线（**744**）一致；不一致先怀疑 runner 漏扫，
+- 交叉验证：tstrun 口径条数应与上表基线（**791**）一致；不一致先怀疑 runner 漏扫，
   **不要改数字迁就 runner**。
 - 两条路径都跑不了时（如沙箱故障），如实写「**未验证**」——禁止声称「通过」。
 
@@ -482,6 +488,13 @@ LangScope.InEn(() => Assert.Contains("out-of-range", ex.Message));
 ```bash
 bash scripts/run-tests-en-us.sh
 ```
+
+> ⚠️ 本机若 `bash` 解析到未安装的 WSL（报「适用于 Linux 的 Windows 子系统…」），
+> 可在 PowerShell 里直接等价执行——脚本的核心就是下面第一行：
+>
+> ```powershell
+> $env:LOGCAT_FORCE_UI_CULTURE='en-US'; dotnet test tests/logcat.Tests/logcat.Tests.csproj -c Release --no-build -v minimal
+> ```
 
 脚本设 `LOGCAT_FORCE_UI_CULTURE=en-US`，由测试程序集 `TestCultureBootstrap`
 （`[ModuleInitializer]`）在**测试进程内**把 `CurrentCulture` / `CurrentUICulture`
