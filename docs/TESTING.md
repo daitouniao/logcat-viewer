@@ -278,15 +278,27 @@ coverlet logcat.Tests.dll \
 using System.Reflection;
 using System.Text;
 
+// 用反射直接跑 xUnit 测试方法，绕开 testhost 加载 hostfxr.dll 失败（0x80070005）的问题。
+// 同时处理 [Fact]（无参）与 [Theory] + [InlineData]（按数据行展开）。
+// 注意：早期版本只匹配 FactAttribute，导致 20 个 Theory 全部被跳过、用例数对不上，
+//       排查时务必用「用例总数」交叉验证 runner 本身没漏。
+// 用法：tstrun [类名过滤子串，可逗号分隔多个，任一命中即入选]   不带参数则跑全部测试类。
+// 环境变量 TSTRUN_FAIL_FAST=1：首个失败用例后立即停止（变异测试 KILLED 快速判定用）；
+//       未设置时行为与旧版完全一致。
+
 var asm = typeof(logcat.Tests.FilterEngineTests).Assembly;
-var filter = args.Length > 0 ? args[0] : null;   // 可选：类名过滤子串
+var filter = args.Length > 0 ? args[0] : null;
+var filters = filter?.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+bool failFast = Environment.GetEnvironmentVariable("TSTRUN_FAIL_FAST") == "1";
 
 int pass = 0, fail = 0, skipped = 0;
 var failures = new List<string>();
+bool aborted = false;
 
 foreach (var type in asm.GetTypes().Where(t => t.IsClass && !t.IsAbstract).OrderBy(t => t.Name))
 {
-    if (filter != null && !type.Name.Contains(filter, StringComparison.OrdinalIgnoreCase)) continue;
+    if (aborted) break;
+    if (filters != null && !filters.Any(f => type.Name.Contains(f, StringComparison.OrdinalIgnoreCase))) continue;
 
     var tests = type.GetMethods(BindingFlags.Public | BindingFlags.Instance)
         .Where(m => m.GetCustomAttributes().Any(a =>
@@ -296,8 +308,10 @@ foreach (var type in asm.GetTypes().Where(t => t.IsClass && !t.IsAbstract).Order
 
     foreach (var m in tests)
     {
+        if (aborted) break;
         bool isTheory = m.GetCustomAttributes().Any(a => a.GetType().Name == "TheoryAttribute");
 
+        // InlineData 展开
         var datas = new List<object[]>();
         foreach (var a in m.GetCustomAttributes())
         {
@@ -307,12 +321,13 @@ foreach (var type in asm.GetTypes().Where(t => t.IsClass && !t.IsAbstract).Order
         }
         if (datas.Count == 0)
         {
-            if (isTheory) { skipped++; continue; }   // MemberData/ClassData 等未支持
+            if (isTheory) { skipped++; continue; }   // MemberData/ClassData 等未支持的情形
             datas.Add(Array.Empty<object>());
         }
 
         foreach (var data in datas)
         {
+            if (aborted) break;
             var argText = string.Join(", ", (object[])data);          // 坑②：先提到变量
             string label = $"{type.Name}.{m.Name}({argText})";
             object inst = null;
@@ -330,8 +345,12 @@ foreach (var type in asm.GetTypes().Where(t => t.IsClass && !t.IsAbstract).Order
                     ? xe.Message
                     : real.GetType().Name + ": " + real.Message;
                 failures.Add(label + "\n    " + msg.Replace("\r\n", "\n    "));
+                if (failFast) aborted = true;
             }
-            finally { (inst as IDisposable)?.Dispose(); }
+            finally
+            {
+                (inst as IDisposable)?.Dispose();
+            }
         }
     }
 }
@@ -352,6 +371,8 @@ if (fail > 0)
 cd .tmp-test/tstrun
 dotnet run                 # 全量
 dotnet run FilterEngine    # 只跑类名含 FilterEngine 的
+dotnet run "LogDocument,FilterEngine"   # 逗号分隔多个子串，任一命中即入选
+TSTRUN_FAIL_FAST=1 dotnet run           # 首败即停（变异测试脚本用；日常勿开，会看不到失败总数）
 ```
 
 ### 3.2 三个必须知道的坑
@@ -540,10 +561,11 @@ bash scripts/run-tests-en-us.sh
 6.0.4 在 .NET 10 上覆盖率**全 0**。当前 `logcat.Tests.csproj` 引用 `coverlet.collector` 10.1.0。
 若换回旧版，会看到「测试全过但覆盖率 0%」的现象。
 
-### 5.4 跑 `scripts/mutation-test.py` 前先 commit ⚠️
+### 5.4 跑 `scripts/mutation-test.py` 前先确认工作区干净 ⚠️
 
-该脚本用 `git checkout -- <单个文件>` 恢复被变异的文件，**会静默丢弃该文件未提交的改动**。
-2026-10-04 就因此丢掉了 `FilterEngine.cs` 的全部引擎改动。
+该脚本按「内存保存变异前内容 → 跑完原地写回」恢复被变异的文件（2026-10-24 起不再用
+`git checkout`——那条路会打回 HEAD、抹掉未提交改动，曾实测两次丢失）。但仍要求
+工作区干净：并发编辑会污染编译与判定结果。
 细节与完整审计见 [`UT-AUDIT.md`](UT-AUDIT.md)。
 
 ---

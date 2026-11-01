@@ -15,8 +15,17 @@
 反射扫 [Fact] / [Theory] 按 [InlineData] 展开后 m.Invoke）。
 
 用法：
-    python scripts/mutation-test.py                # 跑全部
+    python scripts/mutation-test.py                # 跑全部（两级模式，见下）
     python scripts/mutation-test.py FilterEngine   # 只跑路径/描述含该关键词的
+    python scripts/mutation-test.py --full         # 强制全量口径（一致性校验/仲裁用）
+
+两级调度（默认，探索笔记 MUTATION-TEST-ACCEL 的方案 A+B）：
+  每个变异先跑「子集轮」——按「文件 → 测试类名子串」映射（约定推导 + SUBSET_OVERRIDES
+  补挂消费方），runner 开 TSTRUN_FAIL_FAST 首败即停：
+    子集有失败 → KILLED（子集口径；失败即证明有用例咬住，判定不失真）
+    子集全过   → 回退「全量轮」（不 fail-fast）→ KILLED（全量口径）或 SURVIVED（全量口径）
+  --full 强制每个变异跑全量（等价旧行为），用作一致性校验与争议仲裁。
+  正确性不变量：SURVIVED 只出自全量轮；子集全过绝不直接判存活（防假 SURVIVED）。
 
 ⚠️ 纪律（踩过的坑）：
   1. 运行前确认 `git status` 干净——脏树上同文件的其他未提交改动会被变异期间的
@@ -27,7 +36,10 @@
      用探针打印中间状态，别只静态推理。
      另注意：tstrun runner 的 ProjectReference 指哪个仓库就测哪个仓库的代码，
      在 worktree 里跑之前先核对 runner 指向（指错则全部假 SURVIVED）。
-  3. 换行符：工作树是 CRLF（.gitattributes `eol=crlf`），变异串按 LF 写，
+  3. 映射表维护：改 FilterEngine、增删测试类名后，SUBSET_OVERRIDES 与「文件名=类名子串」
+     的推导假设要同批核对（与 LINE_MUTATIONS 行号核对同一批做）；映射漂移只会退化成
+     回退全量（变慢不失真），看输出末尾的 tier 占比暴露 FALLBACK/FULL 异常。
+ 4. 换行符：工作树是 CRLF（.gitattributes `eol=crlf`），变异串按 LF 写，
      脚本内部统一「读入归一化 LF → 替换 → 写回转 CRLF」，不会改变文件行尾。
 """
 import argparse
@@ -38,6 +50,9 @@ import time
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 RUNNER = os.path.join(os.environ.get("TEMP", "/tmp"), "tstrun")
+
+SUBSET_TIMEOUT = 600   # 子集轮超时（正常 ~5s；变异死循环时尽快止损）
+FULL_TIMEOUT = 1800    # 全量轮超时（维持旧值）
 
 # ── 文本替换型变异 ────────────────────────────────────────────────────────────
 # (相对路径, 旧文本, 新文本, 说明)
@@ -525,16 +540,86 @@ LINE_MUTATIONS = [
 ]
 
 
-def run_tests():
-    """跑全量测试，解析反射 runner 的输出。返回 (失败数, 摘要行, 错误详情)。"""
+# ── 文件 → 测试类名子串：消费方补挂表（2026-11-01 依测试类依赖梳理）──────────
+# 约定推导：Services/X.cs → 类名含 "X"（与 runner 过滤同规则），覆盖直接测试类；
+# 这里只登记推导覆盖不到的部分（消费方测试类 / 推导子串命不中任何类时改写）。
+# 维护纪律：改 FilterEngine、增删测试类后，与 LINE_MUTATIONS 行号核对同批过一遍；
+# 映射漂移只会退化成回退全量（变慢不失真），末尾汇总的 tier 占比负责暴露它。
+SUBSET_OVERRIDES = {
+    "Services/LogParser.cs": ["LogDocument", "FilterEngine", "Crash"],
+    "Services/LogDocument.cs": ["LogParser", "FilterEngine", "Crash"],
+    "Models/FilterSpec.cs": ["ModelTests", "FilterEngine"],       # 无 FilterSpecTests
+    "Services/AppSettings.cs": ["StorePersistence", "FileBrowserStartDir", "ModelTests"],
+    "Services/FileProxyService.cs": ["FileProxy", "Spool"],        # 类名不含 "FileProxyService"
+    "Services/FileProxyClient.cs": ["FileProxy"],                  # 同上
+    "Services/CrashAggregator.cs": ["Crash"],                      # 放宽到全部 Crash* 类
+    "Services/CrashExtractor.cs": ["Crash"],
+}
+
+
+def subset_filter_for(path):
+    """文件 → 逗号连接的类名子串（去重保序）；空串 = 无映射 → 调用方直接跑全量。"""
+    stem = os.path.splitext(os.path.basename(path))[0]
+    subs = [stem] + SUBSET_OVERRIDES.get(path.replace("\\", "/"), [])
+    return ",".join(dict.fromkeys(subs))
+
+
+def judge_mutation(path, force_full):
+    """两级判定。返回 (verdict, tier, detail)：
+    verdict ∈ KILLED / SURVIVED / BUILD-FAIL；tier ∈ SUBSET-HIT / FALLBACK / FULL / BUILD-FAIL。
+    不变量：SURVIVED 只可能出自 FULL/FALLBACK（全量轮）；子集全过不判存活。"""
+    if force_full:
+        failed, summary, err = run_tests()
+        if failed is None:
+            return "BUILD-FAIL", "BUILD-FAIL", err
+        return ("SURVIVED" if failed == 0 else "KILLED"), "FULL", summary
+
+    subset = subset_filter_for(path)
+    if not subset:
+        failed, summary, err = run_tests()
+        if failed is None:
+            return "BUILD-FAIL", "BUILD-FAIL", err
+        return ("SURVIVED" if failed == 0 else "KILLED"), "FULL", summary
+
+    failed, summary, err = run_tests(filter_arg=subset, fail_fast=True,
+                                     timeout=SUBSET_TIMEOUT)
+    if failed is None:
+        return "BUILD-FAIL", "BUILD-FAIL", err
+    if failed > 0:
+        return "KILLED", "SUBSET-HIT", summary
+
+    failed, summary, err = run_tests(timeout=FULL_TIMEOUT)
+    if failed is None:
+        return "BUILD-FAIL", "BUILD-FAIL", err
+    return ("SURVIVED" if failed == 0 else "KILLED"), "FALLBACK", summary
+
+
+STATS = {"SUBSET-HIT": 0, "FALLBACK": 0, "FULL": 0, "BUILD-FAIL": 0}
+
+
+def record(tier):
+    if tier in STATS:
+        STATS[tier] += 1
+
+
+def run_tests(filter_arg=None, fail_fast=False, timeout=FULL_TIMEOUT):
+    """跑一轮测试，解析反射 runner 的输出。返回 (失败数, 摘要行, 错误详情)。"""
+    env = dict(os.environ)
+    if fail_fast:
+        env["TSTRUN_FAIL_FAST"] = "1"
+    else:
+        env.pop("TSTRUN_FAIL_FAST", None)   # 显式清掉，防外泄环境改变口径
+    cmd = ["dotnet", "run", "-c", "Release", "--no-restore"]
+    if filter_arg:
+        cmd.append(filter_arg)
     try:
         r = subprocess.run(
-            ["dotnet", "run", "-c", "Release", "--no-restore"],
+            cmd,
             cwd=RUNNER, capture_output=True, text=True,
-            encoding="utf-8", errors="replace", timeout=1800)
+            encoding="utf-8", errors="replace", timeout=timeout, env=env)
     except subprocess.TimeoutExpired:
         # 变异可能造成死循环；超时必须如实报，不能拖死整轮
-        return None, None, f"测试超时（>1800s，疑似变异导致死循环）"
+        return None, None, f"测试超时（>{timeout}s，疑似变异导致死循环）"
     out = (r.stdout or "") + (r.stderr or "")
     for line in out.splitlines():
         if "passed:" in line:
@@ -564,7 +649,7 @@ def write_crlf(full, text):
         f.write(text.replace("\n", "\r\n"))
 
 
-def apply_text_mutation(keyword):
+def apply_text_mutation(keyword, force_full):
     results = []
     for path, old, new, desc in TEXT_MUTATIONS:
         if keyword and keyword not in desc and keyword not in path:
@@ -580,20 +665,16 @@ def apply_text_mutation(keyword):
         write_crlf(full, original.replace(old, new))
 
         t0 = time.time()
-        failed, summary, err = run_tests()
+        verdict, tier, detail = judge_mutation(path, force_full)
         revert(path, original)
+        record(tier)
 
-        if failed is None:
-            v, d = "BUILD-FAIL", err
-        else:
-            v = "SURVIVED" if failed == 0 else "KILLED"
-            d = summary
-        results.append((desc, v))
-        print(f"[{v}] {desc}  ({time.time() - t0:.0f}s)\n         {d}", flush=True)
+        results.append((desc, verdict))
+        print(f"[{verdict}|{tier}] {desc}  ({time.time() - t0:.0f}s)\n         {detail}", flush=True)
     return results
 
 
-def apply_line_mutation(keyword):
+def apply_line_mutation(keyword, force_full):
     results = []
     for path, lineno, expect, mutate, desc in LINE_MUTATIONS:
         if keyword and keyword not in desc and keyword not in path:
@@ -611,22 +692,20 @@ def apply_line_mutation(keyword):
         write_crlf(full, "\n".join(lines))
 
         t0 = time.time()
-        failed, summary, err = run_tests()
+        verdict, tier, detail = judge_mutation(path, force_full)
         revert(path, original)
+        record(tier)
 
-        if failed is None:
-            v, d = "BUILD-FAIL", err
-        else:
-            v = "SURVIVED" if failed == 0 else "KILLED"
-            d = summary
-        results.append((desc, v))
-        print(f"[{v}] {desc}  ({time.time() - t0:.0f}s)\n         {d}", flush=True)
+        results.append((desc, verdict))
+        print(f"[{verdict}|{tier}] {desc}  ({time.time() - t0:.0f}s)\n         {detail}", flush=True)
     return results
 
 
 def main():
     ap = argparse.ArgumentParser(description="变异测试：检验单元测试是否真的咬得住实现")
     ap.add_argument("keyword", nargs="?", help="只跑路径或描述含该关键词的变异")
+    ap.add_argument("--full", action="store_true",
+                    help="强制每个变异跑全量（等价旧行为；一致性校验/仲裁口径）")
     args = ap.parse_args()
 
     if not os.path.isdir(RUNNER):
@@ -644,9 +723,9 @@ def main():
         print("    本脚本只回滚自己改的文件，但并发编辑会干扰编译。\n", file=sys.stderr)
 
     print("=== 文本替换型变异 ===", flush=True)
-    results = apply_text_mutation(args.keyword)
+    results = apply_text_mutation(args.keyword, args.full)
     print("\n=== 行号型变异 ===", flush=True)
-    results += apply_line_mutation(args.keyword)
+    results += apply_line_mutation(args.keyword, args.full)
 
     killed = [d for d, v in results if v == "KILLED"]
     surv = [d for d, v in results if v == "SURVIVED"]
@@ -654,6 +733,11 @@ def main():
 
     print("\n" + "=" * 72)
     print(f"KILLED(有覆盖)={len(killed)}  SURVIVED(无覆盖)={len(surv)}  其他={len(other)}")
+    total_judged = sum(STATS.values())
+    if total_judged:
+        parts = "  ".join(f"{k}={STATS[k]}({STATS[k] * 100 // total_judged}%)"
+                          for k in ("SUBSET-HIT", "FALLBACK", "FULL", "BUILD-FAIL"))
+        print(f"tier 占比: {parts}   （FALLBACK/FULL 偏高 = 映射表需补，变慢不失真）")
     if surv:
         print("\n--- 存活的变异（需逐条甄别，勿直接下结论）---")
         for d in surv:
