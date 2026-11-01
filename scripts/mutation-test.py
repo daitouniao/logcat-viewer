@@ -472,6 +472,29 @@ TEXT_MUTATIONS = [
      "        mode == RootMode.Su ? $\"su -c {ShellQuote(cmd)}\" : cmd;",
      "        cmd;",
      "BuildRootShellCmd：Su 型不再加 su 包裹"),
+
+    # ══ 2026-11-01 chunked-progressive-load：分块渐进加载管线首次纳入变异 ══
+    # 杀手均为 tstrun 可见的 [Fact]（LogDocumentTests / FilterEngineTests）；
+    # 等价性参数化（ChunkedEquivalenceTests，MemberData）tstrun 不跑，不作杀手指望。
+    # TrimPartial 锚点实测 SURVIVED：块末对齐是纵深防御——即使 ChunkScan 不裁残行，
+    # ScanRange 的 end 向后对齐也会把残行留给下一块（行首归属唯一），单点变异被下游
+    # 自愈，属等价变异；真正咬住边界行为的是 MergePart 两条（KILLED）。
+    ("Services/LogDocument.cs",
+     "                end = TrimPartial(end, start);",
+     "                end = size;",
+     "ChunkScan：块末不再对齐换行符（等价：ScanRange end 对齐自愈，纵深防御）"),
+    ("Services/LogDocument.cs",
+     "                e.Row += n;",
+     "                e.Row += 0;",
+     "MergePart：崩溃事件并入不再偏移行号（跨块行号错位）"),
+    ("Services/LogDocument.cs",
+     "                e.ExcId = e.ExcId >= 0 ? excRemap[e.ExcId + 1] : -1;",
+     "                e.ExcId = -1;",
+     "MergePart：异常类型 id 不再重映射（跨块字典错位）"),
+    ("Services/FilterEngine.cs",
+     "            int r = cand[i];",
+     "            int r = i;",
+     "VerdictPass：行段判定不再按候选行（改判前 cand.Length 行，跨轮结论错位）"),
 ]
 
 # ── 行号型变异（解决同构代码的 str.replace 歧义）────────────────────────────
@@ -483,33 +506,35 @@ TEXT_MUTATIONS = [
 LINE_MUTATIONS = [
     # 行号会随 FilterEngine.cs 增删漂移（2026-10-04 移除正则后下移约 47 行；
     # 2026-10-24 minute-byte-column 分钟守卫改写后 pid/tid 各下移 9/7 行；
-    # 2026-10-31 核对：漂到 ApplyFilter 808/815/822、FilterTail 877/882/887）。
+    # 2026-10-31 核对：漂到 ApplyFilter 808/815/822、FilterTail 877/882/887；
+    # 2026-11-01 chunked-progressive-load 后再漂：ApplyFilter 853/860/867、
+    # FilterTail 1061/1066/1071）。
     # 脚本按「行号 + 该行内容」双重校验，内容不符会 SKIP 而非误改，所以漂移是安全失败、
     # 但会静默漏掉一半变异点 —— 改完引擎记得回来核对行号。
-    ("Services/FilterEngine.cs", 808,
+    ("Services/FilterEngine.cs", 853,
      "if (spec.PidExclude ? hit : !hit) continue;",
      "if (hit) continue;",
-     "ApplyFilter(808)：pid 排除退化为包含"),
-    ("Services/FilterEngine.cs", 815,
+     "ApplyFilter(853)：pid 排除退化为包含"),
+    ("Services/FilterEngine.cs", 860,
      "if (spec.TidExclude ? hit : !hit) continue;",
      "if (spec.TidExclude ? !hit : hit) continue;",
-     "ApplyFilter(815)：tid 排除/包含语义整体反转（对照组）"),
-    ("Services/FilterEngine.cs", 822,
+     "ApplyFilter(860)：tid 排除/包含语义整体反转（对照组）"),
+    ("Services/FilterEngine.cs", 867,
      "if (!minSet.Contains(doc.Minute[i])) continue;",
      "if (!minSet.Contains(doc.Minute[i]) && doc.Minute[i] != 255) continue;",
-     "ApplyFilter(822)：分钟守卫放行哨兵行（无时间戳行反被分钟过滤命中）"),
-    ("Services/FilterEngine.cs", 877,
+     "ApplyFilter(867)：分钟守卫放行哨兵行（无时间戳行反被分钟过滤命中）"),
+    ("Services/FilterEngine.cs", 1061,
      "if (spec.PidExclude ? hit : !hit) continue;",
      "if (spec.PidExclude ? !hit : hit) continue;",
-     "FilterTail(877)：pid 排除/包含语义整体反转（对照组）"),
-    ("Services/FilterEngine.cs", 882,
+     "FilterTail(1061)：pid 排除/包含语义整体反转（对照组）"),
+    ("Services/FilterEngine.cs", 1066,
      "if (spec.TidExclude ? hit : !hit) continue;",
      "if (spec.TidExclude ? !hit : hit) continue;",
-     "FilterTail(882)：tid 排除/包含语义整体反转"),
-    ("Services/FilterEngine.cs", 887,
+     "FilterTail(1066)：tid 排除/包含语义整体反转"),
+    ("Services/FilterEngine.cs", 1071,
      "if (!minSet.Contains(doc.Minute[i])) continue;",
      "if (!minSet.Contains(doc.Minute[i]) && doc.Minute[i] != 255) continue;",
-     "FilterTail(887)：分钟守卫放行哨兵行（无时间戳行反被分钟过滤命中）"),
+     "FilterTail(1071)：分钟守卫放行哨兵行（无时间戳行反被分钟过滤命中）"),
     # 2026-10-18 核对：RenameCategory 空名校验从 280 漂到 336（X-A8 后多次增删）。
     ("Services/CommandStore.cs", 336,
      "if (oldName.Length == 0 || newName.Length == 0) return false;",
