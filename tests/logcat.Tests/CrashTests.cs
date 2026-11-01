@@ -193,7 +193,7 @@ public class CrashExtractorTests
 public class CrashAggregatorTests
 {
     static CrashEvent E(int row, int excId, int pkgId, byte kind) => new()
-    { Row = row, ExcId = excId, PkgId = pkgId, Kind = kind, Pid = 869, Tid = 869, LineCount = 2 };
+    { Row = row, ExcId = excId, PkgId = pkgId, Kind = kind, Pid = 869, Tid = 869 };
 
     [Fact]
     public void 空清单聚合为空()
@@ -355,7 +355,6 @@ public class CrashDocumentTests
         Assert.Equal(0, ce.Row);
         Assert.Equal(CrashKind.Java, ce.Kind);
         Assert.Equal(869, ce.Pid);
-        Assert.Equal(1, ce.LineCount);                    // 无续行并入
         Assert.Equal(new[] { "java.lang.IllegalStateException" }, doc.ExcTypes);
         Assert.Equal(new[] { "com.example.app" }, doc.Pkgs);
     }

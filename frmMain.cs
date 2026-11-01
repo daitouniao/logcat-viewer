@@ -1249,7 +1249,7 @@ public partial class frmMain : Form, ILocalizedUi
         int start = _filterDocRows;
         int n = doc.RowCount;
         if (n < start) { await ApplyFilter(quiet: true); return; }   // 状态不一致，回退全量
-        if (n == start) { UpdateStat(); return; }                    // 无新行（如整批续行之外的情况）
+        if (n == start) { UpdateStat(); return; }                    // 无新行（如整批只有空行/横幅）
 
         int[] rows;
         await _docBusy.WaitAsync();

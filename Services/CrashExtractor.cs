@@ -53,7 +53,7 @@ public static class CrashExtractor
     }
 
     /// <summary>
-    /// 从崩溃消息文本提取崩溃信息。文本为「首行 msg + 续行」的合并视图（msg 部分），
+    /// 从崩溃消息文本提取崩溃信息。文本为「首行 msg + 后续若干行」拼合的视图（msg 部分），
     /// 逐行判定；不是崩溃返回 null。
     /// </summary>
     public static CrashMatch? TryExtract(string message)

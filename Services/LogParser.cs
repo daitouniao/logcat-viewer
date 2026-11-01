@@ -234,7 +234,7 @@ public static class LogParser
 
         // 其余形态（日期起首的 threadtime / time / brief）都由快速路径处理并 return，
         // 走到慢路径时只剩「方括号」形式能匹配，因此这里只有 ReLong 一条规则，
-        // 不匹配说明这行不是日志记录（返回空结果由调用方按续行/正文处理）。
+        // 不匹配说明这行不是日志记录（返回空结果由调用方按未知行/正文处理）。
         return new ParseResult(-1, -1, -1, -1, -1, LVL_UNKNOWN, "", 0);
     }
 
@@ -353,7 +353,7 @@ public static class LogParser
     /// 判定一行是否为 logcat 分段横幅 / ROM 自报头。
     /// 典型：<c>--------- beginning of main</c>、<c>--------- switch to system</c>、
     /// <c>----- timezone:Asia/Kuala_Lumpur</c>。
-    /// 这类行不是日志记录：不参与索引，也不参与续行合并。
+    /// 这类行不是日志记录：不参与索引。
     /// </summary>
     public static bool IsBanner(ReadOnlySpan<byte> line)
     {

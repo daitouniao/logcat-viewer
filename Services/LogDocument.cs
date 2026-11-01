@@ -582,7 +582,6 @@ public sealed class LogDocument : IDisposable
                         Pid = pr.Pid,
                         Tid = pr.Tid,
                         Kind = match.Value.Kind,
-                        LineCount = 1,        // 过渡期占位（4.x 删 LineCount 字段时一并清理）
                     });
                 }
             }
@@ -634,7 +633,7 @@ public sealed class LogDocument : IDisposable
             {
                 // 前瞻行同样剥日志头部前缀（时间戳/PID/TID/Tag），否则 threadtime 形态的
                 // 「Process: …」「java.lang.…」行匹配不上判据 → 独立行形态的 Java 崩溃会漏提；
-                // 解析失败回退整行（缩进续行 ParseLine 得 MsgOffset=0，本来就是整行）
+                // 解析失败回退整行（缩进行 ParseLine 得 MsgOffset=0，本来就是整行）
                 int plen = le2 - q;
                 if (plen > 0 && data[le2 - 1] == 13) plen--;
                 int mo = 0;

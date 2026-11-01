@@ -22,22 +22,20 @@ public static class CrashKind
 }
 
 /// <summary>
-/// 崩溃事件（稀疏存储，每条崩溃一行事件，约 40 B）。
+/// 崩溃事件（稀疏存储，每条崩溃一行事件）。
 /// 摘要行渲染与崩溃汇总窗口的统计都来自它。
 /// </summary>
 public struct CrashEvent
 {
-    /// <summary>崩溃父行行号（Join=true 下就是唯一行号）。文档行号，升序。</summary>
+    /// <summary>崩溃头所在行号。文档行号，升序。</summary>
     public int Row;
     /// <summary>异常类型字典 id，-1 = 未提取到（如批次边界前瞻不全）。</summary>
     public int ExcId;
     /// <summary>包名字典 id，-1 = 未提取到。</summary>
     public int PkgId;
-    /// <summary>崩溃父行自带的 PID / TID（logcat 头部，-1 = 未知）。</summary>
+    /// <summary>崩溃头自带的 PID / TID（logcat 头部，-1 = 未知）。</summary>
     public int Pid;
     public int Tid;
     /// <summary>崩溃类别，见 <see cref="CrashKind"/>。</summary>
     public byte Kind;
-    /// <summary>合并行数 = joined 计数 + 1；「+N 行」展示 LineCount-1。</summary>
-    public int LineCount;
 }

@@ -415,8 +415,8 @@ public class LogListView : ListView
     }
 
     /// <summary>
-    /// 崩溃行的 Message 列摘要文案：
-    /// <c>☠ 类型 · 包名 · 时间 · +N 行</c>。只是显示得更聪明，原文一个字不动 ——
+    /// 崩溃行的 Message 列摘要文案：<c>☠ 类型 · 包名 · 时间</c>。
+    /// 只是显示得更聪明，原文一个字不动 ——
     /// 查看完整记录、复制原始文本仍读原始字节；带格式复制由 frmMain 还原原文。
     /// </summary>
     string CrashSummary(CrashEvent ce, string rawMsg)
@@ -440,9 +440,7 @@ public class LogListView : ListView
         // 行首原始时间戳的时分秒部分（与 Time 列同源）；行首无时间戳显示 "-"
         string time = CrashTime.SummaryText(_doc!, ce.Row) ?? "-";
 
-        return ce.LineCount > 1
-            ? Loc.F("☠ {0} · {1} · {2} · +{3} 行", exc, pkg.Length > 0 ? pkg : "-", time, ce.LineCount - 1)
-            : Loc.F("☠ {0} · {1} · {2}", exc, pkg.Length > 0 ? pkg : "-", time);
+        return Loc.F("☠ {0} · {1} · {2}", exc, pkg.Length > 0 ? pkg : "-", time);
     }
 
     void ClearCache() => _cache.Clear();
