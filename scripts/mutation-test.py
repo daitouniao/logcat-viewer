@@ -92,32 +92,25 @@ TEXT_MUTATIONS = [
      "                long q = -1;\n                for (long p = end - 1; p >= start; p--)\n                {\n                    f.Position = p;\n                    if (f.ReadByte() == '\\n') { q = p; break; }\n                }\n                end = q >= 0 ? q + 1 : start;",
      "                f.Position = end;\n                int b2 = f.ReadByte();\n                while (b2 >= 0 && b2 != '\\n') b2 = f.ReadByte();\n                end = b2 < 0 ? start : f.Position;",
      "ScanRange：end 对齐改为「向后推进到下一换行」（旧 bug）"),
-    ("Services/LogDocument.cs",
-     "            if (join && prevHead && joined < MAX_JOIN && !LogParser.LooksLikeNewRecord(line))",
-     "            if (prevHead && joined < MAX_JOIN && !LogParser.LooksLikeNewRecord(line))",
-     "ScanRange：忽略 join 开关，无条件合并续行"),
 
-    # ── LogDocument：续行合并规则 ──
+    # ── 2026-11-01 remove-join-merge：join 机制整体删除，以下锚点随码移除 ──
+    # （ScanRange 忽略 join 开关 / 空行不再重置合并状态 / Append prevHeadDoc / joinedDoc /
+    #   批末缓存自赋值 / 横幅行改为中断续行合并 / MAX_JOIN 行号型 / AppSettings.Join）
+    # 替补两个「不索引」分支锚点（见下方 空行分支 / 横幅分支 恒不跳过）。
+
+    # ── LogDocument：解析细节 ──
+
+    # ── LogDocument：自然行口径「不索引」两分支（remove-join-merge 新增，D5 必留清单）──
+    # 空行分支被跳过 → 空行被索引成记录（NaturalRowCount / BlankAndBanner 用例应咬住）
     ("Services/LogDocument.cs",
-     "                prev = -1;\n                prevHead = false;\n                joined = 0;\n                pos = nl >= 0 ? nl + 1 : data.Length;\n                continue;",
-     "                prev = 0;\n                pos = nl >= 0 ? nl + 1 : data.Length;\n                continue;",
-     "空行不再重置合并状态（回退修法 A）"),
-    ("Services/LogDocument.cs",
-     "        var part = ScanRange(SourcePath, IndexedSize, newSize, Join, _prevHeadAtEnd, _joinedAtEnd, progress, ct);",
-     "        var part = ScanRange(SourcePath, IndexedSize, newSize, Join, true, _joinedAtEnd, progress, ct);",
-     "Append：prevHeadDoc 改回恒 true（批界合并缓存失效）"),
-    ("Services/LogDocument.cs",
-     "        var part = ScanRange(SourcePath, IndexedSize, newSize, Join, _prevHeadAtEnd, _joinedAtEnd, progress, ct);",
-     "        var part = ScanRange(SourcePath, IndexedSize, newSize, Join, _prevHeadAtEnd, 0, progress, ct);",
-     "Append：joinedDoc 改回每批清零（MAX_JOIN 退化为每批预算）"),
-    ("Services/LogDocument.cs",
-     "        // 批末状态必须在任何早退分支之前入缓存：整批空行走 \"unchanged\" 但合并状态已变\n        _prevHeadAtEnd = part.EndPrevHead;",
-     "        // 批末状态必须在任何早退分支之前入缓存：整批空行走 \"unchanged\" 但合并状态已变\n        _prevHeadAtEnd = _prevHeadAtEnd;",
-     "Append：批末合并状态缓存自赋值（永不更新）"),
+     "            if (lineLen == 0)\n            {\n                // 空行：不是日志记录，不进索引",
+     "            if (false)\n            {\n                // 空行：不是日志记录，不进索引",
+     "空行分支恒不跳过（空行反被索引）"),
+    # 横幅分支被跳过 → 横幅被索引成记录（Build_横幅行不进索引 等用例应咬住）
     ("Services/LogDocument.cs",
      "            if (LogParser.IsBanner(line))\n            {\n                pos = nl >= 0 ? nl + 1 : data.Length;\n                continue;\n            }",
-     "            if (LogParser.IsBanner(line))\n            {\n                prev = -1;\n                pos = nl >= 0 ? nl + 1 : data.Length;\n                continue;\n            }",
-     "横幅行改为中断续行合并"),
+     "            if (false)\n            {\n                pos = nl >= 0 ? nl + 1 : data.Length;\n                continue;\n            }",
+     "横幅分支恒不跳过（横幅反被索引）"),
 
     # ── LogDocument：解析细节 ──
     ("Services/LogDocument.cs",
@@ -242,10 +235,7 @@ TEXT_MUTATIONS = [
      "FilterTail：起始行等于行数时不再返回空（等价变异）"),
 
     # ── FilterEngine：导出 ──
-    ("Services/FilterEngine.cs",
-     "                if (singleLine)\n                {\n                    string text = Encoding.UTF8.GetString(line);\n                    text = text.Replace(\"\\r\\n\", \"\\\\n\").Replace(\"\\n\", \"\\\\n\").Replace(\"\\r\", \"\\\\n\");\n                    line = Encoding.UTF8.GetBytes(text);\n                }",
-     "                if (singleLine)\n                {\n                    string text = Encoding.UTF8.GetString(line);\n                    text = text.Replace(\"\\r\\n\", \"\\\\n\");\n                    line = Encoding.UTF8.GetBytes(text);\n                }",
-     "ExportRows：singleLine 只替换 \\r\\n（裸 \\n 不转义）"),
+    # （remove-join-merge：singleLine 整条删除，导出恒一行一条）
     ("Services/FilterEngine.cs",
      "            written = e;\n            progress?.Report",
      "            progress?.Report",
@@ -304,10 +294,7 @@ TEXT_MUTATIONS = [
      "PathEquals：本机路径也区分大小写"),
 
     # ── AppSettings ──
-    ("Services/AppSettings.cs",
-     "    public bool Join { get; set; } = true;",
-     "    public bool Join { get; set; }",
-     "AppSettings：Join 默认值 true → false"),
+    # （remove-join-merge：AppSettings.Join 字段删除，锚点随码移除）
     ("Services/AppSettings.cs",
      "    public int FontPt { get; set; } = 10;",
      "    public int FontPt { get; set; } = 11;",
@@ -517,12 +504,9 @@ LINE_MUTATIONS = [
      "if (oldName.Length == 0 || newName.Length == 0) return false;",
      "if (false) return false;",
      "RenameCategory：不再拒绝任一空名"),
-    # 2026-10-31 核对：MAX_JOIN 从 14 漂到 21；TagOf 从 246 漂到 253。
-    ("Services/LogDocument.cs", 21,
-     "const int MAX_JOIN = 200;",
-     "const int MAX_JOIN = 1;",
-     "MAX_JOIN 200 → 1（续行合并上限）"),
-    ("Services/LogDocument.cs", 253,
+    # 2026-11-01 remove-join-merge：MAX_JOIN 锚点随码删除；
+    # TagOf 从 253 漂到 240（flags 列与 join 状态字段删除）。
+    ("Services/LogDocument.cs", 240,
      'if (row < 0 || row >= _n) return "";',
      'if (row < 0) return "";',
      "TagOf：去掉上界检查（只挡负数）"),

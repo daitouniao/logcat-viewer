@@ -1415,4 +1415,46 @@ public class FilterEngineTests
 
         Assert.Equal(expected, scanned);
     }
+
+    // ── 元数据类过滤下的记录可见性（spec「元数据类过滤下的记录可见性」）──
+    // 样本：行 0 带完整日志头（pid/tid/tag/级别/时间戳），行 1 为无头缩进续行
+    // （无任何元数据，分钟哨兵 255、pid/tid = -1、tagId = -1）。
+
+    const string MetaVisData =
+        "09-23 18:00:00.000  1  2 I HeadTag: crash\n" +
+        "    at Foo.bar(Foo.java:1)\n";
+
+    /// <summary>启用元数据过滤（按 tag）时，无元数据记录不命中、从过滤结果中消失。</summary>
+    [Fact]
+    public void RecordsWithoutMetadata_NotHitByMetadataFilter()
+    {
+        using var tmp = new TempLogFile(MetaVisData);
+        using var doc = LogDocument.Build(tmp.Path);
+        Assert.Equal(2, doc.RowCount);
+
+        var res = Apply(doc, new FilterSpec { Tags = new[] { "HeadTag" } });
+        Assert.Equal(new[] { 0 }, res);              // 无头续行不命中 tag 过滤
+    }
+
+    /// <summary>排除模式下，无元数据记录视为反向命中而被保留。</summary>
+    [Fact]
+    public void RecordsWithoutMetadata_KeptInExcludeMode()
+    {
+        using var tmp = new TempLogFile(MetaVisData);
+        using var doc = LogDocument.Build(tmp.Path);
+
+        var res = Apply(doc, new FilterSpec { Tags = new[] { "HeadTag" }, TagExclude = true });
+        Assert.Equal(new[] { 1 }, res);              // 行 0 被剔除，无头续行保留
+    }
+
+    /// <summary>未启用元数据过滤时，无元数据记录照常展示、正文照常参与 message 匹配。</summary>
+    [Fact]
+    public void RecordsWithoutMetadata_VisibleWithoutMetadataFilter()
+    {
+        using var tmp = new TempLogFile(MetaVisData);
+        using var doc = LogDocument.Build(tmp.Path);
+
+        var res = Apply(doc, new FilterSpec { Msg = new[] { "Foo.bar" } });
+        Assert.Equal(new[] { 1 }, res);              // 无头续行照常参与匹配并命中
+    }
 }

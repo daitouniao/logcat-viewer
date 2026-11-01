@@ -4,8 +4,8 @@
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
 [![Platform: Windows](https://img.shields.io/badge/platform-Windows-lightgrey)](#环境要求)
 [![CI](https://github.com/daitouniao/logcat-viewer/actions/workflows/ci.yml/badge.svg)](https://github.com/daitouniao/logcat-viewer/actions/workflows/ci.yml)
-[![Tests: 756 passing](https://img.shields.io/badge/tests-756%20passing-green)](docs/TESTING.md)
-[![Coverage: 97.46% lines](https://img.shields.io/badge/coverage-97.46%25%20lines-blue)](docs/TESTING.md)
+[![Tests: 744 passing](https://img.shields.io/badge/tests-744%20passing-green)](docs/TESTING.md)
+[![Coverage: 97.42% lines](https://img.shields.io/badge/coverage-97.42%25%20lines-blue)](docs/TESTING.md)
 
 Windows 桌面端 Android 日志（logcat）查看器。基于 WinForms，使用内存映射文件 + 列式索引，可直接打开并流畅浏览千万行级别的日志文件，同时支持通过 ADB 实时采集设备日志、截图、录屏、文件互传、APK 安装/卸载与分类收藏常用命令。
 
@@ -34,10 +34,9 @@ Windows 桌面端 Android 日志（logcat）查看器。基于 WinForms，使用
 | **大文件低内存**     | 内存映射 + 列式索引，建索引过程有可取消进度条                                       |
 | **虚拟列表**         | 只渲染可见行，10M+ 行时滚动依然流畅                                                 |
 | **六种格式自动识别** | `threadtime` / `time` / `long` / `brief` / `tag` / `ymd`，字节级快速路径 + 正则回退 |
-| **续行合并**         | 异常堆栈、多行正文可并入上一条记录（可开关）                                        |
 | **级别配色**         | V/D/I/W/E/F/A 分色显示                                                              |
 | **完整记录查看**     | 双击行或 `Enter` 查看未被截断的原文                                                 |
-| **增量重载**         | `F5` 只重读追加的尾部，批次边界做行对齐，多行日志不会被切断                         |
+| **增量重载**         | `F5` 只重读追加的尾部，批次边界做行对齐                                             |
 
 ## 过滤
 
@@ -54,7 +53,7 @@ Windows 桌面端 Android 日志（logcat）查看器。基于 WinForms，使用
 
 - 按 `M` 或双击行号列标记/取消标记，`F2` / `Shift+F2` 在标记间跳转
 - 右键菜单可直接「按此 tag / PID / TID / 分钟过滤」
-- 导出当前结果或仅导出标记行，可选「单行化」（换行转 `\n`，便于表格处理）
+- 导出当前结果或仅导出标记行（每条记录一行，与列表所见一致）
 - 复制原始文本或复制为表格行（Tab 分隔）
 
 ## ADB 设备功能
@@ -189,7 +188,7 @@ dotnet test tests/logcat.Tests/logcat.Tests.csproj --collect:"XPlat Code Coverag
 python tests/coverage-report.py     # 输出 tests/coverage-report.html
 ```
 
-当前状态：**756 个用例全部通过**，行覆盖率 **97.46%**（3,766 / 3,864 行），分支覆盖率 **88.67%**。
+当前状态：**744 个用例全部通过**，行覆盖率 **97.42%**（3,663 / 3,760 行），分支覆盖率 **88.75%**。
 
 覆盖口径见 `tests/logcat.Tests/coverlet.runsettings`，排除两类代码：
 - **UI 层**：`Forms` / `Controls` / `frmMain` / `Program`，以及 `DpiFix` / `DpiDiag` / `Loc`。`Loc`（本地化运行时）与 `DpiFix` 同理——它一半的代码是控件树遍历、字体替换与文本像素测量，没有真实窗体与消息泵无从验证
@@ -269,7 +268,7 @@ Services/
   DpiFix.cs             高 DPI 布局兜底（显示后按内容实测撑大装不下的 TLP 绝对行与固定高停靠栏）
   StartupLog.cs         启动诊断日志（exe 同级目录 Log\startup.log，多屏几何与 DPI 排查用）
   LogDocument.cs        列式索引文档（mmap、并行建索引、增量 Reload）
-  LogParser.cs          行解析（六种格式 + 续行判定）
+  LogParser.cs          行解析（六种格式 + 新记录特征判定）
   CrashExtractor.cs     崩溃 / ANR / native fault 信号检测（绑进索引扫描）
   CrashAggregator.cs    崩溃事件按类型与包名分组，供崩溃汇总窗口使用
   FilterEngine.cs       过滤引擎（预筛 → message 匹配（大文档块扫描 / 增量逐条）→ 导出）
@@ -282,7 +281,7 @@ Services/
   AppInfo.cs            产品名与版本号（读取程序集 InformationalVersion，标题与关于对话框共用）
 tests/
   coverage-report.py      覆盖率报告生成（coverlet 的 cobertura XML → 可读 HTML）
-  logcat.Tests/           xUnit 测试工程（756 个用例：日志解析 / 列式索引 / 过滤引擎 / 崩溃提取 / 持久化 / 本地化）
+  logcat.Tests/           xUnit 测试工程（744 个用例：日志解析 / 列式索引 / 过滤引擎 / 崩溃提取 / 持久化 / 本地化）
     coverlet.runsettings  覆盖率统计口径（Include / Exclude 规则）
 docs/
   BUILDING.md             怎么编译与发布（两个包各自的命令与产物验证）
@@ -311,7 +310,7 @@ DISCLAIMER.md           免责声明全文
 
 ## 数据存储
 
-- 用户设置统一以 JSON 持久化到 exe 同级目录 `settings.json`：窗口位置/大小/状态（多屏记忆已验证可用）、续行合并、自动应用、字号、换行可视符、界面语言、上次浏览路径，以及安装/卸载窗口的通道、安装参数、临时目录、root 与「保留数据」选项
+- 用户设置统一以 JSON 持久化到 exe 同级目录 `settings.json`：窗口位置/大小/状态（多屏记忆已验证可用）、自动应用、字号、界面语言、上次浏览路径，以及安装/卸载窗口的通道、安装参数、临时目录、root 与「保留数据」选项
 - 各类收藏以 JSON 持久化到 exe 同级目录 `favorites.json`：设备端/本机端目录收藏（含别名）、run-as 包名、APK 本机路径、应用包名、tag 与 message 过滤条件，每类上限 60 条（最近使用在前）
 - 命令窗口的分类、收藏、历史与占位符取值以 JSON 持久化到 exe 同级目录 `commands.json`（首次打开时写入内置命令库）
 - 实时采集的日志写入系统临时目录 `logcat_live_*.log`，关闭窗口时释放

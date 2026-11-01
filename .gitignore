@@ -133,3 +133,5 @@ docs/private/
 docs/memory/
 
 [Aa][Gg][Ee][Nn][Tt][Ss].[Mm][Dd]
+# Python 探针/脚本运行产物
+__pycache__/
