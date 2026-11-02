@@ -71,6 +71,20 @@ public partial class frmMain
             state.Session?.Dispose();
             if (_workerGen == gen)
             {
+                if (completed)
+                {
+                    // 加载完成：最终整批发布（spec「加载完成无内容滞留」）——定时器已停，
+                    // 无条件取走缓冲内全部发布操作（含未到节流窗口的）走既有应用路径；
+                    // 缓冲为空时若文档已接管，仍补一次 UpdateStat()（spec「加载完成后
+                    // 状态栏统计反映最终值」），消除状态栏停在最后一次节流快照的时序窗口。
+                    var buf = _loadPub;
+                    if (buf != null)
+                    {
+                        var ops = buf.TakeAll();
+                        if (ops.Count > 0) ApplyLoadOps(ops);
+                        else if (_doc != null) UpdateStat();
+                    }
+                }
                 _loading = false;
                 SetLoadUiState(false);
                 if (!completed)
@@ -155,14 +169,23 @@ public partial class frmMain
         return timer;
     }
 
-    /// <summary>消费一批发布操作：接管首次发布的文档、按序应用替换/追加、跟随与状态栏。</summary>
+    /// <summary>消费一批发布操作（节流窗口到期时）：到期才取，未到期不动。</summary>
     void FlushLoadOps()
     {
         var buf = _loadPub;
         if (buf == null) return;
         var ops = buf.TakeIfDue();
         if (ops == null) return;
+        ApplyLoadOps(ops);
+    }
 
+    /// <summary>
+    /// 应用一批发布操作：接管首次发布的文档、按序应用替换/追加、跟随与状态栏。
+    /// 节流定时器与加载收尾的最终整批发布共用此路径（含接管判断，不可旁路——
+    /// ≤ 首块的小文件可能从未有过成功 flush，收尾强制消费是其唯一上屏机会）。
+    /// </summary>
+    void ApplyLoadOps(List<LoadPublishOp> ops)
+    {
         // 首次发布接管文档（worker 建好并已产出第一批行之后；跨代抢占下不接管旧代文档）
         if (_doc == null && _loadPendingDoc != null && _workerGen == _loadPendingDocGen)
         {
