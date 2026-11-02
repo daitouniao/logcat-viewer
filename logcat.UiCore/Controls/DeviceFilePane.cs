@@ -24,7 +24,7 @@ public class DeviceFilePane : FilePane
     public string? RunAsPackage { get; private set; }
 
     /// <summary>run-as 模式的中转目录，默认放 Download，可在 run-as 对话框中修改。</summary>
-    public string RunAsRelayDir { get; private set; } = logcat.Services.AppSettings.Default.LastRunAsRelayDir;
+    public string RunAsRelayDir { get; private set; } = logcat.Services.AndToolsSettings.Default.LastRunAsRelayDir;
 
     public DeviceFilePane(AdbManager manager, string serial, RootMode rootMode)
         : base(Loc.F("Android 设备 — {0}{1}", serial, rootMode != RootMode.None ? "  [root]" : ""))
@@ -368,7 +368,7 @@ public class DeviceFilePane : FilePane
         fav.RemoveRunAsPackage(pkg);   // 先移除再插入，让最近用的包排最前
         if (fav.AddRunAsPackage(pkg))
             fav.Save();
-        var s = logcat.Services.AppSettings.Default;
+        var s = logcat.Services.AndToolsSettings.Default;
         if (s.LastRunAsRelayDir != RunAsRelayDir)
         {
             s.LastRunAsRelayDir = RunAsRelayDir;

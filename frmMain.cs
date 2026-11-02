@@ -34,6 +34,7 @@ public partial class frmMain : Form, ILocalizedUi
 
     // ── ADB ──
     AdbManager? _adbManager;
+    DeviceSelector? _deviceSelector;
     LogcatStream? _streamThread;
     string? _adbTempPath;
     bool _adbCapturing;
@@ -41,7 +42,6 @@ public partial class frmMain : Form, ILocalizedUi
     bool _adbIndexing;
     int _adbGen;
     int _adbLiveCount;
-    readonly List<DeviceInfo> _adbDevices = new();
 
     // ── 控件 ──
     LogListView _listView = null!;
@@ -99,8 +99,6 @@ public partial class frmMain : Form, ILocalizedUi
     // 「帮助 → 语言」子菜单句柄：切换语言后要同步两项的勾选态
     ToolStripMenuItem? _mLangMenu;
 
-    // 设备操作总窗口（截图 / 录屏 / 文件浏览 / 安装·卸载 APK / 命令 合并为一个页签式窗口，非模态）
-    DeviceOpsDialog? _deviceOps;
 
     // 过滤设置窗口（非模态，悬浮在主窗口之上）
     FilterDialog? _filterDialog;
@@ -194,12 +192,19 @@ public partial class frmMain : Form, ILocalizedUi
         mSet.DropDownItems.Add(mFont);
 
         // ── 主工具栏（菜单 + 文件操作 + ADB 合并为一行）──
-        _toolStrip = new ToolStrip { GripStyle = ToolStripGripStyle.Hidden, ShowItemToolTips = false };
+        _toolStrip = new ToolStrip { GripStyle = ToolStripGripStyle.Hidden, ShowItemToolTips = true };
         _comboDevice = new ToolStripComboBox { Enabled = false, Width = 230, DropDownWidth = 320 };
-        // 换设备时，让设备操作窗口里绑定设备的页签跟着重建
-        _comboDevice.SelectedIndexChanged += (_, _) => _deviceOps?.OnDeviceChanged();
-        // 设备操作总入口（截图/录屏/文件浏览/APK/命令）
-        var btnDeviceOps = Loc.Bind(new ToolStripButton("设备操作", null, (_, _) => ShowDeviceOps(DeviceOpsDialog.PageKind.Command)), "设备操作");
+        _comboDevice.SelectedIndexChanged += (_, _) =>
+        {
+            if (_deviceSelector != null) _deviceSelector.SelectedIndex = _comboDevice.SelectedIndex;
+        };
+        // 设备操作总入口 → 拉起独立工具箱（design D8；缺失 → 禁用 + 悬停提示补齐方向）
+        var btnDeviceOps = Loc.Bind(new ToolStripButton("设备操作", null, (_, _) => LaunchAndTools()), "设备操作");
+        if (!AndToolsLauncher.IsAvailable())
+        {
+            btnDeviceOps.Enabled = false;
+            btnDeviceOps.ToolTipText = Loc.T("安卓工具箱缺失：需要 logcat-andtools.exe 位于本程序同目录。");
+        }
         var btnRefresh = Loc.Bind(new ToolStripButton("刷新设备", null, (_, _) => _ = AdbRefreshManualAsync()), "刷新设备");
         _btnAdbStart = Loc.Bind(new ToolStripButton("▶ 开始采集", null, (_, _) => AdbStartCapture()) { Enabled = false }, "▶ 开始采集");
         _btnAdbStop = Loc.Bind(new ToolStripButton("■ 停止采集", null, (_, _) => _ = AdbStopCaptureAsync()) { Enabled = false }, "■ 停止采集");
@@ -393,8 +398,6 @@ public partial class frmMain : Form, ILocalizedUi
         // 工具栏 Tag/Message 的 tooltip 由 TermTip 拼出（op / 大小写 / 排除三个维度），
         // 同样只能重算，不能靠绑定刷新
         ApplyTermBoxStyle();
-        // 设备操作总窗口：把语言变化转发给各嵌入页签（它们 TopLevel=false，不在 OpenForms 里）
-        _deviceOps?.ForwardLanguageChanged();
         // 行缓存里嵌着 Loc.F 算出的文案（截断后缀、摘要行），必须清缓存重绘
         _listView.OnLanguageChanged();
         _crashSummary?.OnLanguageChanged();
@@ -949,7 +952,7 @@ public partial class frmMain : Form, ILocalizedUi
         // ── 分流判定（spec「装载入口分流」；Off 模式整体不进分流段，零行为变化）──
         // 嗅探探测在停当前工作、关旧文档之前完成：auto 探测失败转代理时旧文档仍在屏，
         // 用户不面对空窗口。On 模式不探测恒走代理；Auto 才做直接打开 + 文本嗅探。
-        var mode = FileProxyModes.Parse(AppSettings.Default.FileProxyMode);
+        var mode = FileProxyModes.Parse(LogcatSettings.Default.FileProxyMode);
         bool useProxy = false;
         Exception? directOpenError = null;
         if (mode != FileProxyMode.Off)
@@ -1781,7 +1784,7 @@ public partial class frmMain : Form, ILocalizedUi
         for (int i = 0; i < screens.Length; i++)
             StartupLog.Write($"  屏[{i}] Primary={screens[i].Primary} Bounds={screens[i].Bounds} WorkingArea={screens[i].WorkingArea}");
 
-        var s = logcat.Services.AppSettings.Default;
+        var s = logcat.Services.LogcatSettings.Default;
         try
         {
             _chkAuto.Checked = s.AutoApply;
@@ -1870,7 +1873,7 @@ public partial class frmMain : Form, ILocalizedUi
 
     void SaveSettings()
     {
-        var s = logcat.Services.AppSettings.Default;
+        var s = logcat.Services.LogcatSettings.Default;
         s.AutoApply = _chkAuto.Checked;
         s.FontPt = _fontPt;
         // ── 窗口状态与几何保存 ──
@@ -1918,8 +1921,16 @@ public partial class frmMain : Form, ILocalizedUi
         try
         {
             _adbManager = new AdbManager(_logger);
-            _adbManager.DevicesChanged += (_, devices) => SafeInvoke(() => OnDevicesChanged(devices));
-            _adbManager.StartMonitor();
+            _deviceSelector = new DeviceSelector(_adbManager);
+            _deviceSelector.DevicesChanged += devices => SafeInvoke(() => OnDevicesChanged(devices));
+            _deviceSelector.HealFailed += prompt => SafeInvoke(() =>
+            {
+                ClearDeviceList();
+                // 运行时数据消息走 ShowStatusRaw（Loc.F 会被异常消息里的花括号炸 FormatException）
+                ShowStatusRaw(prompt);
+                SetAdbButtons(true);   // 刷新按钮保持可用，可重试
+            });
+            _deviceSelector.StartMonitor();
             await AdbRefresh();
             SetAdbButtons(true);
         }
@@ -1955,7 +1966,7 @@ public partial class frmMain : Form, ILocalizedUi
     {
         if (_adbManager == null) return;
         // Adbd 型重测与首次检测都不弹授权框，无需确认；仅 Su/None 缓存需要确认
-        bool hasSuOrNone = _adbDevices.Any(d =>
+        bool hasSuOrNone = _deviceSelector!.Devices.Any(d =>
             _adbManager.GetRootDetectEntry(d.Serial) is { Mode: not RootMode.Adbd });
         if (hasSuOrNone && MessageBox.Show(this,
                 Loc.T("是否同时重新检测各设备的 root 状态？\n重新检测可能在设备端弹出 root 授权提示；选「否」仅刷新设备列表、保留检测结果。"),
@@ -1968,38 +1979,13 @@ public partial class frmMain : Form, ILocalizedUi
 
     async Task AdbRefresh()
     {
-        if (_adbManager == null) return;
+        if (_deviceSelector == null) return;
         ShowStatus("刷新中…");
         try
         {
-            // 先自愈 adb server：未在运行则自动拉起；拉不起给明确提示，不误报「无设备」
-            var heal = await _adbManager.EnsureServerRunningAsync();
-            if (heal.Prompt is { } prompt)
-            {
-                ClearDeviceList();
-                // 运行时数据消息走 ShowStatusRaw（Loc.F 会被异常消息里的花括号炸 FormatException）
-                ShowStatusRaw(prompt);
-                SetAdbButtons(true);   // 刷新按钮保持可用，可重试
-                return;
-            }
-            // 实证：server 被杀后存量监控是僵尸态（不抛异常也不再收事件），自愈拉起成功后无条件重建
-            if (heal.Restarted) _adbManager.RestartMonitor();
-
-            var devices = await _adbManager.ListDevicesAsync();
-            _adbDevices.Clear();
-            _adbDevices.AddRange(devices);
-            _comboDevice.Items.Clear();
-            foreach (var d in devices)
-                _comboDevice.Items.Add(d.ToString());
-            if (devices.Count > 0)
-            {
-                _comboDevice.SelectedIndex = 0;
-            }
-            else
-            {
-                ClearDeviceList();
-                ShowStatus("无设备");
-            }
+            // 自愈 adb server 与设备枚举在 DeviceSelector（design D9）；自愈失败提示经 HealFailed 事件回 UI
+            await _deviceSelector.RefreshAsync();
+            if (_deviceSelector.Devices.Count == 0) ShowStatus("无设备");
             SetAdbButtons(true);
         }
         catch (Exception ex)
@@ -2014,7 +2000,7 @@ public partial class frmMain : Form, ILocalizedUi
     /// </summary>
     void ClearDeviceList()
     {
-        _adbDevices.Clear();
+        _deviceSelector?.Clear();
         ClearDeviceCombo(_comboDevice);
     }
 
@@ -2040,16 +2026,14 @@ public partial class frmMain : Form, ILocalizedUi
         combo.Text = string.Empty;
     }
 
-    void OnDevicesChanged(List<DeviceInfo> devices)
+    void OnDevicesChanged(IReadOnlyList<DeviceInfo> devices)
     {
-        _adbDevices.Clear();
-        _adbDevices.AddRange(devices);
         _comboDevice.Items.Clear();
         foreach (var d in devices)
             _comboDevice.Items.Add(d.ToString());
         if (devices.Count > 0)
         {
-            // Items.Clear() 后 SelectedIndex 必为 -1，重选第一台
+            // Items.Clear() 后 SelectedIndex 必为 -1，重选第一台（selector 已同步 SelectedIndex=0）
             _comboDevice.SelectedIndex = 0;
         }
         else
@@ -2060,11 +2044,7 @@ public partial class frmMain : Form, ILocalizedUi
         SetAdbButtons(true);
     }
 
-    string? SelectedSerial()
-    {
-        int idx = _comboDevice.SelectedIndex;
-        return idx >= 0 && idx < _adbDevices.Count ? _adbDevices[idx].Serial : null;
-    }
+    string? SelectedSerial() => _deviceSelector?.CurrentSerial;
 
     // ── ADB 采集 ──
 
@@ -2309,37 +2289,28 @@ public partial class frmMain : Form, ILocalizedUi
     {
         var serial = SelectedSerial();
         return serial != null
-            ? (_adbDevices.FirstOrDefault(d => d.Serial == serial)?.RootMode ?? RootMode.None)
+            ? _deviceSelector!.CurrentRootMode
             : RootMode.None;
     }
 
-    void AdbCommandWindow() => ShowDeviceOps(DeviceOpsDialog.PageKind.Command);
+    void AdbCommandWindow() => LaunchAndTools();
 
     /// <summary>
-    /// 打开（或唤到前台）设备操作窗口并切到对应页签。窗口单例、非模态；
-    /// 命令页通过回调实时取主窗口选中设备，其余页签在换设备时由 OnDeviceChanged 重建。
+    /// 拉起安卓工具箱（design D8）：缺失 → 状态栏提示（与入口禁用态同款文案）；
+    /// 存在 → Process.Start，已在运行时由工具箱侧唤醒事件前置（二次启动 Set 后自退）。
+    /// 启动异常不外抛，状态栏提示。
     /// </summary>
-    void ShowDeviceOps(DeviceOpsDialog.PageKind page)
+    void LaunchAndTools()
     {
-        if (_adbManager == null)
+        try
         {
-            ShowError(Loc.T("ADB 不可用"));
-            return;
+            if (AndToolsLauncher.TryLaunch()) return;
+            ShowStatusRaw(Loc.T("安卓工具箱缺失：需要 logcat-andtools.exe 位于本程序同目录。"));
         }
-        if (_deviceOps == null || _deviceOps.IsDisposed)
+        catch (Exception ex)
         {
-            _deviceOps = new DeviceOpsDialog(_adbManager, SelectedSerial, SelectedRootMode);
-            _deviceOps.FormClosed += (_, _) => _deviceOps = null;
-            _deviceOps.Show(this);
+            ShowStatusRaw(Loc.T("安卓工具箱启动失败。") + " " + ex.Message);
         }
-        else
-        {
-            if (_deviceOps.WindowState == FormWindowState.Minimized)
-                _deviceOps.WindowState = FormWindowState.Normal;
-            _deviceOps.BringToFront();
-            _deviceOps.Activate();
-        }
-        _deviceOps.OpenPage(page);
     }
 
     // ── 过滤设置窗口（非模态，悬浮在主窗口之上）──

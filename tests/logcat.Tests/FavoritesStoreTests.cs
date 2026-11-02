@@ -471,7 +471,7 @@ public class FavoritesStoreTests
     // ── 单例 ──
 
     /// <summary>
-    /// 只验证「进程内单例」这一条语义（同 <c>AppSettings</c> 的处理）。
+    /// 只验证「进程内单例」这一条语义（同 <c>AndToolsSettings</c> 的处理）。
     /// 刻意不断言字段值：<see cref="FavoritesStore.Default"/> 读的是程序目录下的真实
     /// favorites.json，内容受本机收藏历史影响。
     /// </summary>

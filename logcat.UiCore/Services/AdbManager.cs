@@ -14,7 +14,7 @@ namespace logcat.Services;
 /// ADB 设备管理：枚举、Shell、截图、文件传输。
 /// 基于 AdvancedSharpAdbClient 封装。
 /// </summary>
-public sealed class AdbManager : IDisposable
+public class AdbManager : IDisposable
 {
     readonly AdbClient _client;
     readonly ILogger _logger;
@@ -95,7 +95,7 @@ public sealed class AdbManager : IDisposable
     /// 枚举设备并逐台检测 root。root 探测走带超时的异步通道（见 <see cref="TryProbeAsync"/>），
     /// 因此本方法天然异步——同步版本曾因 su 授权框挂起而卡死设备监控事件循环。
     /// </summary>
-    public async Task<List<DeviceInfo>> ListDevicesAsync()
+    public virtual async Task<List<DeviceInfo>> ListDevicesAsync()
     {
         var result = new List<DeviceInfo>();
         try
@@ -140,7 +140,7 @@ public sealed class AdbManager : IDisposable
     /// 调用方仍须走 <c>ShowStatusRaw</c> 而非 <c>ShowStatus</c>：后者会把整条提示当格式串再格式化一次。
     /// </para>
     /// </remarks>
-    public async Task<AdbServerSelfHealResult> EnsureServerRunningAsync()
+    public virtual async Task<AdbServerSelfHealResult> EnsureServerRunningAsync()
     {
         if (ProbeServerRunning())
             return new AdbServerSelfHealResult(Prompt: null, Restarted: false);
@@ -245,8 +245,12 @@ public sealed class AdbManager : IDisposable
     {
         InvalidateRootCache(serial);
         var devices = await ListDevicesAsync();
-        DevicesChanged?.Invoke(this, devices);
+        OnDevicesChanged(devices);
     }
+
+    /// <summary>触发 <see cref="DevicesChanged"/>。protected 以便测试假件模拟设备上线/下线事件。</summary>
+    protected void OnDevicesChanged(List<DeviceInfo> devices) =>
+        DevicesChanged?.Invoke(this, devices);
 
     /// <summary>
     /// 执行设备端命令并逐行回传输出。logcat、top 这类一直不退出的命令可以边出边看，也能中途取消；
@@ -451,7 +455,7 @@ public sealed class AdbManager : IDisposable
 
     // ── 设备监控 ──
 
-    public void StartMonitor()
+    public virtual void StartMonitor()
     {
         if (_monitor != null) return;
         try
@@ -507,7 +511,7 @@ public sealed class AdbManager : IDisposable
     /// 无条件重建设备监控（Stop + Start）。server 曾被杀后存量监控进入僵尸态——
     /// 不抛异常也不再收事件（实证），只能整体重建，不能以异常作为重建触发器。
     /// </summary>
-    public void RestartMonitor()
+    public virtual void RestartMonitor()
     {
         StopMonitor();
         StartMonitor();
@@ -521,7 +525,7 @@ public sealed class AdbManager : IDisposable
             // 在监控事件线程上同步执行时，设备端 su 授权框一挂起整个事件循环就停摆，
             // 后续所有设备增删事件全部无人处理
             var devices = await ListDevicesAsync();
-            DevicesChanged?.Invoke(this, devices);
+            OnDevicesChanged(devices);
         }
         catch (Exception ex)
         {

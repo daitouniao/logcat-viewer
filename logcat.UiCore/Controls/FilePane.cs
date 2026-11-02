@@ -312,12 +312,12 @@ public abstract class FilePane : UserControl
 
     List<int> ColumnWidthsSetting
     {
-        get => IsRemote ? AppSettings.Default.DevicePaneColumnWidths
-                        : AppSettings.Default.LocalPaneColumnWidths;
+        get => IsRemote ? AndToolsSettings.Default.DevicePaneColumnWidths
+                        : AndToolsSettings.Default.LocalPaneColumnWidths;
         set
         {
-            if (IsRemote) AppSettings.Default.DevicePaneColumnWidths = value;
-            else AppSettings.Default.LocalPaneColumnWidths = value;
+            if (IsRemote) AndToolsSettings.Default.DevicePaneColumnWidths = value;
+            else AndToolsSettings.Default.LocalPaneColumnWidths = value;
         }
     }
 
@@ -340,7 +340,7 @@ public abstract class FilePane : UserControl
             _widthSaveTimer.Tick += (_, _) =>
             {
                 _widthSaveTimer!.Stop();
-                AppSettings.Default.Save();
+                AndToolsSettings.Default.Save();
             };
         }
         _widthSaveTimer.Stop();

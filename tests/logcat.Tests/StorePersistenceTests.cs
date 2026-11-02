@@ -5,7 +5,7 @@ using Xunit;
 namespace logcat.Tests;
 
 /// <summary>
-/// 三个存储类（CommandStore / FavoritesStore / AppSettings）的落盘路径：
+/// 四个存储类（CommandStore / FavoritesStore / LogcatSettings / AndToolsSettings）的落盘路径：
 /// 首次落盘、反序列化时的缺字段兜底、种子自愈、文件损坏重建、保存回读。
 /// 全部通过注入的临时路径访问，不触碰 %LOCALAPPDATA% 下的真实数据文件。
 /// </summary>
@@ -184,67 +184,81 @@ public class StorePersistenceTests
         Assert.Equal(new[] { @"C:\logs\b.log", @"C:\logs\a.log" }, again.RecentFiles);
     }
 
-    // ── AppSettings ──
+    // ── LogcatSettings / AndToolsSettings（键面按归属拆分后各测各的）──
 
     [Fact]
-    public void AppSettings_文件不存在时返回默认值且不创建文件()
+    public void 设置类_文件不存在时返回默认值且不创建文件()
     {
-        using var file = new TempStoreFile(null);
+        using var logcatFile = new TempStoreFile(null);
+        using var andToolsFile = new TempStoreFile(null);
 
-        var s = AppSettings.LoadFrom(file.Path);
+        var logcat = LogcatSettings.LoadFrom(logcatFile.Path);
+        var andTools = AndToolsSettings.LoadFrom(andToolsFile.Path);
 
-        Assert.Equal(10, s.FontPt);
-        Assert.Equal(file.Path, s.StorePath);
-        Assert.False(file.Exists);                   // 只读不写
+        Assert.Equal(10, logcat.FontPt);
+        Assert.Equal("", andTools.LastLocalPath);
+        Assert.Equal(logcatFile.Path, logcat.StorePath);
+        Assert.Equal(andToolsFile.Path, andTools.StorePath);
+        Assert.False(logcatFile.Exists);             // 只读不写
+        Assert.False(andToolsFile.Exists);           // 只读不写
     }
 
     [Fact]
-    public void AppSettings_保存后能读回且路径不写进JSON()
+    public void 设置类_保存后能读回且路径不写进JSON()
     {
-        using var file = new TempStoreFile(null);
-        var s = new AppSettings(file.Path)
+        using var logcatFile = new TempStoreFile(null);
+        using var andToolsFile = new TempStoreFile(null);
+        var logcat = new LogcatSettings(logcatFile.Path)
         {
             FontPt = 14,
             WindowLocation = new Point(120, 80),
             WindowSize = new Size(1280, 800),
+        };
+        var andTools = new AndToolsSettings(andToolsFile.Path)
+        {
             LastLocalPath = "D:/logs",
         };
-        s.DevicePaneColumnWidths.AddRange(new[] { 100, 200 });
+        andTools.DevicePaneColumnWidths.AddRange(new[] { 100, 200 });
 
-        s.Save();
+        logcat.Save();
+        andTools.Save();
 
-        Assert.DoesNotContain("StorePath", file.Read());   // 路径是运行时绑定，不进配置文件
+        Assert.DoesNotContain("StorePath", logcatFile.Read());    // 路径是运行时绑定，不进配置文件
+        Assert.DoesNotContain("StorePath", andToolsFile.Read());
 
-        var again = AppSettings.LoadFrom(file.Path);
-        Assert.Equal(14, again.FontPt);
-        Assert.Equal(new Point(120, 80), again.WindowLocation);
-        Assert.Equal(new Size(1280, 800), again.WindowSize);
-        Assert.Equal("D:/logs", again.LastLocalPath);
-        Assert.Equal(new[] { 100, 200 }, again.DevicePaneColumnWidths);
-        Assert.Equal(file.Path, again.StorePath);          // 反序列化后路径要重新绑到实际加载的文件
+        var logcatAgain = LogcatSettings.LoadFrom(logcatFile.Path);
+        Assert.Equal(14, logcatAgain.FontPt);
+        Assert.Equal(new Point(120, 80), logcatAgain.WindowLocation);
+        Assert.Equal(new Size(1280, 800), logcatAgain.WindowSize);
+        Assert.Equal(logcatFile.Path, logcatAgain.StorePath);      // 反序列化后路径要重新绑到实际加载的文件
+
+        var andToolsAgain = AndToolsSettings.LoadFrom(andToolsFile.Path);
+        Assert.Equal("D:/logs", andToolsAgain.LastLocalPath);
+        Assert.Equal(new[] { 100, 200 }, andToolsAgain.DevicePaneColumnWidths);
+        Assert.Equal(andToolsFile.Path, andToolsAgain.StorePath);
     }
 
     [Fact]
-    public void AppSettings_文件损坏时回退默认值()
+    public void 设置类_文件损坏时回退默认值()
     {
-        using var file = new TempStoreFile("{ 坏掉的 json");
+        using var logcatFile = new TempStoreFile("{ 坏掉的 json");
+        using var andToolsFile = new TempStoreFile("{ 坏掉的 json");
 
-        var s = AppSettings.LoadFrom(file.Path);
-
-        Assert.Equal(10, s.FontPt);
+        Assert.Equal(10, LogcatSettings.LoadFrom(logcatFile.Path).FontPt);
+        Assert.Equal("", AndToolsSettings.LoadFrom(andToolsFile.Path).LastLocalPath);
     }
 
     [Fact]
-    public void AppSettings_SaveTo写回指定路径()
+    public void 设置类_SaveTo写回指定路径()
     {
         using var a = new TempStoreFile(null);
         using var b = new TempStoreFile(null);
-        var s = AppSettings.LoadFrom(a.Path);
+        var s = LogcatSettings.LoadFrom(a.Path);
 
         s.FontPt = 16;
         s.SaveTo(b.Path);
 
-        Assert.Equal(16, AppSettings.LoadFrom(b.Path).FontPt);
+        Assert.Equal(16, LogcatSettings.LoadFrom(b.Path).FontPt);
         Assert.False(File.Exists(a.Path));                 // a 从未被写过
     }
 
@@ -273,7 +287,7 @@ public class StorePersistenceTests
         Assert.Null(Record.Exception(() => favorites.SaveTo("\0")));
         Assert.Equal(1, favoriteChanged);
 
-        var settings = AppSettings.LoadFrom(settingsFile.Path);
+        var settings = AndToolsSettings.LoadFrom(settingsFile.Path);
         Assert.Null(Record.Exception(() => settings.SaveTo("\0")));
     }
 }

@@ -4,10 +4,10 @@
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
 [![Platform: Windows](https://img.shields.io/badge/platform-Windows-lightgrey)](#环境要求)
 [![CI](https://github.com/daitouniao/logcat-viewer/actions/workflows/ci.yml/badge.svg)](https://github.com/daitouniao/logcat-viewer/actions/workflows/ci.yml)
-[![Tests: 791 passing](https://img.shields.io/badge/tests-791%20passing-green)](docs/TESTING.md)
+[![Tests: 825 passing](https://img.shields.io/badge/tests-825%20passing-green)](docs/TESTING.md)
 [![Coverage: 97.31% lines](https://img.shields.io/badge/coverage-97.31%25%20lines-blue)](docs/TESTING.md)
 
-Windows 桌面端 Android 日志（logcat）查看器。基于 WinForms，使用内存映射文件 + 列式索引，可直接打开并流畅浏览千万行级别的日志文件，同时支持通过 ADB 实时采集设备日志、截图、录屏、文件互传、APK 安装/卸载与分类收藏常用命令。
+Windows 桌面端 Android 日志（logcat）工具组。基于 WinForms，一个仓库出**两个 exe**：`logcat.exe` 日志查看器——内存映射文件 + 列式索引，可直接打开并流畅浏览千万行级别的日志文件，支持 ADB 实时采集；`logcat-andtools.exe` 安卓工具箱——截图、录屏、文件互传、APK 安装/卸载与命令窗口合并为一个页签式窗口，可独立使用。查看器的「设备操作」入口一键拉起工具箱，两者也可各开各的。
 
 [English](README.md) | **简体中文**
 
@@ -19,9 +19,9 @@ Windows 桌面端 Android 日志（logcat）查看器。基于 WinForms，使用
 
 > 镜像仓库（GitHub / GitCode）的更新会稍慢于主仓库——提交与 Release 同步到镜像有延迟，最新内容以 Gitee 为准。
 
-> 当前版本 **V0.1.7**。版本号以 [logcat.csproj](logcat.csproj) 的 `<Version>` 为唯一来源，发布时只改该处，程序标题、关于对话框与 exe 文件属性会自动同步。
+> 当前版本 **V0.1.7**。版本号以 [Directory.Build.props](Directory.Build.props) 的 `<Version>` 为唯一来源，两个 exe 与共享库一并继承；程序标题、关于对话框与 exe 文件属性会自动同步。
 >
-> 界面**中英双语**，`帮助 → 语言` 运行时即时切换，选择记在 `settings.json`；首次启动跟随系统区域。
+> 界面**中英双语**，`帮助 → 语言` 运行时即时切换，选择记在 `language.json`；首次启动跟随系统区域。
 
 ![logcat viewer — 过滤演示](docs/images/main.gif)
 
@@ -66,9 +66,11 @@ Windows 桌面端 Android 日志（logcat）查看器。基于 WinForms，使用
 | 刷新设备      | 枚举在线设备，设备插拔自动监听；刷新前若 adb server 未运行会自动拉起，adb 不可用时提示手动处理（不误报「无设备」）                                                                                                                             |
 | 开始/停止采集 | 实时抓取 `logcat` 到临时文件并增量同步到列表，自动跟随尾部；采集与过滤/导出互斥（串行访问），纯尾部追加只对新增行做增量过滤，开销从 O(全量) 降到 O(新增行) |
 | 保存日志      | 把本次采集内容另存为 `.log`                                                                                                                                |
-| 设备操作      | 截图 / 录屏 / 文件浏览 / 安装卸载 APK / 命令窗口，合并为一个「设备操作」窗口的页签                                                                         |
+| 设备操作      | 拉起独立的**安卓工具箱**（`logcat-andtools.exe`，须与本程序同目录）；工具箱已在运行时改为请求前置；工具箱缺失时入口置为禁用并悬停提示，不报运行时异常                                                                       |
 
 ## 设备操作窗口
+
+安卓工具箱（`logcat-andtools.exe`）把截图、录屏、文件浏览、APK 安装/卸载与命令窗口合并为一个单例页签窗口；它有自己的设备下拉与刷新，可独立运行，同一 Windows 会话内只允许一个实例（重复启动会前置已有窗体）。
 
 截图、录屏、文件浏览、APK 安装/卸载、命令窗口统一为一个非模态、单例窗口，用页签切换。页签按需创建并保持状态；切换设备时绑定设备的页签自动重建；关窗时清理（停止录屏、取消命令任务、写入选项）。
 
@@ -113,7 +115,7 @@ Windows 桌面端 Android 日志（logcat）查看器。基于 WinForms，使用
 关窗时记录主窗口的位置 / 大小 / 状态，下次启动自动回到上次所在的屏幕（已验证可用；屏幕上下或左右排列均可）。
 
 - 若上次所在的屏幕本次未连接，坐标校验不过，自动回退默认布局（不会跑到屏外）
-- 验证方式：`Log\startup.log`（exe 同级目录）记录每次启动的屏幕拓扑、读取的坐标、校验结果、应用后实际落点与所在屏，以及关闭时写入的坐标
+- 验证方式：`Log\startup.log`（exe 同级目录；工具箱写 `Log\startup-andtools.log`）记录每次启动的屏幕拓扑、读取的坐标、校验结果、应用后实际落点与所在屏，以及关闭时写入的坐标
 
 ### 高 DPI 适配
 
@@ -131,10 +133,10 @@ Windows 桌面端 Android 日志（logcat）查看器。基于 WinForms，使用
 
 全部界面文案都有中英两版，**运行时即时切换**，无需重启。
 
-- **切换入口**：`帮助 → 语言 → 简体中文 / English`，选择写入 exe 同级目录的 `settings.json`
+- **切换入口**：`帮助 → 语言 → 简体中文 / English`，选择写入 exe 同级目录的 `language.json`（两个 exe 共用，一侧改过另一侧重启后跟随）
 - **默认语言**：首次启动跟随系统区域（`CultureInfo.CurrentUICulture`）；设置缺失或损坏时也回退到它
 - **切换时不只换文字**：整个 UI 是代码构建的（`frmMain.Designer.cs` 只有 37 行），所以切换会遍历所有已打开窗体，换上目标语言的字体（中文用「微软雅黑 UI」——Segoe UI 无中文字形，高 DPI 下会被裁字；英文用原生 Segoe UI），再按实测文本宽度重算定宽按钮与绝对定位对话框的尺寸——英文普遍比同义中文长 30~50%
-- **规模**：9 张分表共 556 条译文，另有一批按语言区分的列宽与对话框尺寸常量
+- **规模**：`logcat.UiCore/Services/LocTable.*.cs` 按区域拆分的译文表，另有一批按语言区分的列宽与对话框尺寸常量
 
 双语布局审计会在两种语言下按「最小 / 默认 / 半宽」三档遍历控件树，断言**裁字数为 0**。
 
@@ -160,12 +162,14 @@ Windows 桌面端 Android 日志（logcat）查看器。基于 WinForms，使用
 ### 构建与运行
 
 ```powershell
-dotnet build                # 构建
-dotnet run                  # 运行
-dotnet publish -c Release   # 发布（框架依赖，约 1.8 MB；自包含见 docs/BUILDING.md）
+dotnet build logcat.slnx -c Release        # 构建（两个 exe 一起出）
+dotnet run --project .                     # 运行日志查看器
+dotnet publish logcat.csproj -c Release -o publish\fd
+dotnet publish logcat.AndTools\logcat.AndTools.csproj -c Release -o publish\fd
+                                           # 发布（框架依赖；两条都要跑，两 exe 落同一目录；自包含见 docs/BUILDING.md）
 ```
 
-也可直接用 Visual Studio 打开 `logcat.slnx` / `logcat.csproj`。
+也可直接用 Visual Studio 打开 `logcat.slnx`。
 
 > 二进制发行版会随每个版本一同发布，可在以下 Release 页面下载现成构建：
 > - Gitee（主仓库）：<https://gitee.com/dyugao/logcat-viewer/releases>
@@ -189,7 +193,7 @@ dotnet test tests/logcat.Tests/logcat.Tests.csproj --collect:"XPlat Code Coverag
 python tests/coverage-report.py     # 输出 tests/coverage-report.html
 ```
 
-当前状态：**791 个用例全部通过**，行覆盖率 **97.31%**（3,828 / 3,934 行），分支覆盖率 **88.65%**。
+当前状态：**825 个用例全部通过**；行/分支覆盖率沿用 2026-11-01 采样（工程拆分后统计口径待重定），见 [docs/TESTING.md](docs/TESTING.md)。
 
 覆盖口径见 `tests/logcat.Tests/coverlet.runsettings`，排除两类代码：
 - **UI 层**：`Forms` / `Controls` / `frmMain` / `Program`，以及 `DpiFix` / `DpiDiag` / `Loc`。`Loc`（本地化运行时）与 `DpiFix` 同理——它一半的代码是控件树遍历、字体替换与文本像素测量，没有真实窗体与消息泵无从验证
@@ -232,65 +236,85 @@ python tests/coverage-report.py     # 输出 tests/coverage-report.html
 
 ## 目录结构
 
+一个解决方案（`logcat.slnx`）三个工程：查看器 exe、工具箱 exe、两 exe 共用的共享库。
+
 ```
-Program.cs              入口
-frmMain.cs              主窗口：布局、双行工具栏、过滤面板构建与收藏、ADB 功能入口、快捷键
-app.ico                 程序图标（csproj 的 ApplicationIcon）
+logcat.slnx             解决方案（logcat exe + logcat.UiCore 共享库 + logcat.AndTools exe）
+Directory.Build.props   <Version> 唯一来源（三工程一并继承）
+logcat.UiCore/          共享库：两个 exe 共用的全部能力（自身不出 exe）
+  Controls/
+    FilePane.cs           文件面板基类（导航、列表渲染、收藏、重命名、拖放）
+    DeviceFilePane.cs     设备端文件面板
+    LocalFilePane.cs      本机端文件面板
+  Forms/
+    DeviceOpsDialog.cs    设备操作总窗口（截图/录屏/文件浏览/APK 安装·卸载/命令合并为页签）
+    FileBrowserDialog.cs  设备 ↔ 本机双栏文件管理器（设备操作窗口的文件浏览页）
+    ApkInstallDialog.cs   APK 安装（adb install / pm install 双通道、路径收藏）
+    ApkUninstallDialog.cs APK 卸载（已装应用列表、包名收藏）
+    CommandDialog.cs      命令窗口（分类列表、收藏、历史、执行与输出，设备操作窗口的命令页）
+    CommandEditDialog.cs  收藏条目的新建 / 编辑
+    ScreenShotDialog.cs   截图页（设备操作窗口）
+    ScreenRecordDialog.cs 录屏页（设备操作窗口）
+    RunAsDialog.cs        run-as 包名选择
+    SimpleInputBox.cs     简易输入对话框
+  Models/                 DeviceInfo / FileEntry / FavoriteDir / CommandEntry / DeviceLastDir 等
+  Services/
+    AdbManager.cs         ADB 封装（设备枚举、Shell、流式执行、本机 adb、截图、推拉文件）
+    DeviceSelector.cs     两 exe 共用的设备选择逻辑（刷新、自愈、当前序列号、变化事件）
+    Loc.cs + LocTable.*   本地化运行时 + 按区域拆分的译文表（Common / MainUi / DeviceUi / FileUi / ApkUi / CommandUi / FilterUi / RuntimeMsg 等）
+    SingleInstance.cs     单实例守卫（互斥量名可注入；含工具箱唤醒事件常量）
+    StartupLog.cs         启动诊断日志（exe 同级目录 Log\startup.log，可按会话指定文件名）
+    DpiDiag.cs / DpiFix.cs 高 DPI 诊断打点与布局兜底
+    FavoritesStore.cs     收藏持久化（目录、run-as 包名、APK 路径、应用包名、tag / message 过滤条件）
+    CommandStore.cs       命令分类 / 收藏 / 历史持久化 + 内置命令库
+    AndToolsSettings.cs   工具箱侧设置（andtools.json：上次路径、列宽、安装/卸载选项、工具箱窗口几何）
+    LanguageSettings.cs   界面语言设置（language.json，两 exe 共用）
+    SettingsIO.cs + ConfigMigration.cs + LegacySettings.cs
+                          带版本号的 JSON 读写（原子写）+ 旧版单文件 settings.json 的一次性拆分迁移
+    AppInfo.cs            产品名与版本号（读取程序集 InformationalVersion，标题与关于对话框共用）
+logcat.AndTools/         安卓工具箱 exe（logcat-andtools.exe）
+  Program.cs             入口：独立单实例互斥量与唤醒事件、配置拆分、唤醒监听
+  AndToolsMainForm.cs    主窗口（DeviceOpsDialog 容器升格：标题、自有设备下拉、窗口几何）
+  AndToolsWindowGeometry.cs 工具箱窗口几何存取（andtools.json）
+  AndToolsMigration.cs   工具箱侧落盘分支（从旧 settings.json 写出 andtools.json 与 language.json）
+  WakeUp.cs              二次启动唤醒：请求前置，失败退任务栏闪烁
+Program.cs               查看器入口（logcat.exe）
+frmMain.cs               查看器主窗口：布局、双行工具栏、过滤面板构建与收藏、ADB 功能入口、快捷键
 Controls/
-  LogListView.cs        虚拟模式日志列表（列定义、级别配色、标记、视图快照）
-  FilePane.cs           文件面板基类（导航、列表渲染、收藏、重命名、拖放）
-  DeviceFilePane.cs     设备端文件面板
-  LocalFilePane.cs      本机端文件面板
+  LogListView.cs         虚拟模式日志列表（列定义、级别配色、标记、视图快照）
+  LoadPublishBuffer.cs   分块渐进加载的发布缓冲
 Forms/
-  DeviceOpsDialog.cs    设备操作总窗口（截图/录屏/文件浏览/APK 安装·卸载/命令合并为页签）
-  FileBrowserDialog.cs  设备 ↔ 本机双栏文件管理器（设备操作窗口的文件浏览页）
-  ApkInstallDialog.cs   APK 安装（adb install / pm install 双通道、路径收藏）
-  ApkUninstallDialog.cs APK 卸载（已装应用列表、包名收藏）
-  FilterDialog.cs       过滤设置的非模态悬浮窗口（承载主窗体的过滤面板）
-  CommandDialog.cs      命令窗口（分类列表、收藏、历史、执行与输出，设备操作窗口的命令页）
-  CommandEditDialog.cs  收藏条目的新建 / 编辑
-  ScreenShotDialog.cs   截图页（设备操作窗口）
-  ScreenRecordDialog.cs 录屏页（设备操作窗口）
-  CrashSummaryForm.cs   崩溃汇总窗口（☠ 摘要行、按类型/包名分组、点击跳转定位）
-  RecordDialog.cs       单条记录详情
-  RunAsDialog.cs        run-as 包名选择
-  SimpleInputBox.cs     简易输入对话框
+  FilterDialog.cs        过滤设置的非模态悬浮窗口（承载主窗体的过滤面板）
+  CrashSummaryForm.cs    崩溃汇总窗口（☠ 摘要行、按类型/包名分组、点击跳转定位）
+  RecordDialog.cs        单条记录详情
+  FileProxyDialog.cs     文件代理监视窗口
 Models/
-  FilterSpec.cs         过滤条件
-  DeviceInfo.cs         设备信息
-  FileEntry.cs          文件条目
-  FavoriteDir.cs        收藏目录
-  CommandEntry.cs       收藏命令 / 执行记录 / 通道枚举
-  CrashEvent.cs         索引阶段提取出的崩溃事件（类型 / 包名 / 行号 / 时间戳）
+  FilterSpec.cs          过滤条件
+  CrashEvent.cs          索引阶段提取出的崩溃事件（类型 / 包名 / 行号 / 时间戳）
 Services/
-  Loc.cs                本地化运行时（资源键、控件绑定、字体切换、按语言实测宽度）
-  LocTable.*.cs         按区域拆分的译文表（Common / MainUi / FilterUi / DeviceUi / ApkUi / CommandUi / CommandUiMain / FileUi / RuntimeMsg / CommandSeed / CrashUi；CommandUiMain 在 LocTable.CommandWindow.cs）
-  DpiDiag.cs            高 DPI 布局诊断打点（写入 startup.log [DPI] 段）
-  DpiFix.cs             高 DPI 布局兜底（显示后按内容实测撑大装不下的 TLP 绝对行与固定高停靠栏）
-  StartupLog.cs         启动诊断日志（exe 同级目录 Log\startup.log，多屏几何与 DPI 排查用）
-  LogDocument.cs        列式索引文档（mmap、并行建索引、增量 Reload）
-  LogParser.cs          行解析（六种格式 + 新记录特征判定）
-  CrashExtractor.cs     崩溃 / ANR / native fault 信号检测（绑进索引扫描）
-  CrashAggregator.cs    崩溃事件按类型与包名分组，供崩溃汇总窗口使用
-  FilterEngine.cs       过滤引擎（预筛 → message 匹配（大文档块扫描 / 增量逐条）→ 导出）
-  AdbManager.cs         ADB 封装（设备枚举、Shell、流式执行、本机 adb、截图、推拉文件）
-  LogcatStream.cs       实时 logcat 采集流
-  ClipboardHelper.cs    带重试的剪贴板写入（剪贴板被其他进程短暂占用时不抛 ExternalException）
-  FavoritesStore.cs     收藏持久化（目录、run-as 包名、APK 路径、应用包名、tag / message 过滤条件）
-  CommandStore.cs       命令分类 / 收藏 / 历史持久化 + 内置命令库
-  AppSettings.cs        用户级设置（窗口几何、显示选项、上次路径、界面语言、安装/卸载窗口选项，JSON 持久化到 exe 同级目录 settings.json）
-  AppInfo.cs            产品名与版本号（读取程序集 InformationalVersion，标题与关于对话框共用）
+  LogDocument.cs         列式索引文档（mmap、并行建索引、增量 Reload）
+  LogParser.cs           行解析（六种格式 + 新记录特征判定）
+  CrashExtractor.cs      崩溃 / ANR / native fault 信号检测（绑进索引扫描）
+  CrashAggregator.cs     崩溃事件按类型与包名分组，供崩溃汇总窗口使用
+  FilterEngine.cs        过滤引擎（预筛 → message 匹配（大文档块扫描 / 增量逐条）→ 导出）
+  LogcatStream.cs        实时 logcat 采集流
+  TextProbe.cs           加载期编码/文本探测
+  LogcatSettings.cs      查看器侧设置（settings.json：窗口几何、显示选项、文件代理）
+  FileProxyService.cs + FileProxyClient.cs + FileProxyMode.cs + ProxyChannel.cs + FileProxyException.cs
+                          本地文件代理管线（命名管道、暂存目录、代理进程管理）
+  AndToolsLauncher.cs    工具箱启动器（File.Exists 探测 → 缺失禁用入口并提示，存在则 Process.Start）
+app.ico                  程序图标（两个 exe 的 csproj ApplicationIcon）
 tests/
   coverage-report.py      覆盖率报告生成（coverlet 的 cobertura XML → 可读 HTML）
-  logcat.Tests/           xUnit 测试工程（791 个用例：日志解析 / 列式索引 / 过滤引擎 / 崩溃提取 / 持久化 / 本地化）
+  logcat.Tests/           xUnit 测试工程（825 个用例：日志解析 / 列式索引 / 过滤引擎 / 崩溃提取 / 持久化 / 本地化 / 配置拆分 / 设备选择）
     coverlet.runsettings  覆盖率统计口径（Include / Exclude 规则）
 docs/
-  BUILDING.md             怎么编译与发布（两个包各自的命令与产物验证）
+  BUILDING.md             怎么编译与发布（每包两条 publish 命令、产物验证、冒烟清单与踩坑表）
   TESTING.md              怎么跑测试、怎么出覆盖率（唯一操作入口）
   UT-AUDIT.md             变异测试审计——测试到底咬不咬得住
   memory/                 跨 change 实战经验与工作纪律——被证明会出事的做法
   FEATURES.md             功能规划——接下来做什么、明确不做什么
-  archive/               归档快照（已验收 bug 报告 / 已完成设计 / 已停用的跟踪表）
+  archive/                归档快照（已验收 bug 报告 / 已完成设计 / 已停用的跟踪表）
   images/main.gif         README 顶部的演示动图
 说明：IMPLEMENTATION-TRACKER.md（设计 ↔ 代码 ↔ bugfix 状态跟踪）已于 2026-10-22 停用——维护成本过高，快照存于 `docs/archive/`，不再维护。
 LICENSE                 Apache-2.0 全文
@@ -302,7 +326,7 @@ DISCLAIMER.md           免责声明全文
 
 | 文档                                             | 什么时候看它                                                             |
 | ------------------------------------------------ | ------------------------------------------------------------------------ |
-| [docs/BUILDING.md](docs/BUILDING.md)             | 要编译或发版——两个包各自的 `dotnet publish` 命令、产物结构验证、踩坑速查 |
+| [docs/BUILDING.md](docs/BUILDING.md)             | 要编译或发版——每包两条 `dotnet publish` 命令（两 exe）、产物结构验证、冒烟清单、踩坑速查 |
 | [docs/TESTING.md](docs/TESTING.md)               | 要跑测试或出覆盖率——含「智能体沙箱里 `dotnet test` 起不来」的绕法        |
 | [docs/UT-AUDIT.md](docs/UT-AUDIT.md)             | 想知道测试到底咬不咬得住——变异测试审计结论                               |
 | [docs/memory/](docs/memory/)                     | 跨 change 的项目经验——实操踩过的坑与定下来的纪律                          |
@@ -311,7 +335,10 @@ DISCLAIMER.md           免责声明全文
 
 ## 数据存储
 
-- 用户设置统一以 JSON 持久化到 exe 同级目录 `settings.json`：窗口位置/大小/状态（多屏记忆已验证可用）、自动应用、字号、界面语言、上次浏览路径，以及安装/卸载窗口的通道、安装参数、临时目录、root 与「保留数据」选项
+- 自 V0.1.7 起用户设置拆为三份 JSON，均在 exe 同级目录（0.1.x 及更早的单文件 `settings.json` 会在任一 exe 首次启动时自动拆分迁移）：
+  - `settings.json`——查看器侧：窗口位置/大小/状态（多屏记忆已验证可用）、自动应用、字号、文件代理
+  - `andtools.json`——工具箱侧：上次浏览路径、文件浏览列宽、安装/卸载窗口选项、工具箱窗口几何
+  - `language.json`——**界面语言**，两 exe 共用（一侧改过，另一侧重启后跟随）
 - 各类收藏以 JSON 持久化到 exe 同级目录 `favorites.json`：设备端/本机端目录收藏（含别名）、run-as 包名、APK 本机路径、应用包名、tag 与 message 过滤条件，每类上限 60 条（最近使用在前）
 - 命令窗口的分类、收藏、历史与占位符取值以 JSON 持久化到 exe 同级目录 `commands.json`（首次打开时写入内置命令库）
 - 实时采集的日志写入系统临时目录 `logcat_live_*.log`，关闭窗口时释放

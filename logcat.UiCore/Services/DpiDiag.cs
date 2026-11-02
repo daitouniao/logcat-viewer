@@ -5,7 +5,7 @@ namespace logcat.Services;
 /// 用于多屏不同缩放（如主屏 150%）下「控件显示不下/被裁切」的排查。
 /// 只读不写 UI 状态，任何异常吞掉，不影响主流程。
 /// </summary>
-static class DpiDiag
+public static class DpiDiag
 {
     public static void Log(string tag, Control c)
     {

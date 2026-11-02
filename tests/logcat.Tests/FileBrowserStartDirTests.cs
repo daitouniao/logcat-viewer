@@ -67,7 +67,7 @@ public class FileBrowserStartDirTests
         var remote = new StubDevicePane(manager);
         using var dlg = new FileBrowserDialog(remote, new LocalFilePane(), "stub");
         using var file = new TempStoreFile(null);
-        var settings = new AppSettings(file.Path);
+        var settings = new AndToolsSettings(file.Path);
 
         remote.NavigateTo("/data/local/tmp");
         await remote.RefreshAsync();          // 等这次列举落地，「用户最后导航目录」才写上
@@ -87,7 +87,7 @@ public class FileBrowserStartDirTests
         remote.FailPaths(p => p == "/old");
         using var dlg = new FileBrowserDialog(remote, new LocalFilePane(), "stub");
         using var file = new TempStoreFile(null);
-        var settings = new AppSettings(file.Path);
+        var settings = new AndToolsSettings(file.Path);
         settings.RecordDeviceLastDir("stub", "/old");
 
         await dlg.ResolveStartDirsAsync(settings);
@@ -106,7 +106,7 @@ public class FileBrowserStartDirTests
         remote.FailPaths(p => p == "/old");
         using var dlg = new FileBrowserDialog(remote, new LocalFilePane(), "stub");
         using var file = new TempStoreFile(null);
-        var settings = new AppSettings(file.Path);
+        var settings = new AndToolsSettings(file.Path);
         settings.RecordDeviceLastDir("stub", "/old");
 
         await dlg.ResolveStartDirsAsync(settings);
@@ -127,7 +127,7 @@ public class FileBrowserStartDirTests
         remote.FireOnListing(() => remote.NavigateTo("/user-picked"));
         using var dlg = new FileBrowserDialog(remote, new LocalFilePane(), "stub");
         using var file = new TempStoreFile(null);
-        var settings = new AppSettings(file.Path);
+        var settings = new AndToolsSettings(file.Path);
 
         await dlg.ResolveStartDirsAsync(settings);
 
@@ -142,7 +142,7 @@ public class FileBrowserStartDirTests
         var remote = new StubDevicePane(manager);
         using var dlg = new FileBrowserDialog(remote, new LocalFilePane(), "stub");
         using var file = new TempStoreFile(null);
-        var settings = new AppSettings(file.Path);
+        var settings = new AndToolsSettings(file.Path);
 
         await dlg.ResolveStartDirsAsync(settings);
         dlg.SaveLastPaths(settings);
@@ -158,7 +158,7 @@ public class FileBrowserStartDirTests
         using var local = new LocalFilePane();
         using var dlg = new FileBrowserDialog(remote, local, "stub");
         using var file = new TempStoreFile(null);
-        var settings = new AppSettings(file.Path);
+        var settings = new AndToolsSettings(file.Path);
         string dir = NewLocalTempDir();
 
         local.NavigateTo(dir);
@@ -176,7 +176,7 @@ public class FileBrowserStartDirTests
         using var local = new LocalFilePane();
         using var dlg = new FileBrowserDialog(remote, local, "stub");
         using var file = new TempStoreFile(null);
-        var settings = new AppSettings(file.Path) { LastLocalPath = @"D:\旧值" };
+        var settings = new AndToolsSettings(file.Path) { LastLocalPath = @"D:\旧值" };
 
         // 空路径 = 本机驱动器列表
         local.NavigateTo("");

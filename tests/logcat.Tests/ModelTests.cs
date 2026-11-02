@@ -262,44 +262,45 @@ public class ModelTests
         Assert.Equal("adb shell su -c ls", CommandKinds.Describe(CommandKind.Shell, "ls", true));
     }
 
-    // ── AppSettings 默认值 ──
+    // ── 设置类默认值（键面按归属拆分：LogcatSettings 10 键 / AndToolsSettings 11 键 / LanguageSettings 1 键）──
 
     [Fact]
-    public void AppSettings默认值()
+    public void 设置类默认值()
     {
-        var s = new AppSettings();
+        var logcat = new LogcatSettings();
+        Assert.True(logcat.AutoApply);
+        Assert.Equal(10, logcat.FontPt);
+        Assert.Equal(0, logcat.WindowState);
 
-        Assert.True(s.AutoApply);
-        Assert.Equal(10, s.FontPt);
+        var andTools = new AndToolsSettings();
+        Assert.Equal("", andTools.LastLocalPath);
+        Assert.Equal("/sdcard/Download", andTools.LastRunAsRelayDir);
+        Assert.False(andTools.ApkInstallViaPm);
+        Assert.Equal("-r", andTools.ApkInstallFlags);
+        Assert.Equal("/data/local/tmp", andTools.ApkTmpDir);
+        Assert.False(andTools.ApkUninstallViaPm);
+        Assert.False(andTools.ApkKeepData);
+        Assert.False(andTools.ApkUseRoot);
 
-        Assert.Equal("", s.LastLocalPath);
-        Assert.Equal("/sdcard/Download", s.LastRunAsRelayDir);
-
-        Assert.False(s.ApkInstallViaPm);
-        Assert.Equal("-r", s.ApkInstallFlags);
-        Assert.Equal("/data/local/tmp", s.ApkTmpDir);
-        Assert.False(s.ApkUninstallViaPm);
-        Assert.False(s.ApkKeepData);
-        Assert.False(s.ApkUseRoot);
-
-        Assert.Equal(0, s.WindowState);
+        Assert.Equal("", new LanguageSettings().Language);
     }
 
     [Fact]
-    public void AppSettings属性可读写()
+    public void 设置类属性可读写()
     {
-        var s = new AppSettings
+        var logcat = new LogcatSettings
         {
             FontPt = 14,
             WindowLocation = new System.Drawing.Point(10, 20),
             WindowSize = new System.Drawing.Size(800, 600),
-            ApkUseRoot = true,
         };
 
-        Assert.Equal(14, s.FontPt);
-        Assert.Equal(new System.Drawing.Point(10, 20), s.WindowLocation);
-        Assert.Equal(new System.Drawing.Size(800, 600), s.WindowSize);
-        Assert.True(s.ApkUseRoot);
+        Assert.Equal(14, logcat.FontPt);
+        Assert.Equal(new System.Drawing.Point(10, 20), logcat.WindowLocation);
+        Assert.Equal(new System.Drawing.Size(800, 600), logcat.WindowSize);
+
+        var andTools = new AndToolsSettings { ApkUseRoot = true };
+        Assert.True(andTools.ApkUseRoot);
     }
 
     // ── FileEntry ──
@@ -341,19 +342,19 @@ public class ModelTests
         Assert.Equal("2026-09-23 18:00", e.DateStr);
     }
 
-    // ── AppSettings 单例 ──
+    // ── LogcatSettings 单例 ──
 
     /// <summary>
     /// 只验证「进程内单例」这一条语义。
-    /// 刻意不断言任何字段值：<see cref="AppSettings.Default"/> 读的是程序目录下的真实
-    /// settings.json，字段值受本机窗口几何、上次路径影响，写死断言会因环境不同而失败。
+    /// 刻意不断言任何字段值：<see cref="LogcatSettings.Default"/> 读的是程序目录下的真实
+    /// settings.json，字段值受本机窗口几何影响，写死断言会因环境不同而失败。
     /// 「文件存在 → 正确反序列化」「不存在/损坏 → 回退默认值」由
-    /// StorePersistenceTests.AppSettings_* 走注入的临时路径覆盖。
+    /// StorePersistenceTests.设置类_* 走注入的临时路径覆盖。
     /// </summary>
     [Fact]
-    public void AppSettings默认实例是进程内单例()
+    public void LogcatSettings默认实例是进程内单例()
     {
-        Assert.Same(AppSettings.Default, AppSettings.Default);
+        Assert.Same(LogcatSettings.Default, LogcatSettings.Default);
     }
 
     // ── AppInfo ──

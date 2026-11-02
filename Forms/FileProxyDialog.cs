@@ -125,7 +125,7 @@ public sealed class FileProxyDialog : Form, ILocalizedUi
 
     void LoadFromSettings()
     {
-        var s = AppSettings.Default;
+        var s = LogcatSettings.Default;
         switch (FileProxyModes.Parse(s.FileProxyMode))
         {
             case FileProxyMode.On: _rbOn.Checked = true; break;
@@ -163,13 +163,13 @@ public sealed class FileProxyDialog : Form, ILocalizedUi
             return false;
         }
 
-        var s = AppSettings.Default;
+        var s = LogcatSettings.Default;
         s.FileProxyMode = FileProxyModes.ToRaw(SelectedMode);
         s.FileProxyPipeName = pipe;
         s.FileProxyLaunchFile = _txtLaunchFile.Text.Trim();
         s.FileProxyLaunchArgs = _txtLaunchArgs.Text.Trim();
         s.FileProxyLaunchTimeoutMs = (int)_numTimeout.Value;
-        s.Save();   // 保存即生效：装载判定现读 AppSettings.Default，不需要重启
+        s.Save();   // 保存即生效：装载判定现读 LogcatSettings.Default，不需要重启
         return true;
     }
 

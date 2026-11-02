@@ -8,7 +8,7 @@ namespace logcat.Services;
 /// 导致 OpenClipboard 失败，WinForms 抛 ExternalException(0x800401D0)。
 /// Clipboard.SetText 默认只重试有限次数，占用时间稍长就崩，这里加长重试窗口并吞掉最终失败。
 /// </summary>
-static class ClipboardHelper
+public static class ClipboardHelper
 {
     /// <summary>写文本到剪贴板。总重试窗口约 2 秒，全部失败返回 false（不抛异常）。</summary>
     public static bool SetText(string text)

@@ -31,6 +31,7 @@ static partial class LocTable
 
         // ── ADB 工具栏 ──
         ["刷新设备"] = "Refresh Devices",
+        ["安卓工具箱"] = "Android Toolbox",
         ["是否同时重新检测各设备的 root 状态？\n重新检测可能在设备端弹出 root 授权提示；选「否」仅刷新设备列表、保留检测结果。"] =
             "Also re-check the root status of each device?\nRe-checking may pop up a root authorization prompt on the device; choose \"No\" to only refresh the device list and keep the cached results.",
         ["▶ 开始采集"] = "▶ Start Capture",

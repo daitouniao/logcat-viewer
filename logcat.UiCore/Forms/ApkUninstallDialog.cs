@@ -265,7 +265,7 @@ public sealed class ApkUninstallDialog : Form, ILocalizedUi
 
     void LoadOptions()
     {
-        var s = logcat.Services.AppSettings.Default;
+        var s = logcat.Services.AndToolsSettings.Default;
         _rbPmUninstall.Checked = s.ApkUninstallViaPm;
         _rbAdbUninstall.Checked = !s.ApkUninstallViaPm;
         _ckKeepData.Checked = s.ApkKeepData;
@@ -274,7 +274,7 @@ public sealed class ApkUninstallDialog : Form, ILocalizedUi
 
     void SaveOptions()
     {
-        var s = logcat.Services.AppSettings.Default;
+        var s = logcat.Services.AndToolsSettings.Default;
         s.ApkUninstallViaPm = _rbPmUninstall.Checked;
         s.ApkKeepData = _ckKeepData.Checked;
         s.ApkUseRoot = _ckUninstallRoot.Checked;

@@ -157,7 +157,7 @@ public class FileBrowserDialog : Form, ILocalizedUi
 
             // 起始目录按设备分别记忆：设备侧「本设备记忆目录 → 设备可写存储根目录」，
             // 本机侧「本机记忆目录 → 本机驱动器列表」。逐级尝试，首个成功者被采用。
-            _ = ResolveStartDirsAsync(logcat.Services.AppSettings.Default);
+            _ = ResolveStartDirsAsync(logcat.Services.AndToolsSettings.Default);
             UpdateTransferLabels();
         };
 
@@ -195,7 +195,7 @@ public class FileBrowserDialog : Form, ILocalizedUi
     /// 逐级尝试，首个成功者被采用；失败候选在界面上不留痕迹。
     /// </para>
     /// </summary>
-    internal async Task ResolveStartDirsAsync(AppSettings s)
+    internal async Task ResolveStartDirsAsync(AndToolsSettings s)
     {
         var deviceCandidates = StartDirResolver.BuildDeviceCandidates(s.GetDeviceLastDir(_serial));
         var localCandidates = StartDirResolver.BuildLocalCandidates(s.LastLocalPath);
@@ -645,7 +645,7 @@ public class FileBrowserDialog : Form, ILocalizedUi
     {
         try
         {
-            SaveLastPaths(logcat.Services.AppSettings.Default);
+            SaveLastPaths(logcat.Services.AndToolsSettings.Default);
         }
         catch { /* 设置不可用时忽略 */ }
     }
@@ -658,7 +658,7 @@ public class FileBrowserDialog : Form, ILocalizedUi
     /// 两者都取「用户最后导航目录」而非当前路径——打不开的路径不该被记成上次位置。
     /// 起始目录解析的降级结果不写回（解析走的是独立路径，不更新该值）。
     /// </remarks>
-    internal void SaveLastPaths(AppSettings s)
+    internal void SaveLastPaths(AndToolsSettings s)
     {
         // 设备侧：null = 本次会话没手动导航成功过 → 不写任何值，
         // 该设备的旧记录保持不变（不用空串或根目录顶掉）

@@ -250,7 +250,7 @@ public sealed class ApkInstallDialog : Form, ILocalizedUi
 
     void LoadOptions()
     {
-        var s = logcat.Services.AppSettings.Default;
+        var s = logcat.Services.AndToolsSettings.Default;
         _rbPmInstall.Checked = s.ApkInstallViaPm;
         _rbAdbInstall.Checked = !s.ApkInstallViaPm;
         var flags = s.ApkInstallFlags ?? "";
@@ -264,7 +264,7 @@ public sealed class ApkInstallDialog : Form, ILocalizedUi
 
     void SaveOptions()
     {
-        var s = logcat.Services.AppSettings.Default;
+        var s = logcat.Services.AndToolsSettings.Default;
         s.ApkInstallViaPm = _rbPmInstall.Checked;
         s.ApkInstallFlags = InstallFlags();
         s.ApkTmpDir = _txtTmp.Text.Trim();
