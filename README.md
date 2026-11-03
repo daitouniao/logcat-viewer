@@ -4,10 +4,10 @@
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
 [![Platform: Windows](https://img.shields.io/badge/platform-Windows-lightgrey)](#requirements)
 [![CI](https://github.com/daitouniao/logcat-viewer/actions/workflows/ci.yml/badge.svg)](https://github.com/daitouniao/logcat-viewer/actions/workflows/ci.yml)
-[![Tests: 791 passing](https://img.shields.io/badge/tests-791%20passing-green)](docs/TESTING.md)
+[![Tests: 825 passing](https://img.shields.io/badge/tests-825%20passing-green)](docs/TESTING.md)
 [![Coverage: 97.31% lines](https://img.shields.io/badge/coverage-97.31%25%20lines-blue)](docs/TESTING.md)
 
-A Windows desktop viewer for Android logs (`logcat`). Built with WinForms on .NET 10, it opens and scrolls through **tens of millions of log lines** smoothly using memory-mapped files and a columnar index — and it also drives your device over ADB: live capture, screenshots, screen recording, two-pane file transfer, and APK install/uninstall.
+A Windows desktop pair for Android logs (`logcat`). Built with WinForms on .NET 10, it ships **two exes from one repo**: `logcat.exe`, the log viewer, opens and scrolls through **tens of millions of log lines** smoothly using memory-mapped files and a columnar index and drives live capture over ADB; `logcat-andtools.exe`, the Android toolbox, gathers the device tools — screenshots, screen recording, two-pane file transfer, APK install/uninstall and a command window — behind one tabbed window. The viewer launches the toolbox from its "Device operations" entry, and each runs standalone: you can use the toolbox without ever opening the viewer.
 
 **English** | [简体中文](README.zh-CN.md)
 
@@ -19,9 +19,9 @@ Repositories:
 
 > Mirrors (GitHub / GitCode) lag behind the primary — pushes are synced there with a delay, so the latest commits and releases always land on Gitee first.
 
-> Current version **V0.1.7**. The single source of truth is `<Version>` in [logcat.csproj](logcat.csproj) — the window title, the about dialog and the exe's file properties all read from it.
+> Current version **V0.1.7**. The single source of truth is `<Version>` in [Directory.Build.props](Directory.Build.props) — both exes and the shared library inherit it, and the window title, the about dialog and the exe's file properties all read from it.
 >
-> The UI speaks **both Chinese and English** and switches at runtime — `Help → Language`, no restart. First launch follows your system locale; the choice is remembered in `settings.json`.
+> The UI speaks **both Chinese and English** and switches at runtime — `Help → Language`, no restart. First launch follows your system locale; the choice is remembered in `language.json`.
 
 ![logcat viewer — filtering demo](docs/images/main.gif)
 
@@ -66,11 +66,11 @@ Toolbar provides live capture, device operations, and save:
 | Refresh devices      | Enumerates online devices; hot-plug is monitored automatically; if the adb server is not running it is started first, and a manual-action hint is shown instead of "no devices" when adb itself is unavailable                                                                                                                         |
 | Start / stop capture | Streams `logcat` to a temp file and syncs incrementally into the list, following the tail. Capture and filtering/export are mutually excluded on the document (serialised access), and pure tail appends only re-filter the new rows — per-second cost drops from O(total) to O(added) |
 | Save log             | Saves the current capture as a `.log` file                                                                                                                                                                                                                                             |
-| Device operations    | One drop-down entry point (screenshot / screen record / file browser / install-uninstall APK / command window), all merged into a single tabbed "Device operations" window                                                                                                             |
+| Device operations    | Launches the standalone **Android toolbox** (`logcat-andtools.exe`, expected next to this exe); if the toolbox is already running it is brought to the front instead, and a missing toolbox disables the entry with a hover hint rather than an error                                  |
 
 ## Device operations window
 
-Screenshots, screen recording, file browsing, APK install/uninstall and the command window are merged into one non-modal, singleton window with tabs. Tabs are created lazily on first open and keep their state; switching devices rebuilds device-bound tabs automatically; closing the window cleans up (stops recording, cancels command tasks, writes options back).
+The Android toolbox (`logcat-andtools.exe`) hosts screenshots, screen recording, file browsing, APK install/uninstall and the command window in one singleton tabbed window; it has its own device dropdown, runs standalone, and keeps a single instance per Windows session (launching it again brings the existing window to the front). Tabs are created lazily on first open and keep their state; switching devices rebuilds device-bound tabs automatically; closing the window cleans up (stops recording, cancels command tasks, writes options back).
 
 ### Screenshot / Screen record / File browser
 
@@ -111,7 +111,7 @@ Collect the commands you keep retyping, organise them into categories, and re-ru
 
 The main window's position, size and state are saved on close and restored on next launch — including which monitor it was on, for both horizontally and vertically arranged displays. If that monitor is no longer connected, the saved geometry fails validation and the app falls back to the default layout instead of restoring off-screen.
 
-Verification: `Log\startup.log` (next to the exe) records the screen topology, the coordinates read, the validation result, the actual landing position, and the coordinates written on close.
+Verification: `Log\startup.log` (next to the exe; the toolbox writes `Log\startup-andtools.log`) records the screen topology, the coordinates read, the validation result, the actual landing position, and the coordinates written on close.
 
 ### High-DPI support
 
@@ -129,10 +129,10 @@ Verification: DPI measurements and fallback actions are logged to `Log\startup.l
 
 The entire UI is available in both languages and switches **at runtime** — no restart.
 
-- **Switching**: `Help → Language → 简体中文 / English`; the choice is persisted to `settings.json`
+- **Switching**: `Help → Language → 简体中文 / English`; the choice is persisted to `language.json`
 - **Default**: first launch follows the system locale (`CultureInfo.CurrentUICulture`); a corrupt or missing setting falls back to it
 - **What gets re-measured on switch**: not just text. The whole UI is built in code (`frmMain.Designer.cs` is 37 lines), so switching re-walks every open form and applies the target language's font — Microsoft YaHei UI for Chinese (Segoe UI has no CJK glyphs and clips them at high DPI), Segoe UI for English — then re-measures fixed-width buttons and absolutely-positioned dialogs, which are ~30–50% wider in English
-- **Scope**: 556 translated strings across 9 tables, plus per-language fixed widths for columns and dialogs
+- **Scope**: per-area translation tables under `logcat.UiCore/Services/LocTable.*.cs`, plus per-language fixed widths for columns and dialogs
 
 A language layout audit walks the control tree in both languages at minimum / default / half width and asserts **zero clipped labels**.
 
@@ -158,9 +158,11 @@ Not sure? Take the self-contained one — it is the larger download but zero set
 ## Build and run
 
 ```powershell
-dotnet build                # build
-dotnet run                  # run
-dotnet publish -c Release   # publish (framework-dependent, ~1.8 MB; see docs/BUILDING.md)
+dotnet build logcat.slnx -c Release        # build (both exes)
+dotnet run --project .                     # run the viewer
+dotnet publish logcat.csproj -c Release -o publish\fd
+dotnet publish logcat.AndTools\logcat.AndTools.csproj -c Release -o publish\fd
+                                           # publish (framework-dependent; run BOTH, same output dir; self-contained see docs/BUILDING.md)
 ```
 
 You can also open `logcat.slnx` / `logcat.csproj` directly in Visual Studio.
@@ -231,65 +233,85 @@ You can also drag a log file straight onto the window.
 
 ## Project structure
 
+Three projects in one solution (`logcat.slnx`): the viewer exe, the toolbox exe, and the shared library both exes are built on.
+
 ```
-Program.cs              Entry point
-frmMain.cs              Main window: layout, dual toolbars, filter panel, ADB entry points, shortcuts
-app.ico                 Application icon (referenced in csproj ApplicationIcon)
+logcat.slnx             Solution (logcat exe + logcat.UiCore library + logcat.AndTools exe)
+Directory.Build.props   <Version> single source (inherited by all three projects)
+logcat.UiCore/          Shared library: everything both exes draw on (no exe of its own)
+  Controls/
+    FilePane.cs           File pane base class (navigation, list rendering, favourites, rename, drag-drop)
+    DeviceFilePane.cs     Device-side file pane
+    LocalFilePane.cs      Local-side file pane
+  Forms/
+    DeviceOpsDialog.cs    Device operations: screenshot / record / file browser / APK / command merged into tabs
+    FileBrowserDialog.cs  Device ↔ local two-pane file manager (file browser tab in DeviceOpsDialog)
+    ApkInstallDialog.cs   APK install (adb install / pm install, path favourites)
+    ApkUninstallDialog.cs APK uninstall (installed app list, package name favourites)
+    CommandDialog.cs      Command window (categories, favourites, history, execution, output)
+    CommandEditDialog.cs  New / edit favourite command
+    ScreenShotDialog.cs   Screenshot tab (in DeviceOpsDialog)
+    ScreenRecordDialog.cs Screen record tab (in DeviceOpsDialog)
+    RunAsDialog.cs        Run-as package name selector
+    SimpleInputBox.cs     Simple input dialog
+  Models/                 DeviceInfo / FileEntry / FavoriteDir / CommandEntry / DeviceLastDir …
+  Services/
+    AdbManager.cs         ADB wrapper (device enumeration, shell, streaming, local adb, screenshot, push/pull)
+    DeviceSelector.cs     Device selection logic shared by both exes (refresh, self-heal, current serial, change events)
+    Loc.cs + LocTable.*   Localization runtime + per-area translation tables (Common / MainUi / DeviceUi / FileUi / ApkUi / CommandUi / FilterUi / RuntimeMsg …)
+    SingleInstance.cs     Single-instance guard with injectable mutex name (+ andtools wake event constants)
+    StartupLog.cs         Startup diagnostic log (exe-relative `Log\startup.log`, per-session file name)
+    DpiDiag.cs / DpiFix.cs High-DPI diagnostics and layout fallback
+    FavoritesStore.cs     Favourites persistence (directories, run-as packages, APK paths, app packages, tag/message filter conditions)
+    CommandStore.cs       Command categories / favourites / history persistence + built-in command library
+    AndToolsSettings.cs   Toolbox-side settings (`andtools.json`: last paths, column widths, APK options, toolbox window geometry)
+    LanguageSettings.cs   UI language setting (`language.json`, shared by both exes)
+    SettingsIO.cs + ConfigMigration.cs + LegacySettings.cs
+                          Versioned JSON IO (atomic write) + one-time split migration from the pre-0.1.7 single `settings.json`
+    AppInfo.cs            Product name and version (reads Assembly InformationalVersion)
+logcat.AndTools/         Android toolbox exe (`logcat-andtools.exe`)
+  Program.cs             Entry point: own single-instance mutex + wake event, split migration, wake listener
+  AndToolsMainForm.cs    Main window (DeviceOpsDialog container promoted to an app window: title, device dropdown, geometry)
+  AndToolsWindowGeometry.cs  Toolbox window geometry save/restore (andtools.json)
+  AndToolsMigration.cs   Toolbox-side migration branch (writes andtools.json + language.json from legacy settings)
+  WakeUp.cs              Second-launch wake: foreground request, taskbar-flash fallback
+Program.cs               Viewer entry point (logcat.exe)
+frmMain.cs               Viewer main window: layout, dual toolbars, filter panel, ADB entry points, shortcuts
 Controls/
-  LogListView.cs        Virtual-mode log list (columns, level colours, marks, view snapshots)
-  FilePane.cs           File pane base class (navigation, list rendering, favourites, rename, drag-drop)
-  DeviceFilePane.cs     Device-side file pane
-  LocalFilePane.cs      Local-side file pane
+  LogListView.cs         Virtual-mode log list (columns, level colours, marks, view snapshots)
+  LoadPublishBuffer.cs   Chunked progressive-load publish buffer
 Forms/
-  DeviceOpsDialog.cs    Device operations: screenshot / record / file browser / APK / command merged into tabs
-  FileBrowserDialog.cs  Device ↔ local two-pane file manager (file browser tab in DeviceOpsDialog)
-  ApkInstallDialog.cs   APK install (adb install / pm install, path favourites)
-  ApkUninstallDialog.cs APK uninstall (installed app list, package name favourites)
-  FilterDialog.cs       Detached filter window (hosts the main window's filter panel)
-  CommandDialog.cs      Command window (categories, favourites, history, execution, output)
-  CommandEditDialog.cs  New / edit favourite command
-  ScreenShotDialog.cs   Screenshot tab (in DeviceOpsDialog)
-  ScreenRecordDialog.cs Screen record tab (in DeviceOpsDialog)
-  CrashSummaryForm.cs   Crash summary window (☠ rows, one-glance grouping, click to jump)
-  RecordDialog.cs       Single record detail pop-up
-  RunAsDialog.cs        Run-as package name selector
-  SimpleInputBox.cs     Simple input dialog
+  FilterDialog.cs        Detached filter window (hosts the main window's filter panel)
+  CrashSummaryForm.cs    Crash summary window (☠ rows, one-glance grouping, click to jump)
+  RecordDialog.cs        Single record detail pop-up
+  FileProxyDialog.cs     File proxy monitor window
 Models/
-  FilterSpec.cs         Filter conditions
-  DeviceInfo.cs         Device information
-  FileEntry.cs          File entry
-  FavoriteDir.cs        Favourite directory
-  CommandEntry.cs       Favourite command / execution record / channel enum
-  CrashEvent.cs         Crash event detected at index time (type / package / line / timestamp)
+  FilterSpec.cs          Filter conditions
+  CrashEvent.cs          Crash event detected at index time (type / package / line / timestamp)
 Services/
-  Loc.cs                Localization runtime (resource keys, binding, font swap, per-language width fitting)
-  LocTable.*.cs         Translation tables split by area (Common / MainUi / FilterUi / DeviceUi / ApkUi / CommandUi / CommandUiMain / FileUi / RuntimeMsg / CommandSeed / CrashUi; LocTable.CommandWindow.cs holds CommandUiMain)
-  DpiDiag.cs            High-DPI layout diagnostics (writes to startup.log [DPI] section)
-  DpiFix.cs             High-DPI layout fallback (expands overflowing TLP rows and fixed-height button bars)
-  StartupLog.cs         Startup diagnostic log (exe-relative `Log\startup.log`)
-  LogDocument.cs        Columnar index document (mmap + columnar index, incremental reload)
-  LogParser.cs          Line parser (six formats + new-record shape detection)
-  CrashExtractor.cs     Crash / ANR / native fault signal detection bound to the index scan
-  CrashAggregator.cs    Groups crash events by type and package for the summary window
-  FilterEngine.cs       Filter engine (pre-filter → message match (block scan for large docs, per-row for incremental) → export)
-  AdbManager.cs         ADB wrapper (device enumeration, shell, streaming, local adb, screenshot, push/pull)
-  LogcatStream.cs       Live logcat capture stream
-  ClipboardHelper.cs    Clipboard write with retry (other processes briefly holding the clipboard shouldn't throw ExternalException)
-  FavoritesStore.cs     Favourites persistence (directories, run-as packages, APK paths, app packages, tag/message filter conditions)
-  CommandStore.cs       Command categories / favourites / history persistence + built-in command library
-  AppSettings.cs        User-level settings (window geometry, display options, last paths, UI language, install/uninstall options; JSON in exe-relative `settings.json`)
-  AppInfo.cs            Product name and version (reads Assembly InformationalVersion)
+  LogDocument.cs         Columnar index document (mmap + columnar index, incremental reload)
+  LogParser.cs           Line parser (six formats + new-record shape detection)
+  CrashExtractor.cs      Crash / ANR / native fault signal detection bound to the index scan
+  CrashAggregator.cs     Groups crash events by type and package for the summary window
+  FilterEngine.cs        Filter engine (pre-filter → message match (block scan for large docs, per-row for incremental) → export)
+  LogcatStream.cs        Live logcat capture stream
+  TextProbe.cs           Encoding/text probes for loading
+  LogcatSettings.cs      Viewer-side settings (`settings.json`: window geometry, display options, file proxy)
+  FileProxyService.cs + FileProxyClient.cs + FileProxyMode.cs + ProxyChannel.cs + FileProxyException.cs
+                          Local file proxy pipeline (named pipe, spool dirs, launched process management)
+  AndToolsLauncher.cs    Toolbox launcher (File.Exists probe → disable entry with hint, or Process.Start)
+app.ico                  Application icon (referenced in both exe csproj ApplicationIcon)
 tests/
-  coverage-report.py    Coverage report generation (coverlet cobertura XML → readable HTML)
-  logcat.Tests/         xUnit test project (791 tests: log parsing / columnar index / filter engine / crash extraction / persistence / localization)
+  coverage-report.py     Coverage report generation (coverlet cobertura XML → readable HTML)
+  logcat.Tests/          xUnit test project (825 tests: log parsing / columnar index / filter engine / crash extraction / persistence / localization / settings split / device selection)
     coverlet.runsettings Coverage scope (Include / Exclude rules)
 docs/
-  BUILDING.md            How to build and publish — the two `dotnet publish` commands, artifact verification, pitfall table
+  BUILDING.md            How to build and publish — the per-package `dotnet publish` pairs, artifact verification, smoke checklist, pitfall table
   TESTING.md             How to run the suite and produce coverage (single entry point)
   UT-AUDIT.md            Mutation-testing audit — where the tests actually bite
   memory/                Cross-change lessons and working discipline — the pitfalls worth not repeating
   FEATURES.md            Feature plan — what is being built next and what is deliberately not built
-  archive/              Archived snapshots (verified bug reports / completed designs / the retired tracker)
+  archive/               Archived snapshots (verified bug reports / completed designs / the retired tracker)
   images/main.gif        The demo animation at the top of this file
 Note: IMPLEMENTATION-TRACKER.md (design ↔ code ↔ bugfix status) was retired on 2026-10-22 — upkeep cost too high; its snapshot sits in `docs/archive/` and is no longer maintained.
 LICENSE                 Apache-2.0 full text
@@ -301,7 +323,7 @@ DISCLAIMER.md           Disclaimer full text
 
 | Document                                         | When to read it                                                                                                         |
 | ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------- |
-| [docs/BUILDING.md](docs/BUILDING.md)             | Building or publishing — the two `dotnet publish` commands, artifact verification, pitfall table                        |
+| [docs/BUILDING.md](docs/BUILDING.md)             | Building or publishing — the per-package `dotnet publish` pairs (both exes), artifact verification, smoke checklist, pitfall table |
 | [docs/TESTING.md](docs/TESTING.md)               | Running the suite or producing coverage — includes the workaround for `dotnet test` failing inside a restricted sandbox |
 | [docs/UT-AUDIT.md](docs/UT-AUDIT.md)             | Whether the tests actually bite — the mutation-testing audit                                                            |
 | [docs/memory/](docs/memory/)                     | Cross-change experience — the pitfalls and discipline that came out of real operations                                   |
@@ -310,7 +332,10 @@ DISCLAIMER.md           Disclaimer full text
 
 ## Data storage
 
-- User settings (window position/size/state, auto-apply, font size, **UI language**, last browse paths, install/uninstall options) are persisted as JSON to `settings.json` (next to the exe)
+- Since V0.1.7, user settings are split across three JSON files next to the exes (a legacy single `settings.json` from 0.1.x or earlier is split automatically on first launch of either exe):
+  - `settings.json` — viewer-side: window position/size/state, auto-apply, font size, file proxy
+  - `andtools.json` — toolbox-side: last browse paths, file-browser column widths, install/uninstall options, toolbox window geometry
+  - `language.json` — the **UI language**, shared by both exes (change it in one, the other follows on next launch)
 - Favourites (device/local directories with aliases, run-as packages, APK paths, app packages, tag/message filter conditions; up to 60 per list, most-recent first) go to `favorites.json` (next to the exe)
 - Command categories, favourites, history, and placeholder values go to `commands.json` (next to the exe, first open writes the built-in library)
 - Live capture writes to `logcat_live_*.log` in the system temp directory, cleaned up on window close
