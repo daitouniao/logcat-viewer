@@ -305,7 +305,9 @@ public partial class frmMain : Form, ILocalizedUi
         _statusStrip = new StatusStrip();
         _lblFile = new ToolStripStatusLabel(Loc.T("未打开文件 —— 可直接把日志文件拖进窗口")) { Spring = true, TextAlign = ContentAlignment.MiddleLeft };
         _lblChannel = new ToolStripStatusLabel("");
-        _lblStat = new ToolStripStatusLabel("");
+        // 塌缩防御（见 UpdateStat 注释）：AutoSize 关掉、尺寸由写文本处显式控制，
+        // 不再依赖 Table 布局的 AutoSize 重测（偶发算成零宽后卡死）。
+        _lblStat = new ToolStripStatusLabel("") { AutoSize = false };
         _lblPos = new ToolStripStatusLabel("");
         _lblMsg = new ToolStripStatusLabel("");
         _pbar = new ToolStripProgressBar { Visible = false, AutoSize = false, Size = new Size(180, 16) };
@@ -976,6 +978,7 @@ public partial class frmMain : Form, ILocalizedUi
         Text = $"{AppInfo.Title} — {System.IO.Path.GetFileName(path)}";
         _lblFile.Text = path;
         _lblStat.Text = "";
+        _lblStat.Size = _lblStat.GetPreferredSize(Size.Empty);   // 空文本收回到零宽（AutoSize 已关，尺寸自管）
 
         // 等待在途的 Append/过滤结束后再关旧文档（mmap 一关后台扫描就会炸）
         await _docBusy.WaitAsync();
@@ -1243,6 +1246,11 @@ public partial class frmMain : Form, ILocalizedUi
             sw.Stop();
             _filterMs = sw.Elapsed.TotalMilliseconds;
             _listView.SetRows(rows);
+            // 塌缩回炉（见 UpdateStat 注释）：先清本代进度反馈，再写统计——保证
+            // UpdateStat 的强制重排是本次过滤对状态栏的最后一个布局动作。
+            // finally 里的重复清理是同值短路，不产生额外布局。
+            if (!quiet && _workerGen == gen) ShowStatusRaw("");
+            if (!quiet && _pbarGen == gen) _pbar.Visible = false;
             UpdateStat();
             if (_chkToolbarFollow.Checked)
             {
@@ -1649,9 +1657,15 @@ public partial class frmMain : Form, ILocalizedUi
         int total = _doc?.RowCount ?? 0;
         _lblStat.Text = Loc.F("总 {0:N0} 条 | 命中 {1:N0} | 标记 {2:N0} | 索引 {3:F0} ms | 过滤 {4:F0} ms",
             total, _listView.RowCount, _marked.Count, _indexMs, _filterMs);
-        // WinForms StatusStrip 偶发塌缩：本标签被某次布局算成零宽后，仅改自身文本
-        // 不会触发整条重排，项保持不可见（实测改相邻标签文本如 _lblPos 会连带恢复）。
-        // 写完文本强制重排一次，保证统计必定按新文本重新测量上屏。
+        // WinForms StatusStrip 偶发塌缩（2026-10-28 首修 PerformLayout，2026-11-03 回炉）：
+        // _lblStat 原为 AutoSize 的 ToolStripStatusLabel，被某次布局算成零宽后，仅改自身
+        // 文本不触发整条重排，项保持不可见；相邻标签文本变化（如拖滚动条改 _lblPos）捎带
+        // 触发重排才恢复。首修的 PerformLayout 不够：ApplyFilter 完成段它跑在「清 _lblMsg /
+        // 藏进度条」之前，尾次清理触发的布局仍会把项算塌（实测拖入 100M 文件、不滚动、
+        // 过滤后必现，拖滚动条即恢复）。回炉双保险：
+        //   1) AutoSize=false + 写文本后按内容显式定尺寸——项宽不再走 AutoSize 重测路径；
+        //   2) 调用方保证统计回写是对状态栏的最后一个布局动作（ApplyFilter 完成段先清进度再 UpdateStat）。
+        _lblStat.Size = _lblStat.GetPreferredSize(Size.Empty);
         _statusStrip.PerformLayout();
     }
 
