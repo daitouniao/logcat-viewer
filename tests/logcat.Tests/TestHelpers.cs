@@ -238,7 +238,7 @@ static class TestData
 }
 
 /// <summary>
-/// 一次性临时文件，供存储类（CommandStore / FavoritesStore / AppSettings）的落盘测试使用，
+/// 一次性临时文件，供存储类（CommandStore / FavoritesStore / AndToolsSettings）的落盘测试使用，
 /// 避免触碰 %LOCALAPPDATA% 下的真实数据文件。
 /// content 传 null 表示「只给路径、不创建文件」，用于测「文件不存在」分支。
 /// </summary>
@@ -261,5 +261,26 @@ sealed class TempStoreFile : IDisposable
     public void Dispose()
     {
         try { File.Delete(Path); } catch { /* 句柄未及时释放时留给系统清理 */ }
+    }
+}
+
+/// <summary>
+/// 一次性临时目录，供配置迁移类（LogcatSettings.EnsureSplit / ConfigMigration）测试使用——
+/// 迁移一次派生三份文件，必须落在同一目录才能模拟真实布局。
+/// </summary>
+sealed class TempDir : IDisposable
+{
+    public string Path { get; }
+
+    public TempDir()
+    {
+        Directory.CreateDirectory(TempRoot.Dir);
+        Path = System.IO.Path.Combine(TempRoot.Dir, Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(Path);
+    }
+
+    public void Dispose()
+    {
+        try { Directory.Delete(Path, recursive: true); } catch { /* 句柄未及时释放时留给系统清理 */ }
     }
 }

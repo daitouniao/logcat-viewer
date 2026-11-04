@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- 共享 UI 库：承载两 exe（logcat / logcat.AndTools）共用的 adb 面、本地化、设备工具 UI 与配置原语。
+       版本号继承自仓库根 Directory.Build.props。namespace 保持 logcat（纯搬迁不改名）。 -->
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+  </PropertyGroup>
+
+  <!-- SelfContained 绝不能在此写死：沿 ProjectReference 传染会打断测试工程（见 logcat.csproj 同名注释）。
+       作为类库本身不受 SelfContained 影响，无需声明。 -->
+
+  <ItemGroup>
+    <PackageReference Include="AdvancedSharpAdbClient" Version="3.6.16" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.11" />
+  </ItemGroup>
+
+  <!-- 仅向测试程序集开放 internal 成员（用于构造不落盘的存储实例），不改变运行时可见性 -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="logcat.Tests" />
+  </ItemGroup>
+
+</Project>

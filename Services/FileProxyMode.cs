@@ -14,7 +14,7 @@ public enum FileProxyMode
 }
 
 /// <summary>
-/// 模式字符串解析（settings.json 的 <see cref="AppSettings.FileProxyMode"/> 原始值）。
+/// 模式字符串解析（settings.json 的 <see cref="LogcatSettings.FileProxyMode"/> 原始值）。
 ///
 /// **只认小写 "off" / "on" / "auto" 三个精确值**，其余一律 <see cref="FileProxyMode.Off"/>
 /// ——含空串、前后空白（<c>"On "</c>）、大写（<c>"ON"</c>）与任意乱码。

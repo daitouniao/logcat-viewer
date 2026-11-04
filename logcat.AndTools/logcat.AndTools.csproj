@@ -1,0 +1,41 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- 安卓工具箱 exe：设备操作、文件浏览、APK 安装/卸载、截图录屏、命令等工具的独立入口。
+       与 logcat.exe 同目录分发（共享 logcat.UiCore.dll 与三份配置文件）。
+       版本号继承自仓库根 Directory.Build.props。 -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <AssemblyName>logcat-andtools</AssemblyName>
+    <RootNamespace>logcat.AndTools</RootNamespace>
+    <ApplicationIcon>..\app.ico</ApplicationIcon>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+    <!-- 许可与版权信息，写入程序集特性（exe 右键「属性 - 详细信息」可见） -->
+    <Copyright>Copyright 2026 logcat viewer contributors. Licensed under the Apache License, Version 2.0.</Copyright>
+  </PropertyGroup>
+
+  <!--
+    发布形态与 logcat.csproj 同口径：
+    ⚠️ SelfContained 绝不能无条件写在这里——沿 ProjectReference 传染会打断测试工程（NETSDK1151）。
+    这里只声明"默认关闭"（框架依赖），由发布命令用 -p:SelfContained=true 打开。
+    Debug 保留默认 portable pdb（coverlet 覆盖率插桩依赖），Release 不打包 pdb（瘦身）。
+  -->
+  <PropertyGroup>
+    <SelfContained Condition="'$(SelfContained)' == ''">false</SelfContained>
+    <DebugType Condition="'$(Configuration)' == 'Release'">none</DebugType>
+    <DebugSymbols Condition="'$(Configuration)' == 'Release'">false</DebugSymbols>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\logcat.UiCore\logcat.UiCore.csproj" />
+  </ItemGroup>
+
+  <!-- 仅向测试程序集开放 internal 成员，不改变运行时可见性 -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="logcat.Tests" />
+  </ItemGroup>
+
+</Project>

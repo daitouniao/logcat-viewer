@@ -163,9 +163,9 @@ public class LocTableTests
     /// 这条比「半句残留」那更硬：它直接咬住调用点与表的契约。
     /// </summary>
     [Theory]
-    [InlineData("Forms/CommandEditDialog.cs", "HINT")]
-    [InlineData("Forms/RunAsDialog.cs", "HINT")]
-    [InlineData("Forms/CommandDialog.cs", "HINT_TEXT")]
+    [InlineData("logcat.UiCore/Forms/CommandEditDialog.cs", "HINT")]
+    [InlineData("logcat.UiCore/Forms/RunAsDialog.cs", "HINT")]
+    [InlineData("logcat.UiCore/Forms/CommandDialog.cs", "HINT_TEXT")]
     public void 拼接式说明文案的整串必须有译文(string relFile, string constName)
     {
         var repoRoot = FindRepoRoot();
@@ -532,7 +532,7 @@ public class LocTableTests
         foreach (var file in EnumerateSourceFiles(repoRoot))
         {
             var rel = Path.GetRelativePath(repoRoot, file).Replace('\\', '/');
-            if (rel.StartsWith("Services/LocTable.")) continue;
+            if (IsLocTablePath(rel)) continue;
             var src = BlankOutComments(File.ReadAllText(file));
 
             foreach (Match m in assign.Matches(src))
@@ -1038,11 +1038,15 @@ public class LocTableTests
             var rel = Path.GetRelativePath(repoRoot, file).Replace('\\', '/');
             if (rel.StartsWith("tests/") || rel.StartsWith("obj/") || rel.StartsWith("bin/")
                 || rel.StartsWith("publish/") || rel.Contains("/obj/") || rel.Contains("/bin/")
-                || rel.StartsWith("Services/LocTable."))
+                || IsLocTablePath(rel))
                 continue;
             yield return file;
         }
     }
+
+    /// <summary>字符串表文件路径（共享库搬迁后落在 logcat.UiCore/Services/，旧路径保留兜底）。</summary>
+    static bool IsLocTablePath(string rel) =>
+        rel.StartsWith("Services/LocTable.") || rel.StartsWith("logcat.UiCore/Services/LocTable.");
 
     /// <summary>
     /// 仓库根目录。编译期由<code>logcat.Tests.csproj</code> 的

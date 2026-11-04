@@ -52,5 +52,9 @@ static partial class LocTable
 
         // ── 文件代理：单实例守卫（入口程序，无宿主窗体）──
         ["logcat 已在运行。"] = "logcat is already running.",
+        ["安卓工具箱已在运行。"] = "Android toolbox is already running.",
+        ["安卓工具箱缺失：需要 logcat-andtools.exe 位于本程序同目录。"] =
+            "Android toolbox is missing: logcat-andtools.exe must be in the same folder as this program.",
+        ["安卓工具箱启动失败。"] = "Failed to start the Android toolbox.",
     };
 }

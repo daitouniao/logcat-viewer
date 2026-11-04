@@ -17,7 +17,7 @@ public class AppSettingsDeviceLastDirTests
     [Fact]
     public void 同设备重复记录只留一条且置首()
     {
-        var s = new AppSettings();
+        var s = new AndToolsSettings();
 
         s.RecordDeviceLastDir("dev-a", "/data/local/tmp");
         s.RecordDeviceLastDir("dev-b", "/sdcard/Download");
@@ -33,7 +33,7 @@ public class AppSettingsDeviceLastDirTests
     [Fact]
     public void 查不到设备时返回空()
     {
-        var s = new AppSettings();
+        var s = new AndToolsSettings();
         s.RecordDeviceLastDir("dev-a", "/data/local/tmp");
 
         Assert.Equal("/data/local/tmp", s.GetDeviceLastDir("dev-a"));
@@ -44,13 +44,13 @@ public class AppSettingsDeviceLastDirTests
     [Fact]
     public void 超过上限时淘汰最久未用者()
     {
-        var s = new AppSettings();
+        var s = new AndToolsSettings();
 
         // 依次记录 20 台设备，序列号即记录顺序（每条都置首，故末尾是最早记录的）
         for (int i = 0; i < 20; i++)
             s.RecordDeviceLastDir("dev-" + i, "/p" + i);
 
-        Assert.Equal(AppSettings.MaxDeviceLastDirs, s.DeviceLastDirs.Count);
+        Assert.Equal(AndToolsSettings.MaxDeviceLastDirs, s.DeviceLastDirs.Count);
         // 最近记录的在最前，最早的 4 条（dev-0…dev-3）已被淘汰
         Assert.Equal("dev-19", s.DeviceLastDirs[0].Serial);
         Assert.Equal("dev-4", s.DeviceLastDirs[^1].Serial);
@@ -63,7 +63,7 @@ public class AppSettingsDeviceLastDirTests
     public void 旧配置缺少该字段时得空集合()
     {
         using var file = new TempStoreFile("{\"Join\":false,\"FontPt\":12}");
-        var s = AppSettings.LoadFrom(file.Path);
+        var s = AndToolsSettings.LoadFrom(file.Path);
 
         Assert.Empty(s.DeviceLastDirs);
         Assert.Equal("", s.GetDeviceLastDir("dev-a"));
@@ -76,7 +76,7 @@ public class AppSettingsDeviceLastDirTests
     public void 旧配置该字段显式为null时得空集合()
     {
         using var file = new TempStoreFile("{\"DeviceLastDirs\":null}");
-        var s = AppSettings.LoadFrom(file.Path);
+        var s = AndToolsSettings.LoadFrom(file.Path);
 
         Assert.Empty(s.DeviceLastDirs);
         s.RecordDeviceLastDir("dev-a", "/data/local/tmp");
@@ -87,13 +87,13 @@ public class AppSettingsDeviceLastDirTests
     public void 落盘再读回后该设备仍在首位()
     {
         using var file = new TempStoreFile(null);
-        var s = AppSettings.LoadFrom(file.Path);
+        var s = AndToolsSettings.LoadFrom(file.Path);
 
         s.RecordDeviceLastDir("dev-a", "/data/local/tmp");
         s.RecordDeviceLastDir("dev-b", "/sdcard/Download");
         s.SaveTo(file.Path);
 
-        var again = AppSettings.LoadFrom(file.Path);
+        var again = AndToolsSettings.LoadFrom(file.Path);
         Assert.Equal(2, again.DeviceLastDirs.Count);
         Assert.Equal("dev-b", again.DeviceLastDirs[0].Serial);
         Assert.Equal("/sdcard/Download", again.DeviceLastDirs[0].Path);
@@ -105,7 +105,7 @@ public class AppSettingsDeviceLastDirTests
     {
         // 升级前的配置：全局单值字段仍在
         using var file = new TempStoreFile("{\"LastRemotePath\":\"/some/path\"}");
-        var s = AppSettings.LoadFrom(file.Path);
+        var s = AndToolsSettings.LoadFrom(file.Path);
 
         // 反序列化不抛异常，且旧键不落到任何字段上
         s.RecordDeviceLastDir("dev-a", "/data/local/tmp");

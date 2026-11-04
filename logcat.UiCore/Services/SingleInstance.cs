@@ -7,13 +7,24 @@ namespace logcat.Services;
 /// </summary>
 public sealed class SingleInstance : IDisposable
 {
-    /// <summary>互斥量名。应用标识命名，`Local\` 前缀 = 本会话范围。</summary>
+    /// <summary>logcat 侧互斥量名。应用标识命名，`Local\` 前缀 = 本会话范围。</summary>
     public const string MutexName = @"Local\logcat-viewer-single-instance";
+
+    /// <summary>andtools 侧互斥量名（design D6）：与 logcat 并存运行，两 exe 互不抢占。</summary>
+    public const string AndToolsMutexName = @"Local\logcat-andtools-single-instance";
+
+    /// <summary>andtools 唤醒事件名（design D8）：二次启动 Set，首实例监听后前置自身。</summary>
+    public const string AndToolsWakeEventName = @"Local\logcat-andtools-wake";
+
+    readonly string _mutexName;
 
     Mutex? _mutex;
 
     /// <summary>是否已持有（TryAcquire 成功后为 true，Dispose 后回 false）。</summary>
     public bool Owned { get; private set; }
+
+    /// <summary>mutexName 可注入：andtools 传 <see cref="AndToolsMutexName"/>；缺省 = logcat 现名，既有调用点零改动。</summary>
+    public SingleInstance(string? mutexName = null) => _mutexName = mutexName ?? MutexName;
 
     /// <summary>
     /// 尝试获取单实例。已有实例持有时（另一进程在运行，或本守卫已持有）返回 false，
@@ -22,7 +33,7 @@ public sealed class SingleInstance : IDisposable
     public bool TryAcquire()
     {
         if (Owned) return false;   // 已持有：再取必失败（真值表判据）
-        var m = new Mutex(initiallyOwned: true, MutexName, out bool created);
+        var m = new Mutex(initiallyOwned: true, _mutexName, out bool created);
         if (!created)
         {
             m.Dispose();

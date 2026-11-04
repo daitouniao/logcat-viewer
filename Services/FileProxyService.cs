@@ -202,7 +202,7 @@ public static class FileProxyService
     /// </summary>
     public static async Task<SpoolSession> OpenSpoolAsync(string originalPath, string sessionDir, CancellationToken ct = default)
     {
-        var client = await EnsureProxyAsync(FileProxySettings.FromAppSettings(), ct).ConfigureAwait(false);
+        var client = await EnsureProxyAsync(FileProxySettings.FromLogcatSettings(), ct).ConfigureAwait(false);
         try
         {
             var (handle, size) = await client.OpenAsync(originalPath, ct).ConfigureAwait(false);
@@ -357,14 +357,14 @@ public static class FileProxyService
     }
 }
 
-/// <summary>文件代理的运行时配置（从 <see cref="AppSettings"/> 现读，保存即生效）。</summary>
+/// <summary>文件代理的运行时配置（从 <see cref="LogcatSettings"/> 现读，保存即生效）。</summary>
 public sealed record FileProxySettings(string PipeName, string LaunchFile, string LaunchArgs, int TimeoutMs)
 {
-    public static FileProxySettings FromAppSettings() => new(
-        AppSettings.Default.FileProxyPipeName,
-        AppSettings.Default.FileProxyLaunchFile,
-        AppSettings.Default.FileProxyLaunchArgs,
-        AppSettings.Default.FileProxyLaunchTimeoutMs);
+    public static FileProxySettings FromLogcatSettings() => new(
+        LogcatSettings.Default.FileProxyPipeName,
+        LogcatSettings.Default.FileProxyLaunchFile,
+        LogcatSettings.Default.FileProxyLaunchArgs,
+        LogcatSettings.Default.FileProxyLaunchTimeoutMs);
 };
 
 /// <summary>一次 spool 的结果。</summary>

@@ -23,6 +23,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\logcat.csproj" />
+    <ProjectReference Include="..\..\logcat.AndTools\logcat.AndTools.csproj" />
   </ItemGroup>
 
   <!--

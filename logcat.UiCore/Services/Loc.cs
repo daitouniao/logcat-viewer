@@ -71,7 +71,7 @@ public static class Loc
 
     /// <summary>切换语言。相同语言时不做任何事（避免无谓的全树刷新）。</summary>
     /// <param name="lang">目标语言。</param>
-    /// <param name="save">是否写入 settings.json 持久化。</param>
+    /// <param name="save">是否写入 language.json 持久化。</param>
     public static void SetLang(UiLang lang, bool save = true)
     {
         if (_lang == lang) return;
@@ -80,8 +80,10 @@ public static class Loc
         {
             try
             {
-                AppSettings.Default.Language = LangCode(lang);
-                AppSettings.Default.Save();
+                // 语言独立存两 exe 共享的 language.json（design D5）：只写自己的一键，
+                // 另一侧重启生效（spec ui-language）；不做跨进程实时通知
+                LanguageSettings.Default.Language = LangCode(lang);
+                LanguageSettings.Default.Save();
             }
             catch (Exception ex) { StartupLog.Write($"[Loc] 语言设置保存失败: {ex.Message}"); }
         }
@@ -96,7 +98,7 @@ public static class Loc
         }
     }
 
-    /// <summary>把语言写成 settings.json 里的字符串值。</summary>
+    /// <summary>把语言写成 language.json 里的字符串值。</summary>
     public static string LangCode(UiLang lang) => lang == UiLang.En ? "en" : "zh-CN";
 
     /// <summary>
@@ -118,12 +120,12 @@ public static class Loc
         return n.StartsWith("zh", StringComparison.OrdinalIgnoreCase) ? UiLang.ZhCn : UiLang.En;
     }
 
-    /// <summary>推断初始语言：优先已保存的设置，否则按系统区域（当前用户区域 → 非特定区域）。</summary>
+    /// <summary>推断初始语言：优先已保存的设置（language.json，两 exe 共享），否则按系统区域（当前用户区域 → 非特定区域）。</summary>
     public static UiLang DetectLang()
     {
         try
         {
-            var saved = AppSettings.Default.Language;
+            var saved = LanguageSettings.Default.Language;
             if (!string.IsNullOrWhiteSpace(saved)) return ParseLang(saved);
         }
         catch { /* 设置损坏时退回系统区域 */ }

@@ -12,8 +12,7 @@
          的会话类（取/放指针）与 FilterEngine.cs 的块扫描（在会话指针上并行分块扫描），
          其余文件不出现 unsafe -->
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    <!-- 版本号唯一来源：发布时只改这里，显示约定为 V<Version>（见 Services/AppInfo.cs） -->
-    <Version>0.1.7</Version>
+    <!-- 版本号继承自仓库根 Directory.Build.props（唯一来源），此处不再声明 -->
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <!-- 许可与版权信息，写入程序集特性（exe 右键「属性 - 详细信息」可见） -->
     <Copyright>Copyright 2026 logcat viewer contributors. Licensed under the Apache License, Version 2.0.</Copyright>
@@ -70,12 +69,33 @@
     <PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="10.0.11" />
   </ItemGroup>
 
+  <!-- 共享 UI 库（两 exe 共用的 adb 面、本地化、设备工具 UI） -->
+  <ItemGroup>
+    <ProjectReference Include="logcat.UiCore\logcat.UiCore.csproj" />
+  </ItemGroup>
+
   <!-- 单元测试工程位于 tests/ 子目录：默认 glob 会把它当作本工程的源码，必须排除 -->
   <ItemGroup>
     <Compile Remove="tests/**" />
     <None Remove="tests/**" />
     <EmbeddedResource Remove="tests/**" />
     <Content Remove="tests/**" />
+  </ItemGroup>
+
+  <!-- 共享库工程位于 logcat.UiCore/ 子目录：默认 glob 会把它的源码并入本工程，必须排除 -->
+  <ItemGroup>
+    <Compile Remove="logcat.UiCore/**" />
+    <None Remove="logcat.UiCore/**" />
+    <EmbeddedResource Remove="logcat.UiCore/**" />
+    <Content Remove="logcat.UiCore/**" />
+  </ItemGroup>
+
+  <!-- 独立工具箱 exe 工程位于 logcat.AndTools/ 子目录：默认 glob 会把它的源码并入本工程，必须排除 -->
+  <ItemGroup>
+    <Compile Remove="logcat.AndTools/**" />
+    <None Remove="logcat.AndTools/**" />
+    <EmbeddedResource Remove="logcat.AndTools/**" />
+    <Content Remove="logcat.AndTools/**" />
   </ItemGroup>
 
   <!-- 仅向测试程序集开放 internal 成员（用于构造不落盘的存储实例），不改变运行时可见性 -->
