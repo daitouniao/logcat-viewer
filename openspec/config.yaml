@@ -8,7 +8,7 @@ context: |
   文档红线（公开仓库，双站推送）：产物不得硬编码本机绝对路径或用户名；openspec/ 与 docs/ 公开内容一律视为对克隆者可见；docs/private/** 的内容不进任何产物。
   规范定位：openspec/specs/ 是系统行为的权威描述——只写行为契约（需求 + GIVEN/WHEN/THEN 场景），不写实现细节；类名、库选择、算法取舍归属 design.md。
   文档口径：docs/FEATURES.md 不再维护（之后统一删除），archive 时不再更新它；docs/archive/、docs/bugfixes/、docs/design/、docs/private/** 均不再维护（之后统一删除），不需要更新和关注，存量内容仅作历史参考、不作为依据。
-  工作流门禁（AGENTS.md §2.2）：openspec 阶段 explore → propose → apply → archive 仅凭用户明确指令进入与推进，不跳阶段、不自动推进；propose 写完即停、等 apply 指令。探索产物落 openspec/notes/（公开），change 归档时同批将关联探索笔记归档至 openspec/notes/archive/ 并冻结不再维护，新探索生成新笔记。apply 在 change 专属的独立 git worktree 中实施，worktree 标识（分支 wt/<change-name>）记入 tasks.md 首条防断链，禁写本机绝对路径。
+  工作流门禁（AGENTS.md §2.2）：openspec 阶段 explore → propose → apply → archive 仅凭用户明确指令进入与推进，不跳阶段、不自动推进；propose 写完即停、等 apply 指令。探索产物落 openspec/notes/（公开），change 归档时同批将关联探索笔记归档至 openspec/notes/archive/ 并冻结不再维护，新探索生成新笔记。apply 在 change 专属的独立 git worktree 中实施，worktree 标识（分支 wt/<change-name>）记入 tasks.md 首条防断链，禁写本机绝对路径。归档门禁：tasks 必须全部关闭（含「wt 合入目标分支」任务，任务中写明目标分支名），且 wt/<change-name> 已合入该目标分支，才可执行 openspec archive；用户「可以归档 <name>」一并授权该次 wt 合入、归档与 worktree 清除。
   探索规范（AGENTS.md §2.4）：探索阶段结果生成文档，放到 openspec/notes/，以代码或 Log 为事实，可以跑探针测试，不猜测；有猜测的内容显式标注为猜测；需要澄清的问题写清——为什么需要澄清、有哪些方案、当前偏向哪个。
   易错行为规则（如横幅行不是记录、空行续行处理、索引块起点顺序推进）随相关改动沉淀进 specs/ 对应 capability，不依赖私有文档传递。
 
@@ -29,6 +29,7 @@ rules:
     - 单任务粒度约 1-2 小时、可独立验证
     - 涉及日志解析 / 索引 / 扫描的任务必须附对应测试用例名
     - 首条记录本次 apply 的 worktree 标识（分支名 wt/<change-name>，路径以 git worktree list 定位；禁写本机绝对路径）
+    - 必须包含「wt 合入目标分支」任务，并写明合入的目标分支名（默认主分支）；归档前该任务须勾选关闭
 
 operations:
   apply:
@@ -38,6 +39,7 @@ operations:
       - 仅在收到用户明确 apply 指令后开始（AGENTS.md §2.2 阶段门禁）；在 change 专属的独立 git worktree 中实施（git worktree add 需当轮授权），worktree 标识记入 tasks.md 首条
   archive:
     guidance:
-      - 归档前确认 tasks 全部完成且 dotnet test 全过（相对基线无新增失败）
+      - 归档前确认 tasks 全部关闭（含「wt 合入目标分支」任务），且 wt/<change-name> 已合入 tasks 指定的目标分支
+      - 归档前确认 dotnet test 全过（相对基线无新增失败）
       - 归档时同批将关联探索笔记移入 openspec/notes/archive/（git mv + 归档日期前缀），此后不再维护
-      - 归档时同步清除该 change 的 git worktree（git worktree remove，随「可以归档」指令一并授权，AGENTS.md §2.3）
+      - 归档时同步清除该 change 的 git worktree（git worktree remove）；用户「可以归档」一并授权该次 wt 合入、归档与 worktree 清除（AGENTS.md §2.3）
