@@ -15,7 +15,7 @@
 ## 3. 并入与收尾（均需用户当轮授权的 git 写操作）
 
 - [x] 3.0 修复提交落在 `V0.1.8`：`fdac37d` 已在 `V0.1.8` 分支上（2026-11-05 apply 授权内完成）。验证：`git log --oneline V0.1.8 -1` 命中该提交。
-- [x] 3.0.1 预发布 `V0.1.8-pre2` 已发布（用户 2026-11-05 指令）：版本号 5 处同步、fdd 包 `logcat-V0.1.8-pre2-win-x64-fd.zip`、tag `V0.1.8-pre2`。人工冒烟（2.3）由用户在本包上执行。
+- [x] 3.0.1 预发布 `V0.1.8-pre2` 已发布（用户 2026-11-05 指令）：版本号 5 处同步（提交 `01b58ae`）、fdd 包 `logcat-V0.1.8-pre2-win-x64-fd.zip`（1.9 MB / 28 项，单 exe，无 pdb 无 coreclr，`ProductVersion=0.1.8-pre2`）、tag `V0.1.8-pre2`（annotated）。人工冒烟（2.3）由用户在本包上执行。
 - [ ] 3.1 **回流主分支**（design D4）：**时序 = `V0.1.8` 稳定版（`V0.1.8` tag）发布之后**（用户 2026-11-05 指令：「V0.1.8 发正式版后合回 master」），把 `V0.1.8` 上的 `fdac37d` cherry-pick 到 master。理由：apply 落预发布分支只解决「随 0.1.8 发布」，master 仍缺修复即本次事故根因形态。验证：主分支 `git log -S ApplyLoadOps --oneline -- frmMain.Load.cs` 命中回流提交，且 master 全量测试无新增失败。
 - [ ] 3.2 清理遗留分支与改道产物（**排在 3.1 之后**，避免分支先删导致回流源丢失）：删除 `wt/fix-chunked-tail-loss`（唯一提交 `5a5c7bc` 已由本 change 承接，design D3）；删除 `wt/fix-chunked-final-flush` 分支及其 worktree（design D5）；`V0.1.8` 分支与其 worktree 按 AGENTS §2.5 在稳定版发布后随生命周期收尾删除。验证：`git branch --list 'wt/fix-chunked*'` 为空，`git worktree list` 仅余 master。
 
