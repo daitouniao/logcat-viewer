@@ -158,4 +158,79 @@ public class DeviceSelectorTests
         Assert.Null(sel.CurrentSerial);
         Assert.Equal(RootMode.None, sel.CurrentRootMode);
     }
+
+    // ── 通知的线程安全与快照语义（fix-devices-changed-race）──
+
+    /// <summary>
+    /// 通知参数是快照：后续变更/清空不得影响已交付的内容，且枚举不抛。
+    /// 旧实现直接把内部活列表交出去，此断言会失败。
+    /// </summary>
+    [Fact]
+    public void 通知参数是快照_后续变更不影响已交付内容()
+    {
+        using var mgr = new FakeAdbManager();
+        var sel = new DeviceSelector(mgr);
+        IReadOnlyList<DeviceInfo>? delivered = null;
+        sel.DevicesChanged += d => delivered ??= d;
+
+        mgr.RaiseDevicesChanged(Dev("a"), Dev("b"));
+        Assert.NotNull(delivered);
+
+        mgr.RaiseDevicesChanged(Dev("c"));
+        sel.Clear();
+
+        Assert.Equal(2, delivered!.Count);           // 内容与条数都停在第一次交付那一刻
+        Assert.Equal("a", delivered[0].Serial);
+        Assert.Equal("b", delivered[1].Serial);
+    }
+
+    /// <summary>
+    /// 后台刷新/清空与主线程枚举通知参数并发：不抛 <c>Collection was modified</c>。
+    /// 仿 UI 线程在 <c>SafeInvoke</c> 到达后枚举设备列表（崩溃现场）。
+    /// 固定迭代次数、只断言「不抛」，不对时序做断言。
+    /// </summary>
+    [Fact]
+    public void 后台刷新与清空并发_枚举通知参数不抛()
+    {
+        using var mgr = new FakeAdbManager();
+        var sel = new DeviceSelector(mgr);
+        IReadOnlyList<DeviceInfo>? latest = null;
+        sel.DevicesChanged += d => Volatile.Write(ref latest, d);
+
+        Exception? error = null;
+        using var stop = new ManualResetEventSlim();
+        var writer = new Thread(() =>
+        {
+            for (int i = 0; i < 5000 && !stop.IsSet; i++)
+            {
+                mgr.RaiseDevicesChanged(Dev("s" + i), Dev("t" + i));
+                sel.Clear();
+            }
+        })
+        { IsBackground = true, Name = "fake-monitor" };
+        writer.Start();
+
+        try
+        {
+            for (int i = 0; i < 5000; i++)
+            {
+                // 订阅方视角：拿到通知就开始枚举（这正是崩溃发生的位置）
+                var snapshot = Volatile.Read(ref latest);
+                if (snapshot != null)
+                    foreach (var d in snapshot) _ = d.Serial;
+
+                _ = sel.CurrentSerial;
+                _ = sel.CurrentRootMode;
+                _ = sel.Devices.Count;
+            }
+        }
+        catch (Exception ex) { error = ex; }
+        finally
+        {
+            stop.Set();
+            writer.Join();
+        }
+
+        Assert.Null(error);
+    }
 }
