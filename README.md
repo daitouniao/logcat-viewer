@@ -4,7 +4,7 @@
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
 [![Platform: Windows](https://img.shields.io/badge/platform-Windows-lightgrey)](#requirements)
 [![CI](https://github.com/daitouniao/logcat-viewer/actions/workflows/ci.yml/badge.svg)](https://github.com/daitouniao/logcat-viewer/actions/workflows/ci.yml)
-[![Tests: 825 passing](https://img.shields.io/badge/tests-825%20passing-green)](docs/TESTING.md)
+[![Tests: 848 passing](https://img.shields.io/badge/tests-848%20passing-green)](docs/TESTING.md)
 [![Coverage: 97.31% lines](https://img.shields.io/badge/coverage-97.31%25%20lines-blue)](docs/TESTING.md)
 
 A Windows desktop pair for Android logs (`logcat`). Built with WinForms on .NET 10, it ships **two exes from one repo**: `logcat.exe`, the log viewer, opens and scrolls through **tens of millions of log lines** smoothly using memory-mapped files and a columnar index and drives live capture over ADB; `logcat-andtools.exe`, the Android toolbox, gathers the device tools — screenshots, screen recording, two-pane file transfer, APK install/uninstall and a command window — behind one tabbed window. The viewer launches the toolbox from its "Device operations" entry, and each runs standalone: you can use the toolbox without ever opening the viewer.
@@ -303,7 +303,7 @@ Services/
 app.ico                  Application icon (referenced in both exe csproj ApplicationIcon)
 tests/
   coverage-report.py     Coverage report generation (coverlet cobertura XML → readable HTML)
-  logcat.Tests/          xUnit test project (825 tests: log parsing / columnar index / filter engine / crash extraction / persistence / localization / settings split / device selection)
+  logcat.Tests/          xUnit test project (848 tests: log parsing / columnar index / filter engine / crash extraction / persistence / localization / settings split / device selection)
     coverlet.runsettings Coverage scope (Include / Exclude rules)
 docs/
   BUILDING.md            How to build and publish — the per-package `dotnet publish` pairs, artifact verification, smoke checklist, pitfall table
