@@ -6,7 +6,7 @@
 
 ## What Changes
 
-- 将修复提交 `5a5c7bc`（fix(load): 分块加载收尾强制消费）移植回主分支：`RunChunkedLoadAsync` 的 `finally` 在完成且未跨代时 `TakeAll()` 无条件取走缓冲全部发布操作，复用既有上屏路径；缓冲为空且文档已接管时补一次 `UpdateStat()` 消除状态栏中途快照。
+- 将修复提交 `5a5c7bc`（fix(load): 分块加载收尾强制消费）移植回主分支：`RunChunkedLoadAsync` 的 `finally` 在完成且未跨代时 `TakeAll()` 无条件取走缓冲全部发布操作，复用既有上屏路径；缓冲为空且文档已接管时补一次 `UpdateStat()` 消除状态栏中途快照。（2026-11-05 起落地分支改为预发布分支 `V0.1.8`，见 design D2。）
 - 随提交恢复 2 条收尾路径自动化用例（`frmMainChunkedTailTests`：加载完成后视图行数与文档行数一致、状态栏总数等于文档行数）。
 - 修复落地后清除已并入的遗留分支 `wt/fix-chunked-tail-loss`（git 写操作，实施时请示授权）。
 
@@ -24,7 +24,7 @@
 
 - 代码：`frmMain.Load.cs`（+25 行级别，纯收尾路径）、`tests/logcat.Tests/frmMainChunkedTailTests.cs`（新增，+78 行级别）。
 - 修复基线 `ec675c8` 至今主分支上 `frmMain.Load.cs` 零漂移，移植可干净套用；测试工程自基线以来有演进（`TestHelpers` 等），移植后需全量回归确认。
-- 不改公开 API、不改数据模型、不加依赖；不涉及 `V0.1.8` 分支（该分支如需同步此修复属发版决策，不在本 change 范围）。
+- 不改公开 API、不改数据模型、不加依赖。（2026-11-06 更新：经用户指令，落地分支与合入目标分支均为预发布分支 `V0.1.8`，见 design D2/D4；原「不涉及 `V0.1.8` 分支」表述作废，回流 master 亦已取消。）
 
 ## Out of Scope（非目标）
 
