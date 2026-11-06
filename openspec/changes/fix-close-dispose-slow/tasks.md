@@ -1,6 +1,6 @@
 # Tasks: fix-close-dispose-slow
 
-- [ ] 0.1 **实施环境**：代码修改在 `V0.1.8`（预发布分支）的 worktree 中直接实施并提交到 `V0.1.8`（worktree 路径以 `git worktree list` 定位），不新建 `wt/` 分支——沿用 `fix-chunked-final-flush` 于 2026-11-05 由用户指令确定的改道方案，本次改道由用户于 2026-11-06 再次确认（design D7）。本 change 的规划文档与归档留在 master，使 `app-shutdown` spec 不随 V0.1.8 分支生命周期结束而丢失。所有 git 写操作需当轮授权。
+- [x] 0.1 **实施环境**：代码修改在 `V0.1.8`（预发布分支）的 worktree 中直接实施并提交到 `V0.1.8`（worktree 路径以 `git worktree list` 定位），不新建 `wt/` 分支——沿用 `fix-chunked-final-flush` 于 2026-11-05 由用户指令确定的改道方案，本次改道由用户于 2026-11-06 再次确认（design D7）。本 change 的规划文档与归档留在 master，使 `app-shutdown` spec 不随 V0.1.8 分支生命周期结束而丢失。所有 git 写操作需当轮授权。**实测记录**：代码在 `V0.1.8` 的既有 worktree 实施，提交 `192d9df`（修复 + 用例）、`157e81a`（V0.1.8-pre3 版本号同步），未新建 `wt/` 分支；规划文档提交在 master。该分支与 master 已结构性分叉（master 含三工程拆分，`V0.1.8` 为单工程），回流时需按拆分后路径核对。
 
 ## 1. 关闭前视图清理（`frmMain`）
 
@@ -17,7 +17,7 @@
 ## 3. 全量回归与收口
 
 - [x] 3.1 全量 `dotnet test`，报告口径数字，确认相对基线（`docs/TESTING.md`）无新增失败；覆盖率/风险场景需要时补跑 tstrun 交叉验证并声明口径。验证：命令输出数字入验收记录。**实测记录**：`dotnet test -c Debug` 于 `V0.1.8` worktree 实测 **795/795 全过，无跳过**（本次 +2 条用例，改动前该分支为 793）。**口径说明**：`docs/TESTING.md` 记的 825 是 master（三工程拆分后）的用例数，`V0.1.8` 分支的用例集合与 master 不同，改动前实测已为 793——该分支文档基线数字存在既有偏差，非本次引入；用例数更新落哪个分支待评审决定。
-- [ ] 3.2 分居提交与收口：修复代码提交落到 `V0.1.8` 分支（按 0.1 的改道方案，无 wt 合并动作）；本 change 的规划文档提交落在 master。验证：`git log --oneline` 在 `V0.1.8` 上可见修复提交、在 master 上可见本 change 文档提交，两处 `git status` 干净。
+- [x] 3.2 分居提交与收口：修复代码提交落到 `V0.1.8` 分支（按 0.1 的改道方案，无 wt 合并动作）；本 change 的规划文档提交落在 master。验证：`git log --oneline` 在 `V0.1.8` 上可见修复提交、在 master 上可见本 change 文档提交，两处 `git status` 干净。**实测记录**：`V0.1.8` 上 `192d9df`、`157e81a`（另打 `V0.1.8-pre3` tag）；master 上 `bb17e04` 与本次文档提交；两处 `git status` 均干净（`V0.1.8` 领先远端 3、master 领先远端 4，均未 push）。
 
 ## Workflow follow-up（归档阶段，非跟踪任务）
 
