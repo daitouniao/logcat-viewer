@@ -32,4 +32,4 @@
 
 ## 7. 收口
 
-- [ ] 7.1 wt 合入目标分支：验收通过后，将 `wt/sidecar-cache-index` 合入 `master`（归档前置条件）。验证：`master` 分支可见该次合入。
+- [x] 7.1 wt 合入目标分支：验收通过后，将 `wt/sidecar-cache-index` 合入 `master`（归档前置条件）。验证：`master` 分支可见该次合入（7438bd6）。
