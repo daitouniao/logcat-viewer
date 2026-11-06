@@ -11,6 +11,7 @@ namespace logcat.Tests;
 /// 通过真实 frmMain 实例 + 内部方法驱动，不依赖异步时序（取消清空路径已从
 /// RunChunkedLoadAsync 的 finally 提取为 CleanupAbortedLoad，生产路径即调用它）。
 /// </summary>
+[Collection(WinFormsCollection.Name)]
 public class frmMainTests
 {
     static readonly BindingFlags NonPublicInstance = BindingFlags.NonPublic | BindingFlags.Instance;

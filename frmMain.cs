@@ -985,7 +985,13 @@ public partial class frmMain : Form, ILocalizedUi
 
         // 等待在途的 Append/过滤结束后再关旧文档（mmap 一关后台扫描就会炸）
         await _docBusy.WaitAsync();
-        try { _doc?.Close(); _doc = null; }
+        try
+        {
+            // 旧文档退役：先解除缓存条目的「使用中」登记（LRU 淘汰据此跳过），再关文档
+            if (_doc != null) _sidecarStore.UnmarkInUse(_doc.SourcePath);
+            _doc?.Close();
+            _doc = null;
+        }
         finally { _docBusy.Release(); }
         _marked.Clear();
         RefreshChannelState();   // 旧文档已关：渠道状态复位（失败/取消后同样复位空）
@@ -1023,25 +1029,32 @@ public partial class frmMain : Form, ILocalizedUi
                 return;
             }
 
-            // 本地文件：分块渐进加载（design 决策 1/6/7/8）。首块 4 MB 出首屏、稳态 32 MB；
-            // 加载期过滤器与时间过滤增量生效、发布 100 ms 节流上屏；完成时视图已按条件
-            // 增量构建，无需全量重过滤。取消：worker 在块边界抛 OCE，整份清空回空状态。
-            var chunked = await RunChunkedLoadAsync(path, gen, cts.Token);
-            if (chunked == null || _workerGen != gen) return;
+            // 本地文件：先试 sidecar 命中（spec「重开同文件命中缓存并跳过解析」），未命中走
+            // 既有分块渐进加载（design 决策 1/6/7/8）。命中不进渐进编排：装载一次到位后
+            // 按当前条件全量过滤；两条路径的取消口径一致（块边界 OCE、整份清空回空状态）。
+            var identityBefore = SidecarIdentity.TryCapture(path);   // 静态文件边界：解析前后取样
+            var loaded = await LoadLocalFileAsync(path, gen, cts.Token, identityBefore);
+            if (loaded == null || _workerGen != gen) return;
 
             sw.Stop();
-            _indexMs = sw.Elapsed.TotalMilliseconds;
-            _doc = chunked;   // 加载期已由 FlushLoadOps 接管视图；此处确保引用就位
-            _lblFile.Text = $"{chunked.Path}   ({HumanSize(chunked.Size)})";
+            // 命中路径的装载耗时只算「读盘 + 装配」（验收线 ≤ 600 ms），不含其后的全量过滤
+            _indexMs = loaded.LoadedFromSidecar ? LastSidecarLoadMs : sw.Elapsed.TotalMilliseconds;
+            _doc = loaded;   // 分块路径已由 FlushLoadOps 接管视图；此处确保引用就位
+            _lblFile.Text = $"{loaded.Path}   ({HumanSize(loaded.Size)})";
             RefreshChannelState();   // 新文档就位：按当前渠道重算
-            if (FavoritesStore.Default.AddRecentFile(chunked.Path))
+            if (FavoritesStore.Default.AddRecentFile(loaded.Path))
             {
                 FavoritesStore.Default.Save();
                 RebuildRecentMenu();   // 即时刷新排序并恢复子菜单 Enabled
             }
-            ShowStatusRaw($"加载 {chunked.RowCount:N0} 行，{_indexMs:N0} ms");
+            ShowStatusRaw(loaded.LoadedFromSidecar
+                ? $"缓存命中 {loaded.RowCount:N0} 行，装载 {_indexMs:N0} ms"
+                : $"加载 {loaded.RowCount:N0} 行，{_indexMs:N0} ms");
             if (_crashSummary != null && !_crashSummary.IsDisposed)
                 _crashSummary.RefreshFrom(_doc);
+
+            // 首次解析路径：解析完成、界面可用后后台落盘（spec「后台落盘不阻塞退出」）
+            ScheduleSidecarPersist(path, identityBefore, loaded);
         }
         catch (OperationCanceledException) { }
         catch (FileProxyException fpex)

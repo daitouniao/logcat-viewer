@@ -25,6 +25,7 @@ namespace logcat.Tests;
 /// 控件（<see cref="ComboBox"/>）可在测试进程内构造并观察其 WinForms 行为，故直接用真控件。
 /// </para>
 /// </summary>
+[Collection(WinFormsCollection.Name)]
 public class AdbClearLogButtonTests
 {
     // ── 可用性状态机 ──

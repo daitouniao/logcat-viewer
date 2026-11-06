@@ -46,6 +46,9 @@ public sealed class LogDocument : IDisposable
     public long Size { get; private set; }
     public long IndexedSize { get; private set; }
 
+    /// <summary>是否由 sidecar 缓存命中装载（spec「重开同文件命中缓存并跳过解析」）。</summary>
+    public bool LoadedFromSidecar { get; private set; }
+
     // ── 列存储 ──
     // 自然行口径：除空行与横幅行外，每一物理行各成一条记录，不合并续行。
     long[] _offs = Array.Empty<long>();
@@ -181,6 +184,72 @@ public sealed class LogDocument : IDisposable
     }
 
     public void Dispose() => Close();
+
+    // ── sidecar 索引装载 / 快照（design D3/D4）──
+
+    /// <summary>
+    /// sidecar 命中装载入口（design D4，仿 <see cref="BuildChunkedCore"/> 的 internal 范式）：
+    /// 用落盘索引直接填列并恢复三字典与崩溃事件，再开 mmap、把索引口径对齐到文件末尾——
+    /// 不扫描、不物化，一次到位。列字段与 <see cref="SetColumns"/> 均为类内 private，
+    /// 故装配入口必须是本类成员（friend 装配器要走反射，已否决）。
+    /// </summary>
+    /// <remarks>
+    /// 调用方负责身份校验（<see cref="SidecarCacheStore.TryLoad"/> 已完成），本方法只做装配；
+    /// mmap 仍须打开——文本本体留在源文件，索引不含文本（design Context）。
+    /// </remarks>
+    internal static LogDocument LoadIndexed(string path, SidecarPayload payload, string? displayPath = null)
+    {
+        var doc = new LogDocument(path, displayPath: displayPath);
+        doc.Size = new FileInfo(doc.SourcePath).Length;
+        doc.SetColumns(payload.Offs, payload.Lens, payload.Moff, payload.Minutes,
+                       payload.Pids, payload.Tids, payload.Lvls, payload.TagIds);
+
+        // 字典 id 即列表下标（落盘时按同一顺序写出），重建索引表即可，无需重映射
+        doc.Tags = new List<string>(payload.Tags);
+        doc.TagIndex = BuildDictIndex(doc.Tags);
+        doc.ExcTypes = new List<string>(payload.ExcTypes);
+        doc.ExcTypeIndex = BuildDictIndex(doc.ExcTypes);
+        doc.Pkgs = new List<string>(payload.Pkgs);
+        doc.PkgIndex = BuildDictIndex(doc.Pkgs);
+        doc._crashes = new List<CrashEvent>(payload.Crashes);
+
+        doc.OpenMap();
+        doc.IndexedSize = doc.Size;
+        doc.LoadedFromSidecar = true;
+        return doc;
+    }
+
+    static Dictionary<string, int> BuildDictIndex(List<string> items)
+    {
+        var map = new Dictionary<string, int>(items.Count);
+        for (int i = 0; i < items.Count; i++) map[items[i]] = i;
+        return map;
+    }
+
+    /// <summary>
+    /// 取当前索引的可落盘快照（design D3）：8 段有效列 + 三字典 + 崩溃事件。
+    /// internal：由 sidecar 后台落盘线程与测试调用（见 InternalsVisibleTo）；
+    /// 调用方须保证期间没有并发的列变更（生产侧经 <c>_docBusy</c> 串行）。
+    /// </summary>
+    internal SidecarPayload SnapshotIndex()
+    {
+        int n = _n;
+        return new SidecarPayload
+        {
+            Offs = _offs.AsSpan(0, n).ToArray(),
+            Lens = _lens.AsSpan(0, n).ToArray(),
+            Moff = _moff.AsSpan(0, n).ToArray(),
+            Minutes = _min.AsSpan(0, n).ToArray(),
+            Pids = _pid.AsSpan(0, n).ToArray(),
+            Tids = _tid.AsSpan(0, n).ToArray(),
+            Lvls = _lvl.AsSpan(0, n).ToArray(),
+            TagIds = _tagId.AsSpan(0, n).ToArray(),
+            Tags = new List<string>(Tags),
+            ExcTypes = new List<string>(ExcTypes),
+            Pkgs = new List<string>(Pkgs),
+            Crashes = new List<CrashEvent>(_crashes),
+        };
+    }
 
     // ── 读取 ──
     public byte[] LineBytes(int row)

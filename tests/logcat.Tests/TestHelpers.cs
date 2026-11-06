@@ -31,6 +31,30 @@ public sealed class LangCollection
 }
 
 /// <summary>
+/// 会构造 WinForms 控件 / 窗体的测试集合（独占执行，不与其它集合并行）。
+///
+/// <para>
+/// <b>为什么需要它</b>：控件构造并非线程安全——<c>Loc.BindTip</c> 走共享 <see cref="ToolTip"/>，
+/// 其内部 <c>Dictionary</c> 被多线程同时写会直接抛
+/// 「Operations that change non-concurrent collections must have exclusive access」，
+/// 表现为<b>偶发</b>失败（2026-11-06 实测：4 次全量里挂 2 次，栈顶
+/// <c>ToolTip.SetToolTipInternal</c> ← <c>Loc.ApplyTip</c> ← <c>frmMain.InitializeComponent2</c>）。
+/// </para>
+///
+/// <para>
+/// <b>怎么用</b>：测试类里若会 <c>new Form()</c> / <c>new frmMain()</c> 或构造控件，就打
+/// <c>[Collection(WinFormsCollection.Name)]</c>。一个类只能属于一个集合——已因语言状态需要
+/// <see cref="LangCollection"/> 的类留在原集合（它同样独占），无需改。
+/// </para>
+/// </summary>
+[CollectionDefinition(WinFormsCollection.Name, DisableParallelization = true)]
+public sealed class WinFormsCollection
+{
+    /// <summary>集合名。引用它即可把类并入该集合。</summary>
+    public const string Name = "WinForms-static-state";
+}
+
+/// <summary>
 /// 固定界面语言执行一段测试代码，结束后自动还原。
 ///
 /// 存在的理由：i18n 落地后，大量被测输出（<c>FilterSpec.Describe</c>、
