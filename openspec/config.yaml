@@ -13,10 +13,6 @@ context: |
   易错行为规则（如横幅行不是记录、空行续行处理、索引块起点顺序推进）随相关改动沉淀进 specs/ 对应 capability，不依赖私有文档传递。
 
 rules:
-  explore:
-    - 探索结果生成文档，放到 openspec/notes/
-    - 以代码或 Log 为事实，可以跑探针测试，不猜测；猜测内容显式标注
-    - 需要澄清的问题写清：为什么需要澄清、有哪些方案、偏向哪个
   proposal:
     - 必须显式写出范围与非目标（out of scope）
     - 存量项目：只描述 delta（ADDED/MODIFIED/REMOVED），不重述整个规范
