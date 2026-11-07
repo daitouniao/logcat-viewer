@@ -21,6 +21,10 @@ public class AndToolsMainForm : DeviceOpsDialog
     readonly ToolStripComboBox _comboDevice = new() { Enabled = false, Width = 230, DropDownWidth = 320 };
     readonly ToolStripStatusLabel _status = new() { Spring = true, TextAlign = ContentAlignment.MiddleLeft };
 
+    /// <summary>回填设备下拉期间为 true：Items.Clear() 会把 SelectedIndex 打回 -1 再重设，
+    /// 每次都误触发 SelectedIndexChanged → OnDeviceChanged（页签被反复关建）。回填不是换设备。</summary>
+    bool _fillingCombo;
+
     public AndToolsMainForm(AdbManager manager, DeviceSelector selector)
         : base(manager, () => selector.CurrentSerial, () => selector.CurrentRootMode)
     {
@@ -34,6 +38,7 @@ public class AndToolsMainForm : DeviceOpsDialog
         var combo = _comboDevice;
         combo.SelectedIndexChanged += (_, _) =>
         {
+            if (_fillingCombo) return;   // 回填产生的 -1/0 跳变不是用户换设备
             _selector.SelectedIndex = combo.SelectedIndex;
             OnDeviceChanged();   // 换设备时重建绑定设备的页签
         };
@@ -83,21 +88,33 @@ public class AndToolsMainForm : DeviceOpsDialog
 
     void OnDevicesChanged(IReadOnlyList<DeviceInfo> devices)
     {
-        _comboDevice.Items.Clear();
-        foreach (var d in devices)
-            _comboDevice.Items.Add(d.ToString());
-        if (devices.Count > 0)
+        _fillingCombo = true;
+        try
         {
-            // Items.Clear() 后 SelectedIndex 必为 -1，重选第一台（selector 已同步 SelectedIndex=0）
-            _comboDevice.SelectedIndex = 0;
-            ShowStatusRaw(string.Empty);
+            _comboDevice.Items.Clear();
+            foreach (var d in devices)
+                _comboDevice.Items.Add(d.ToString());
+            if (devices.Count > 0)
+            {
+                // Items.Clear() 后 SelectedIndex 必为 -1，重选第一台（selector 已同步 SelectedIndex=0）
+                _comboDevice.SelectedIndex = 0;
+                ShowStatusRaw(string.Empty);
+            }
+            else
+            {
+                // Items.Clear() 后 SelectedIndex 归 -1，但 Text 会残留旧设备序列号，需显式清空
+                _comboDevice.Text = string.Empty;
+            }
+            _comboDevice.Enabled = true;
         }
-        else
+        finally
         {
-            // Items.Clear() 后 SelectedIndex 归 -1，但 Text 会残留旧设备序列号，需显式清空
-            _comboDevice.Text = string.Empty;
+            _fillingCombo = false;
         }
-        _comboDevice.Enabled = true;
+
+        // 回填后设备可能真的变了（监控推送新设备/重排列表 → selector 重选第一台）：
+        // 统一走一次 OnDeviceChanged；设备没变时基类有幂等守卫，不会重复关建页签
+        OnDeviceChanged();
     }
 
     /// <summary>清空设备下拉框：Items 之外必须显式清 Text（ComboBox.Items.Clear 后 Text 残留旧序列号）。</summary>

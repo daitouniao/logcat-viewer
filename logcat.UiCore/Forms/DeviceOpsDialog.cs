@@ -1,7 +1,18 @@
+using System.Runtime.InteropServices;
 using logcat.Models;
 using logcat.Services;
 
 namespace logcat.Forms;
+
+/// <summary>
+/// 固定页签的设备跟随约定：宿主在选中设备变化后逐个通知，实现方刷新标题/设备标签等文案，
+/// 页签本身不重建（执行时才取当前设备，见 <see cref="DeviceOpsDialog"/> 的页签分类）。
+/// </summary>
+public interface IDeviceFollowUi
+{
+    /// <summary>当前选中设备（或其 root 形态）变化后由宿主调用；可能在页签不可见时触发。</summary>
+    void OnDeviceSerialChanged();
+}
 
 /// <summary>
 /// 设备操作总窗口：截图 / 录屏 / 文件浏览 / 安装·卸载 APK / 命令窗口 合并为一个页签式窗口。
@@ -19,7 +30,44 @@ public class DeviceOpsDialog : Form, ILocalizedUi
     readonly Func<string?> _serialProvider;
     readonly Func<RootMode> _rootProvider;
 
-    readonly TabControl _tabs = new() { Dock = DockStyle.Fill };
+    // 上次重建页签时的设备序列号与 root 形态：设备监控每次推送都会走到 OnDeviceChanged，
+    // 设备与 root 都没变时直接跳过，否则页签会被反复关了又建（表现为不停闪）
+    string? _lastSerial;
+    RootMode _lastRoot;
+
+    readonly SinglePageTabs _tabs = new() { Dock = DockStyle.Fill };
+
+    /// <summary>
+    /// 只有一个页签时隐藏页签头：工具箱启动早期设备未就绪，只建出命令窗口一个页签，
+    /// 孤悬的「命令窗口」页签头没有信息量，直接吞掉；之后页签多于一个时自动恢复。
+    /// 原理：拦截 <c>TCM_ADJUSTRECT</c>，把显示区上边压到 0（吞掉页签头）、其余方向外扩盖住原生 3D 边框。
+    /// </summary>
+    sealed class SinglePageTabs : TabControl
+    {
+        const int TCM_ADJUSTRECT = 0x1328;
+
+        [StructLayout(LayoutKind.Sequential)]
+        struct RECT { public int Left, Top, Right, Bottom; }
+
+        protected override void WndProc(ref Message m)
+        {
+            if (m.Msg == TCM_ADJUSTRECT && TabCount == 1)
+            {
+                base.WndProc(ref m);
+                var rc = Marshal.PtrToStructure<RECT>(m.LParam);
+                rc.Top = 0;
+                rc.Left -= 4;
+                rc.Right += 4;
+                rc.Bottom += 4;
+                Marshal.StructureToPtr(rc, m.LParam, false);
+                m.Result = (IntPtr)1;
+            }
+            else
+            {
+                base.WndProc(ref m);
+            }
+        }
+    }
 
     // 所有页签统一管理（截图/录屏/文件浏览/APK/命令 同级显示）
     readonly Dictionary<PageKind, (TabPage Page, Form Form)> _pages = new();
@@ -75,18 +123,24 @@ public class DeviceOpsDialog : Form, ILocalizedUi
         _tabs.Padding = new Point(6 * _tabs.DeviceDpi / 96, 3 * _tabs.DeviceDpi / 96);
         DpiDiag.Log("DeviceOpsDialog.OnShown", this);
 
-        // 窗口首次打开就把所有页签建齐，无设备时跳过设备相关页（等入口再建，会提示选设备）。
-        EnsurePage(PageKind.Command);   // 命令窗口不要求选设备，始终可建
+        // 窗口首次打开就把所有页签建齐。固定页签（命令窗口/截屏/录屏/安装 APK）
+        // 执行时才取当前设备，无设备也照建；文件浏览/卸载 APK 钉住设备快照，无设备时先不建
+        EnsurePage(PageKind.Command);
+        EnsurePage(PageKind.Screenshot);
+        EnsurePage(PageKind.Record);
+        EnsurePage(PageKind.ApkInstall);
         if (!string.IsNullOrEmpty(_serialProvider()))
         {
-            EnsurePage(PageKind.Screenshot);
-            EnsurePage(PageKind.Record);
             EnsurePage(PageKind.Files);
-            EnsurePage(PageKind.ApkInstall);
             EnsurePage(PageKind.ApkUninstall);
         }
         MaybeOfferRootRetry();   // 上次 su 阶段未确认时给一次重试 root 检测的机会
         DpiFix.Apply(this);
+
+        // 记下打开时的设备形态：OnShown 建齐的页签以此为基准，
+        // 之后 OnDeviceChanged 只有形态真的变了才重建（否则首次监控推送就会白重建一轮）
+        _lastSerial = _serialProvider();
+        _lastRoot = _rootProvider();
     }
 
     /// <summary>
@@ -181,8 +235,11 @@ public class DeviceOpsDialog : Form, ILocalizedUi
 
     Form? CreatePage(PageKind kind)
     {
+        // 只有钉住设备快照的页签（文件浏览/卸载 APK）要求建页时有设备；
+        // 固定页签执行时才取当前设备，无设备时创建不受限、用时再提示
         var serial = _serialProvider();
-        if (kind != PageKind.Command && string.IsNullOrEmpty(serial))
+        bool needsSerial = kind is PageKind.Files or PageKind.ApkUninstall;
+        if (needsSerial && string.IsNullOrEmpty(serial))
         {
             MessageBox.Show(this, Loc.T("请先在主窗口选择设备"), Loc.T("设备操作"),
                 MessageBoxButtons.OK, MessageBoxIcon.Warning);
@@ -191,10 +248,10 @@ public class DeviceOpsDialog : Form, ILocalizedUi
 
         Form form = kind switch
         {
-            PageKind.Screenshot => new ScreenShotDialog(_manager, serial!),
-            PageKind.Record => new ScreenRecordDialog(_manager, serial!),
+            PageKind.Screenshot => new ScreenShotDialog(_manager, _serialProvider),
+            PageKind.Record => new ScreenRecordDialog(_manager, _serialProvider),
             PageKind.Files => new FileBrowserDialog(_manager, serial!, _rootProvider()),
-            PageKind.ApkInstall => new ApkInstallDialog(_manager, serial!, _rootProvider()),
+            PageKind.ApkInstall => new ApkInstallDialog(_manager, _serialProvider, _rootProvider),
             PageKind.ApkUninstall => new ApkUninstallDialog(_manager, serial!, _rootProvider()),
             _ => new CommandDialog(_manager, _serialProvider, _rootProvider),
         };
@@ -222,33 +279,43 @@ public class DeviceOpsDialog : Form, ILocalizedUi
     // ── 设备切换 / 关窗 ──
 
     /// <summary>
-    /// 主窗口选中的设备变了：重建绑定设备的页签，保证页签永远对着当前设备；
-    /// 用户停留的页优先恢复。没有设备时只关闭不重建，等下次从入口打开。
+    /// 主窗口选中的设备变了：文件浏览 / 卸载 APK 这类钉住设备快照的页签重建，
+    /// 其余页签固定不重建（命令窗口回调取设备；截屏/录屏/安装 APK 执行时取当前设备，只刷文案）。
+    /// 没有设备时只关闭可重建页签，等设备就绪再补建。
     /// </summary>
     public void OnDeviceChanged()
     {
-        var selectedPage = _tabs.SelectedTab;
-        PageKind? current = null;   // 用户当前停留的页，最后恢复（OpenPage 会切换选中）
-        var reopen = new List<PageKind>();
+        // 设备与 root 形态都没变就不折腾：监控每次推送、下拉框回填都会走到这里，
+        // 重建页签代价大（逐个关窗重建）且视觉上不停闪，只对真变化响应
+        var serial = _serialProvider();
+        var root = _rootProvider();
+        if (serial == _lastSerial && root == _lastRoot) return;
+        _lastSerial = serial;
+        _lastRoot = root;
 
-        // 收集需要重建的页签（命令窗口通过回调取设备，不需要重建）
-        foreach (var (kind, entry) in _pages)
+        // 固定页签：不重建，刷新标题/设备标签里的序列号即可
+        foreach (var (_, entry) in _pages)
         {
-            if (kind == PageKind.Command) continue;  // 命令窗口不重建
-            if (entry.Form is { IsDisposed: false })
-            {
-                reopen.Add(kind);
-                if (selectedPage == entry.Page) current = kind;
-                entry.Form.Close();
-            }
+            if (entry.Form is IDeviceFollowUi follow && entry.Form is { IsDisposed: false })
+                follow.OnDeviceSerialChanged();
         }
 
-        if (current == null && reopen.Count == 0) return;
-        if (string.IsNullOrEmpty(_serialProvider())) return;
+        var selectedPage = _tabs.SelectedTab;   // 重建会切换选中，结束时恢复用户停留的页
 
-        // 先重建非当前页，最后重建当前页（OpenPage 会切换选中）
-        foreach (var kind in reopen.Where(k => k != current)) OpenPage(kind);
-        if (current != null) OpenPage(current.Value);
+        // 只关闭钉住设备快照的页签（文件浏览/卸载 APK），下面重建
+        foreach (var kind in new[] { PageKind.Files, PageKind.ApkUninstall })
+        {
+            if (_pages.TryGetValue(kind, out var entry) && entry.Form is { IsDisposed: false })
+                entry.Form.Close();
+        }
+
+        if (string.IsNullOrEmpty(serial)) return;   // 无设备时只关闭不重建，等设备就绪
+        foreach (var kind in new[] { PageKind.Files, PageKind.ApkUninstall })
+            OpenPage(kind);
+
+        // 恢复用户停留的页（若还在）
+        if (selectedPage != null && !selectedPage.IsDisposed && _tabs.TabPages.Contains(selectedPage))
+            _tabs.SelectedTab = selectedPage;
     }
 
     /// <summary>

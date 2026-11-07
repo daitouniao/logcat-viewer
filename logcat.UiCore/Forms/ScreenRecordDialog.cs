@@ -4,13 +4,18 @@ namespace logcat.Forms;
 
 /// <summary>
 /// 录屏对话框：通过 screenrecord 录制设备屏幕，完成后拉取到本地。
+/// 固定页签（不随设备切换重建）：开始录屏时经 <see cref="_serialProvider"/> 取当前设备并锁定，
+/// 停止/拉取/关窗清理都针对锁定的那台，避免录到一半换设备后拉错文件。
 /// </summary>
-public class ScreenRecordDialog : Form, ILocalizedUi
+public class ScreenRecordDialog : Form, ILocalizedUi, IDeviceFollowUi
 {
     readonly AdbManager _manager;
-    readonly string _serial;
+    readonly Func<string?> _serialProvider;
     bool _recording;
     DateTime _recordStartTime;
+
+    /// <summary>本次录制锁定的设备序列号：开始录屏时解析；null = 未在录制。</summary>
+    string? _recordingSerial;
 
     readonly Label _lblRecStat;
     readonly Button _btnRecStart, _btnRecStop, _btnRecPull;
@@ -18,13 +23,13 @@ public class ScreenRecordDialog : Form, ILocalizedUi
 
     const string REMOTE_RECORD_PATH = "/sdcard/logcat_viewer_recording.mp4";
 
-    public ScreenRecordDialog(AdbManager manager, string serial, bool startRecording = false)
+    public ScreenRecordDialog(AdbManager manager, Func<string?> serialProvider, bool startRecording = false)
     {
         AutoScaleDimensions = new SizeF(96F, 96F);
         AutoScaleMode = AutoScaleMode.Dpi;
         _manager = manager;
-        _serial = serial;
-        Text = Loc.F("录屏 — {0}", serial);
+        _serialProvider = serialProvider;
+        Text = Loc.F("录屏 — {0}", serialProvider() ?? "?");
         Size = new Size(720, 580);
         StartPosition = FormStartPosition.CenterParent;
 
@@ -67,7 +72,14 @@ public class ScreenRecordDialog : Form, ILocalizedUi
     async Task StartRecording()
     {
         if (_recording) return;
+        var serial = _serialProvider();
+        if (string.IsNullOrEmpty(serial))
+        {
+            _lblRecStat.Text = Loc.T("请先在主窗口选择设备");
+            return;
+        }
         _recording = true;
+        _recordingSerial = serial;
         _recordStartTime = DateTime.Now;
         _btnRecStart.Enabled = false;
         _btnRecStop.Enabled = true;
@@ -75,13 +87,13 @@ public class ScreenRecordDialog : Form, ILocalizedUi
         _lblRecStat.Text = Loc.T("录屏中…");
 
         // 先删除旧的录屏文件
-        try { await _manager.ShellAsync(_serial, $"rm -f {REMOTE_RECORD_PATH}", 5); }
+        try { await _manager.ShellAsync(serial, $"rm -f {REMOTE_RECORD_PATH}", 5); }
         catch { }
 
         // 在后台启动 screenrecord
         _ = Task.Run(async () =>
         {
-            try { await _manager.ShellAsync(_serial, $"screenrecord {REMOTE_RECORD_PATH}", 0); }
+            try { await _manager.ShellAsync(serial, $"screenrecord {REMOTE_RECORD_PATH}", 0); }
             catch { }
         });
 
@@ -90,12 +102,12 @@ public class ScreenRecordDialog : Form, ILocalizedUi
 
     async Task StopRecording()
     {
-        if (!_recording) return;
+        if (!_recording || _recordingSerial == null) return;
         _recording = false;
         _recTimer.Stop();
         _btnRecStop.Enabled = false;
 
-        try { await _manager.ShellAsync(_serial, "pkill -INT screenrecord", 5); }
+        try { await _manager.ShellAsync(_recordingSerial, "pkill -INT screenrecord", 5); }
         catch { }
 
         // 等待文件写入完成
@@ -109,6 +121,7 @@ public class ScreenRecordDialog : Form, ILocalizedUi
 
     void OnPullRecording(object? sender, EventArgs e)
     {
+        if (_recordingSerial == null) return;
         using var dlg = new SaveFileDialog
         {
             Title = Loc.T("保存录屏"),
@@ -120,7 +133,7 @@ public class ScreenRecordDialog : Form, ILocalizedUi
         try
         {
             using var fs = File.Create(dlg.FileName);
-            _manager.Pull(_serial, REMOTE_RECORD_PATH, fs);
+            _manager.Pull(_recordingSerial, REMOTE_RECORD_PATH, fs);
             _lblRecStat.Text = Loc.F("已拉取 → {0}", dlg.FileName);
         }
         catch (Exception ex)
@@ -139,23 +152,30 @@ public class ScreenRecordDialog : Form, ILocalizedUi
 
     protected override void OnFormClosing(FormClosingEventArgs e)
     {
-        if (_recording)
+        if (_recording && _recordingSerial != null)
         {
             _recording = false;
             _recTimer.Stop();
-            try { _manager.Shell(_serial, "pkill -INT screenrecord", 5); } catch { }
+            try { _manager.Shell(_recordingSerial, "pkill -INT screenrecord", 5); } catch { }
         }
         _recTimer.Dispose();
         base.OnFormClosing(e);
     }
+
     /// <summary>
     /// 切语言后按当前状态重算状态标签——三种状态（录屏中/已停止/拉取结果）
-    /// 是运行时算出来的，没有静态键可绑，只能这里重算。
+    /// 是运行时算出来的，没有静态键可绑，只能这里重算；顺带刷新标题里的序列号。
     /// </summary>
     void ILocalizedUi.OnLanguageChanged()
     {
+        RefreshTitle();
         if (_recordStartTime == default) _lblRecStat.Text = Loc.T("点击「开始录屏」录制设备屏幕");
         else UpdateRecTimer();
         PerformLayout();
     }
+
+    /// <summary>设备变化时页签不重建，只刷新标题里的序列号（录制中的目标设备不受影响）。</summary>
+    void IDeviceFollowUi.OnDeviceSerialChanged() => RefreshTitle();
+
+    void RefreshTitle() => Text = Loc.F("录屏 — {0}", _serialProvider() ?? "?");
 }

@@ -4,23 +4,24 @@ namespace logcat.Forms;
 
 /// <summary>
 /// 截图对话框：通过 GetFrameBuffer 获取设备屏幕快照，预览并保存。
+/// 固定页签（不随设备切换重建）：执行时经 <see cref="_serialProvider"/> 取当前选中设备。
 /// </summary>
-public class ScreenShotDialog : Form, ILocalizedUi
+public class ScreenShotDialog : Form, ILocalizedUi, IDeviceFollowUi
 {
     readonly AdbManager _manager;
-    readonly string _serial;
+    readonly Func<string?> _serialProvider;
     Image? _screenshotImage;
 
     readonly PictureBox _picShot;
     readonly Button _btnShot, _btnSaveShot;
 
-    public ScreenShotDialog(AdbManager manager, string serial)
+    public ScreenShotDialog(AdbManager manager, Func<string?> serialProvider)
     {
         AutoScaleDimensions = new SizeF(96F, 96F);
         AutoScaleMode = AutoScaleMode.Dpi;
         _manager = manager;
-        _serial = serial;
-        Text = Loc.F("截图 — {0}", serial);
+        _serialProvider = serialProvider;
+        Text = Loc.F("截图 — {0}", serialProvider() ?? "?");
         Size = new Size(720, 580);
         StartPosition = FormStartPosition.CenterParent;
 
@@ -50,6 +51,14 @@ public class ScreenShotDialog : Form, ILocalizedUi
 
     async Task TakeScreenshot()
     {
+        var serial = _serialProvider();
+        if (string.IsNullOrEmpty(serial))
+        {
+            MessageBox.Show(this, Loc.T("请先在主窗口选择设备"), Loc.T("截图"),
+                MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
         _btnShot.Enabled = false;
         _picShot.Image = null;
         _screenshotImage?.Dispose();
@@ -58,7 +67,7 @@ public class ScreenShotDialog : Form, ILocalizedUi
 
         try
         {
-            var img = await _manager.ScreenshotAsync(_serial);
+            var img = await _manager.ScreenshotAsync(serial);
             if (img == null) throw new Exception(Loc.T("截图数据为空"));
             _screenshotImage = img;
             _picShot.Image = img;
@@ -95,6 +104,12 @@ public class ScreenShotDialog : Form, ILocalizedUi
         _screenshotImage?.Dispose();
         base.OnFormClosing(e);
     }
+
     /// <summary>切语言后重算标题——它含设备序列号（变量），没法用 Loc.Bind 绑静态键。</summary>
-    void ILocalizedUi.OnLanguageChanged() => Text = Loc.F("截图 — {0}", _serial);
+    void ILocalizedUi.OnLanguageChanged() => RefreshTitle();
+
+    /// <summary>设备变化时页签不重建，只刷新标题里的序列号。</summary>
+    void IDeviceFollowUi.OnDeviceSerialChanged() => RefreshTitle();
+
+    void RefreshTitle() => Text = Loc.F("截图 — {0}", _serialProvider() ?? "?");
 }

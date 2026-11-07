@@ -9,12 +9,11 @@ namespace logcat.Forms;
 /// 或在 adb install 被禁用时改用设备端 <c>pm install</c>（先推送 APK 到临时目录再安装）。
 /// APK 路径可收藏复用。
 /// </summary>
-public sealed class ApkInstallDialog : Form, ILocalizedUi
+public sealed class ApkInstallDialog : Form, ILocalizedUi, IDeviceFollowUi
 {
     readonly AdbManager _manager;
-    readonly string _serial;
-    // root 形态要参与标题/设备标签的本地化重算（Loc.F 带参数），故留字段
-    readonly RootMode _rootMode;
+    readonly Func<string?> _serialProvider;
+    readonly Func<RootMode> _rootProvider;
     readonly FavoritesStore _fav = FavoritesStore.Default;
 
     readonly IProgress<string> _progress;
@@ -33,16 +32,16 @@ public sealed class ApkInstallDialog : Form, ILocalizedUi
     Label _lblStat = null!, _lblDevice = null!;
     Button _btnStop = null!, _btnCopy = null!, _btnClear = null!;
 
-    public ApkInstallDialog(AdbManager manager, string serial, RootMode rootMode)
+    public ApkInstallDialog(AdbManager manager, Func<string?> serialProvider, Func<RootMode> rootProvider)
     {
         AutoScaleDimensions = new SizeF(96F, 96F);
         AutoScaleMode = AutoScaleMode.Dpi;
         _manager = manager;
-        _serial = serial;
+        _serialProvider = serialProvider;
+        _rootProvider = rootProvider;
         _progress = new Progress<string>(AppendOutput);
 
-        _rootMode = rootMode;
-        Text = Loc.F("安装 APK — {0}", serial);
+        Text = Loc.F("安装 APK — {0}", serialProvider() ?? "?");
         Size = new Size(780, 700);
         MinimumSize = new Size(700, 600);
         StartPosition = FormStartPosition.CenterParent;
@@ -52,7 +51,7 @@ public sealed class ApkInstallDialog : Form, ILocalizedUi
         LoadOptions();
         UpdateInstallRootEnabled();
         RefreshApkCombo();
-        _lblDevice.Text = Loc.F("设备：{0}{1}", serial, rootMode != RootMode.None ? "  [root]" : "");
+        UpdateDeviceLabel();
         FormClosed += (_, _) => { SaveOptions(); try { _cts?.Cancel(); } catch { } _cts?.Dispose(); };
     }
 
@@ -290,6 +289,8 @@ public sealed class ApkInstallDialog : Form, ILocalizedUi
         var apk = _cboApk.Text.Trim().Trim('"');
         if (apk.Length == 0) { Status(Loc.T("请选择或输入 APK 文件路径")); return; }
         if (!File.Exists(apk)) { Status(Loc.F("找不到文件：{0}", apk)); return; }
+        var serial = _serialProvider();
+        if (string.IsNullOrEmpty(serial)) { Status(Loc.T("请先在主窗口选择设备")); return; }
 
         var flags = InstallFlags();
         bool pm = _rbPmInstall.Checked;
@@ -301,7 +302,7 @@ public sealed class ApkInstallDialog : Form, ILocalizedUi
             if (!pm)
             {
                 var head = flags.Length > 0 ? $"install {flags}" : "install";
-                var args = AdbManager.AdbArgs($"{head} \"{apk}\"", _serial);
+                var args = AdbManager.AdbArgs($"{head} \"{apk}\"", serial);
                 AppendOutput($"> adb {args}");
                 int code = await AdbManager.RunAdbAsync(args, _progress, _cts!.Token);
                 AppendOutput(Loc.F("— 退出码 {0}", code));
@@ -311,15 +312,15 @@ public sealed class ApkInstallDialog : Form, ILocalizedUi
             {
                 var tmpDir = string.IsNullOrWhiteSpace(_txtTmp.Text) ? "/data/local/tmp" : _txtTmp.Text.Trim().TrimEnd('/');
                 var remote = $"{tmpDir}/{Path.GetFileName(apk)}";
-                AppendOutput(Loc.F("> 推送 {0} → {1}:{2}", apk, _serial, remote));
-                await _manager.PushAsync(_serial, apk, remote);
+                AppendOutput(Loc.F("> 推送 {0} → {1}:{2}", apk, serial, remote));
+                await _manager.PushAsync(serial, apk, remote);
 
                 var cmd = $"pm install{(flags.Length > 0 ? " " + flags : "")} '{remote}'";
                 AppendOutput($"> adb shell {(root ? "su -c " : "")}{cmd}");
-                await _manager.ShellLinesAsync(_serial, Wrap(cmd, root), _progress, _cts!.Token);
+                await _manager.ShellLinesAsync(serial, Wrap(cmd, root), _progress, _cts!.Token);
 
                 // 临时文件用尽力清理，失败不影响结果
-                try { await _manager.ShellAsync(_serial, Wrap($"rm -f '{remote}'", root), 15); } catch { }
+                try { await _manager.ShellAsync(serial, Wrap($"rm -f '{remote}'", root), 15); } catch { }
                 Status(Loc.T("pm install 执行完毕，请检查输出中的 Success/Failure"));
             }
             _fav.AddApkPath(apk);
@@ -401,9 +402,16 @@ public sealed class ApkInstallDialog : Form, ILocalizedUi
     /// 切语言后重算标题与设备标签——两者都是带参数的 <c>Loc.F</c>（设备序列号是变量），
     /// 没法用 <c>Loc.Bind</c> 绑静态资源键，只能在这里重算。
     /// </summary>
-    void ILocalizedUi.OnLanguageChanged()
+    void ILocalizedUi.OnLanguageChanged() => UpdateDeviceLabel();
+
+    /// <summary>设备变化时页签不重建，只刷新标题与设备标签（执行时才取设备）。</summary>
+    void IDeviceFollowUi.OnDeviceSerialChanged() => UpdateDeviceLabel();
+
+    void UpdateDeviceLabel()
     {
-        Text = Loc.F("安装 APK — {0}", _serial);
-        _lblDevice.Text = Loc.F("设备：{0}{1}", _serial, _rootMode != RootMode.None ? "  [root]" : "");
+        var serial = _serialProvider();
+        var root = _rootProvider();
+        Text = Loc.F("安装 APK — {0}", serial ?? "?");
+        _lblDevice.Text = Loc.F("设备：{0}{1}", serial ?? "", root != RootMode.None ? "  [root]" : "");
     }
 }
