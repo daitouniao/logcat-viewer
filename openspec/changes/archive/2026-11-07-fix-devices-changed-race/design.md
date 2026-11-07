@@ -24,7 +24,8 @@
 两者必须一起变化（列表重建 + 重选首台是一次原子语义），所以共用一把 `_gate`。临界区只做 `Clear`/`AddRange`/索引赋值/`ToArray`，无 IO、无回调。
 
 - 否决 `ConcurrentBag`/`ConcurrentQueue`：需要按序选择与一致快照，并发容器给不了「一致」。
-- 读侧（`Devices`/`CurrentSerial`/`CurrentRootMode`）同样进锁，避免读到「已清空、未重建」的中间态。
+- 读侧（`Devices`/`SelectedIndex`/`CurrentSerial`/`CurrentRootMode`）同样进锁，避免读到「已清空、未重建」的中间态。
+- 写侧的 `SelectedIndex` 属性 setter 也进锁：UI 回写下标与后台重建列表会交错，未加锁时可能出现「下标已更新、列表还是旧的」的读数。
 
 ### D3 通知在锁外发出
 
@@ -38,6 +39,7 @@
 
 - 确定性：一次变更后保留通知参数，再触发变更/清空，断言先前参数内容不变。
 - 并发：后台线程反复 `ApplyDevices`，主线程反复枚举通知参数并查询 `CurrentSerial`，固定迭代次数、只断言「不抛异常」——不对时序做断言，避免慢机上的抖动。
+- 范围声明：并发用例**不构成对 `_gate` 的守护**。撤掉锁时，枚举独立快照与读 `Devices.Count` 仍不会抛，只有 `CurrentSerial` 的「判界 → 索引」之间存在窄窗口，5000 次迭代大概率撞不上。锁的正确性由 D2/D3 的临界区设计（派生快照、临界区不跨 IO/回调）与代码评审保证，该用例的定位是固化崩溃现场 + 防止退回活列表。
 
 ## Risks
 

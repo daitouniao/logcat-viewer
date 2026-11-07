@@ -7,7 +7,7 @@
 ## What Changes
 
 - `DeviceSelector` 向订阅方一律传递**变更时刻的快照**（`DeviceInfo[]`），不再暴露内部可变列表。
-- `DeviceSelector` 的列表读写统一进同一把锁（`ApplyDevices` / `Clear` / `Devices` / `CurrentSerial` / `CurrentRootMode`），消除「读到半改状态」；事件仍在锁外发出。
+- `DeviceSelector` 的列表与选中下标读写统一进同一把锁（`ApplyDevices` / `Clear` / `Devices` / `SelectedIndex` / `CurrentSerial` / `CurrentRootMode`），消除「读到半改状态」；事件仍在锁外发出。
 - 补回归用例：连续两次变更交错时先交付的通知参数内容不变、枚举不抛；自愈失败清空与后台刷新并发不抛。
 
 ### 非目标（Out of Scope）
