@@ -1794,12 +1794,28 @@ public partial class frmMain : Form, ILocalizedUi
         try { _docBusy.Wait(TimeSpan.FromSeconds(2)); } catch { }
         _adbManager?.Dispose();
         SaveSettings();
+        // 关窗前先清空视图行数据（决策 D1/D2）：销毁句柄时无障碍 provider 不再逐行枚举，
+        // 关窗耗时与视图行数解耦；且必须先于文档释放，枚举才读不到已释放映射
+        CleanupForClose();
         _doc?.Close();
         _docBusy.Dispose();
         // 退出双保险之一（决策 D10）：主窗关闭流程杀拉起的代理进程树；
         // 进程退出事件（Program.Main 挂的 ProcessExit）是第二保险
         FileProxyService.KillLaunchedProcesses();
         base.OnFormClosing(e);
+    }
+
+    /// <summary>
+    /// 关闭前清理（spec「关闭主窗口的耗时不随视图行数增长」）：视图行数据回空、断开加载期
+    /// 发布缓冲，使随后销毁句柄时没有行可枚举，也不存在把行加回视图的路径。
+    /// internal：单元测试直接驱动，不依赖消息循环时序。
+    /// </summary>
+    internal void CleanupForClose()
+    {
+        // 复用既有切换文档的清空语义：清行号分段、行数归零、清渲染缓存
+        _listView.SetDocument(null);
+        // FlushLoadOps 以 _loadPub 为唯一入口，置空即整条上屏路径早退（迟到发布不回流）
+        _loadPub = null;
     }
 
     // ── 设置 ──

@@ -24,6 +24,9 @@ public class frmMainTests
 
     static frmMain NewForm() => new();
 
+    static void Call(object o, string name) =>
+        o.GetType().GetMethod(name, NonPublicInstance)!.Invoke(o, Array.Empty<object>());
+
     /// <summary>加载期导出与崩溃汇总入口置灰，加载完成后恢复（spec「加载期 UI 状态」）。</summary>
     [Fact]
     public void 加载期导出与崩溃面板置灰加载完成后恢复()
@@ -100,5 +103,63 @@ public class frmMainTests
 
         Assert.Same(doc, Fld(form, "_doc"));                   // 新代文档未被误清
         Assert.Equal(1, listView.RowCount);
+    }
+
+    /// <summary>
+    /// 关闭前清理后视图行数归零，销毁期不再逐行构造行对象（spec「关闭主窗口的耗时
+    /// 不随视图行数增长」）。20 万虚拟行 + 逐行构造回调计数，不依赖计时。
+    /// 必须先把控件句柄建出来（<c>_ = listView.Handle</c>）：没有句柄就没有窗口销毁流程，
+    /// 枚举与回调都不会发生，用例会退化成空断言。未接清理时销毁期回调数等于行数
+    /// （临时探针实测 200000），接上清理后为 0。
+    /// </summary>
+    [Fact]
+    public void 关闭前清理后视图行数归零且销毁不再逐行构造()
+    {
+        var form = NewForm();
+        var listView = (LogListView)Fld(form, "_listView")!;
+
+        var rows = new int[200_000];
+        for (int i = 0; i < rows.Length; i++) rows[i] = i;
+        listView.SetRows(rows);
+        Assert.Equal(200_000, listView.RowCount);
+        _ = listView.Handle;                        // 建句柄：销毁期枚举的前提
+
+        int constructed = 0;
+        listView.RetrieveVirtualItem += (_, _) => constructed++;
+
+        form.CleanupForClose();
+
+        Assert.Equal(0, listView.RowCount);
+        Assert.Equal(0, listView.VirtualListSize);
+
+        form.Dispose();
+        Assert.Equal(0, constructed);               // 销毁期一次也没有逐行构造
+    }
+
+    /// <summary>
+    /// 清理后残留发布不回流（spec「关闭期间残留的视图刷新请求」）：清理时缓冲内还有未上屏的
+    /// 发布、清理后 worker 仍向同一缓冲投递，视图都保持为空且不阻塞。
+    /// </summary>
+    [Fact]
+    public void 关闭前清理后残留发布不回流视图()
+    {
+        var form = NewForm();
+        var listView = (LogListView)Fld(form, "_listView")!;
+        listView.SetRows(new[] { 0, 1, 2 });
+        _ = listView.Handle;
+
+        var buffer = new LoadPublishBuffer();
+        SetFld(form, "_loadPub", buffer);
+        buffer.Add(new[] { 0, 1 });                 // 清理前已投递、未上屏
+
+        form.CleanupForClose();
+        Assert.Null(Fld(form, "_loadPub"));
+
+        buffer.Add(new[] { 0, 1, 2 });              // 清理后 worker 仍向原缓冲投递
+        Call(form, "FlushLoadOps");                 // 迟到的节流 tick / 收尾强制消费
+
+        Assert.Equal(0, listView.RowCount);
+        Assert.Equal(0, listView.VirtualListSize);
+        form.Dispose();
     }
 }
