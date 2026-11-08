@@ -26,7 +26,7 @@
 | --- | --- | --- |
 | 1.1 | `git rev-list --count master..V0.1.9`；`git rev-parse V0.1.9`（D-35 冻结基准）；合并带入的文件与行数（应 3 文件 5 行）；`docs/BUILDING.md` 是否零差异 | `master..V0.1.9` = **0**；`V0.1.9` = **354c301**；merge commit **778829a**，`3 files changed, 5 insertions(+), 5 deletions(-)`（`Directory.Build.props` / `README.md` / `README.zh-CN.md`）；`docs/BUILDING.md` 差异 **0 行**。⚠️ `<Version>` 实测为 **`0.1.9-pre1`**（tasks 预估 `0.1.9`）：V0.1.9 分支本就是预发布号，非本 change 改号 |
 | 2.5 | `git status --short` 的 rename / 新增 / 删除条数 | **R = 90 / ?? = 0 / D = 0**（M = 2，为 `apply-log.md` / `tasks.md` 自身）；90 = viewer 32 + uicore 51 + andtools 6 + `app.ico` 1，与搬迁前计数逐项相等；**90 条 R 的文件名主干全部未变**（脚本比对 `BASENAME_CHANGED=0`）——csproj 的 R 条目只是目录段变化（`logcat.csproj -> logcat-viewer/logcat.csproj`），文件名未改，符合 D-23 |
-| 3.1 | 根级 `None` 改 `..\` 后的本地 build：`bin\Debug\net10.0-windows\` 下 `sample\fileproxy\...` 与 `docs\images\main.gif` 的层级是否保留（D-11 拍平坑，D-53） | 待填 |
+| 3.1 | 根级 `None` 改 `..\` 后的本地 build：`bin\Debug\net10.0-windows\` 下 `sample\fileproxy\...` 与 `docs\images\main.gif` 的层级是否保留（D-11 拍平坑，D-53） | **层级全部保留**：`sample/fileproxy/fileproxy.py` True、`sample/fileproxy/fileproxy.js` True、`docs/images/main.gif` True、`README.md` True、`LICENSE` True；输出根下**零** `fileproxy.py` / `main.gif` / `fileproxy.js` 裸文件（无拍平）。同时 `logcat-viewer/bin/.../logcat.UiCore.dll` True（3.3 的 ProjectReference 生效）。**另做一次 `dotnet publish logcat-viewer/logcat.csproj -c Release -o <临时目录>`**：`sample\fileproxy\{fileproxy.py,fileproxy.js,README.md,README.zh-CN.md}`、`docs\images\main.gif`、`README.md`、`README.zh-CN.md`、`LICENSE`、`THIRD-PARTY-NOTICES.md`、`DISCLAIMER.md`、`logcat.UiCore.dll`、`logcat.exe` **均 True**；输出根下无 `fileproxy.py` / `main.gif` / `fileproxy.js` 裸文件，`sample\` 子树结构与仓库内一致 |
 | 4.4 | 两条哨兵用例的 `scanned` 计数（应不变） | 待填 |
 | 4.5 | 全量用例数与 1.4 基线逐项比对 | 待填 |
 | 6.9 | 全仓字面量扫描的分类结果（路径命中 / 命名空间命中 / 工程文件名命中） | 待填 |
@@ -42,5 +42,6 @@
 | 项 | 原因 | 处置 |
 | --- | --- | --- |
 | 覆盖率基线分母与 `docs/TESTING.md` 的 2026-11-01 采值不同（行 2,840 vs 3,934、分支 1,647 vs 1,833、方法 318 vs 433） | 旧采值早已漂移（工程拆分后统计口径变化，文档 `:16` 也写着「另行重采」从未执行），**非搬迁造成**；1.4 是在改任何文件之前采的 | 7.3 的「持平」只对 1.4 基线比较；按 7.3 后段要求，同批把 `docs/TESTING.md:13-15`、双 README 覆盖率徽章与 `README.md:194` 更新为本次实测值 |
+| **图标目视**（3.3 / 3.4 要求的「exe 属性-详细信息里可见图标」） | 无图形化核对手段，未做目视 | 替代证据：① 构建全文**无图标缺失告警**（如 MSB3552），只有 2 条 CS9191 + 2 条 xUnit 分析器 warning；② `Shell.Application` 读 `System.Copyright` 两 exe 均可读到正确版权串；③ `ExtractAssociatedIcon` 两 exe 均能取到 32×32 图标且哈希一致。真图标与默认图标的区分留待 7.4 双包产物核对时目视 |
 
 > 本表**就是交付说明**（design **D-44**）：交付时整段摘出随验收请求给出，不另写第二份。确无内容时写一行 `（无）`，不留空白表（同 D-41）。

@@ -22,8 +22,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\logcat.csproj" />
-    <ProjectReference Include="..\..\logcat.AndTools\logcat.AndTools.csproj" />
+    <ProjectReference Include="..\..\logcat-viewer\logcat.csproj" />
+    <ProjectReference Include="..\..\logcat-android-tools\logcat.AndTools.csproj" />
   </ItemGroup>
 
   <!--

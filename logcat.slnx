@@ -1,4 +1,6 @@
 <Solution>
-  <Project Path="logcat.csproj" />
+  <Project Path="logcat-viewer/logcat.csproj" />
+  <Project Path="logcat-uicore/logcat.UiCore.csproj" />
+  <Project Path="logcat-android-tools/logcat.AndTools.csproj" />
   <Project Path="tests/logcat.Tests/logcat.Tests.csproj" />
 </Solution>

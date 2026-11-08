@@ -7,7 +7,7 @@
     <OutputType>WinExe</OutputType>
     <AssemblyName>logcat-andtools</AssemblyName>
     <RootNamespace>logcat.AndTools</RootNamespace>
-    <ApplicationIcon>..\app.ico</ApplicationIcon>
+    <ApplicationIcon>..\icon\app.ico</ApplicationIcon>
     <TargetFramework>net10.0-windows</TargetFramework>
     <Nullable>enable</Nullable>
     <UseWindowsForms>true</UseWindowsForms>
@@ -30,7 +30,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\logcat.UiCore\logcat.UiCore.csproj" />
+    <ProjectReference Include="..\logcat-uicore\logcat.UiCore.csproj" />
   </ItemGroup>
 
   <!-- 仅向测试程序集开放 internal 成员，不改变运行时可见性 -->

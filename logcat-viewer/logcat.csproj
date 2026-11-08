@@ -2,7 +2,7 @@
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <ApplicationIcon>app.ico</ApplicationIcon>
+    <ApplicationIcon>..\icon\app.ico</ApplicationIcon>
     <TargetFramework>net10.0-windows</TargetFramework>
     <Nullable>enable</Nullable>
     <UseWindowsForms>true</UseWindowsForms>
@@ -18,17 +18,19 @@
     <Copyright>Copyright 2026 logcat viewer contributors. Licensed under the Apache License, Version 2.0.</Copyright>
   </PropertyGroup>
 
-  <!-- 构建 / 发布产物中携带项目文档（README、许可、第三方声明与免责声明），满足 Apache-2.0 第 4 条的分发要求 -->
+  <!-- 构建 / 发布产物中携带项目文档（README、许可、第三方声明与免责声明），满足 Apache-2.0 第 4 条的分发要求。
+       工程目录下移一层后路径以 ..\ 回到仓库根，必须同时写显式 Link：否则 %(Link) 退化成
+       「相对工程目录的路径」、.. 段被折叠，sample/ 与 docs/images/ 的层级会静默拍平到输出根 -->
   <ItemGroup>
-    <None Include="README.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
-    <None Include="README.zh-CN.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
-    <None Include="LICENSE" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
-    <None Include="THIRD-PARTY-NOTICES.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
-    <None Include="DISCLAIMER.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <None Include="..\README.md" Link="README.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <None Include="..\README.zh-CN.md" Link="README.zh-CN.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <None Include="..\LICENSE" Link="LICENSE" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <None Include="..\THIRD-PARTY-NOTICES.md" Link="THIRD-PARTY-NOTICES.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <None Include="..\DISCLAIMER.md" Link="DISCLAIMER.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <!-- 文件代理示例（sample/fileproxy/）：随发布包分发，用户解压后按其中 README 即可配置代理 -->
-    <None Include="sample/**" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <None Include="..\sample\**" Link="sample\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <!-- README 中的演示动图：按仓库内相对路径 docs/images/ 分发，保证解压后 README 图片链接可解析 -->
-    <None Include="docs/images/main.gif" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <None Include="..\docs\images\main.gif" Link="docs\images\main.gif" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 
   <!--
@@ -71,31 +73,7 @@
 
   <!-- 共享 UI 库（两 exe 共用的 adb 面、本地化、设备工具 UI） -->
   <ItemGroup>
-    <ProjectReference Include="logcat.UiCore\logcat.UiCore.csproj" />
-  </ItemGroup>
-
-  <!-- 单元测试工程位于 tests/ 子目录：默认 glob 会把它当作本工程的源码，必须排除 -->
-  <ItemGroup>
-    <Compile Remove="tests/**" />
-    <None Remove="tests/**" />
-    <EmbeddedResource Remove="tests/**" />
-    <Content Remove="tests/**" />
-  </ItemGroup>
-
-  <!-- 共享库工程位于 logcat.UiCore/ 子目录：默认 glob 会把它的源码并入本工程，必须排除 -->
-  <ItemGroup>
-    <Compile Remove="logcat.UiCore/**" />
-    <None Remove="logcat.UiCore/**" />
-    <EmbeddedResource Remove="logcat.UiCore/**" />
-    <Content Remove="logcat.UiCore/**" />
-  </ItemGroup>
-
-  <!-- 独立工具箱 exe 工程位于 logcat.AndTools/ 子目录：默认 glob 会把它的源码并入本工程，必须排除 -->
-  <ItemGroup>
-    <Compile Remove="logcat.AndTools/**" />
-    <None Remove="logcat.AndTools/**" />
-    <EmbeddedResource Remove="logcat.AndTools/**" />
-    <Content Remove="logcat.AndTools/**" />
+    <ProjectReference Include="..\logcat-uicore\logcat.UiCore.csproj" />
   </ItemGroup>
 
   <!-- 仅向测试程序集开放 internal 成员（用于构造不落盘的存储实例），不改变运行时可见性 -->
