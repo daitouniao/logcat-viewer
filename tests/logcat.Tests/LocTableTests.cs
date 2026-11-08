@@ -163,9 +163,9 @@ public class LocTableTests
     /// 这条比「半句残留」那更硬：它直接咬住调用点与表的契约。
     /// </summary>
     [Theory]
-    [InlineData("logcat.UiCore/Forms/CommandEditDialog.cs", "HINT")]
-    [InlineData("logcat.UiCore/Forms/RunAsDialog.cs", "HINT")]
-    [InlineData("logcat.UiCore/Forms/CommandDialog.cs", "HINT_TEXT")]
+    [InlineData("logcat-uicore/Forms/CommandEditDialog.cs", "HINT")]
+    [InlineData("logcat-uicore/Forms/RunAsDialog.cs", "HINT")]
+    [InlineData("logcat-uicore/Forms/CommandDialog.cs", "HINT_TEXT")]
     public void 拼接式说明文案的整串必须有译文(string relFile, string constName)
     {
         var repoRoot = FindRepoRoot();
@@ -1037,22 +1037,23 @@ public class LocTableTests
         {
             var rel = Path.GetRelativePath(repoRoot, file).Replace('\\', '/');
             if (rel.StartsWith("tests/") || rel.StartsWith("obj/") || rel.StartsWith("bin/")
-                || rel.StartsWith("publish/") || rel.Contains("/obj/") || rel.Contains("/bin/")
+                || rel.StartsWith("publish/") || rel.StartsWith(".tmp-test/")
+                || rel.Contains("/obj/") || rel.Contains("/bin/")
                 || IsLocTablePath(rel))
                 continue;
             yield return file;
         }
     }
 
-    /// <summary>字符串表文件路径（共享库搬迁后落在 logcat.UiCore/Services/，旧路径保留兜底）。</summary>
+    /// <summary>字符串表文件路径（共享库搬迁后落在 logcat-uicore/Services/）。</summary>
     static bool IsLocTablePath(string rel) =>
-        rel.StartsWith("Services/LocTable.") || rel.StartsWith("logcat.UiCore/Services/LocTable.");
+        rel.StartsWith("logcat-uicore/Services/LocTable.");
 
     /// <summary>
     /// 仓库根目录。编译期由<code>logcat.Tests.csproj</code> 的
     /// <c>AssemblyMetadata("RepoRoot", …)</c> 注入 —— <b>不能</b>靠
     /// <c>AppContext.BaseDirectory</c> 往上找：测试可能被 tstrun 之类的外部 runner
-    /// 从仓库外的目录启动，那样找不到 <c>logcat.csproj</c>（实测过）。
+    /// 从仓库外的目录启动，那样找不到 <c>logcat-viewer/logcat.csproj</c>（实测过）。
     /// </summary>
     static string FindRepoRoot()
     {
@@ -1062,7 +1063,7 @@ public class LocTableTests
             .FirstOrDefault(a => a.Key == "RepoRoot");
         var root = attr?.Value;
         Assert.False(string.IsNullOrEmpty(root), "缺少 AssemblyMetadata(\"RepoRoot\")，检查 logcat.Tests.csproj");
-        Assert.True(File.Exists(Path.Combine(root!, "logcat.csproj")), $"注入的 RepoRoot 不对：{root}");
+        Assert.True(File.Exists(Path.Combine(root!, "logcat-viewer", "logcat.csproj")), $"注入的 RepoRoot 不对：{root}");
         return root!;
     }
 }

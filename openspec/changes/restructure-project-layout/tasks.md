@@ -37,11 +37,11 @@
 
 ## 4. 测试侧路径字面量与源码扫描
 
-- [ ] 4.1 `LocTableTests.FindRepoRoot()` 与 `CiLocaleAssertionTests.FindRepoRoot()` 的哨兵断言改为判定 `Path.Combine(root, "logcat-viewer", "logcat.csproj")`；同时改正 `LocTableTests.cs:1055` 的 `FindRepoRoot` doc 注释（现写「那样找不到 `logcat.csproj`」，不改正会让人往仓库根找；`CiLocaleAssertionTests` 的同名注释实测不含该句，无需改），并把 `IsLocTablePath` 的 `<summary>`（`:1047`，「共享库搬迁后落在 logcat.UiCore/Services/」）改为 `logcat-uicore`（design D-6 第 1、2 条）。验证：`dotnet test tests/logcat.Tests/logcat.Tests.csproj --filter "FullyQualifiedName~LocTableTests|FullyQualifiedName~CiLocaleAssertionTests"` 全过，无「注入的 RepoRoot 不对」失败。
-- [ ] 4.2 `LocTableTests.IsLocTablePath` 的前缀判定改为 `"logcat-uicore/Services/LocTable."`，同时清掉搬迁前的 `"Services/LocTable."` 兜底。验证：用例 `LocTableTests.本地化调用点的中文键都有译文` 通过（译文表被误判为调用点时该用例会报缺译文）。
-- [ ] 4.3 `LocTableTests` 三条 `[InlineData("logcat.UiCore/Forms/…")]` 改前缀为 `logcat-uicore/Forms/…`。验证：用例 `LocTableTests.拼接式说明文案的整串必须有译文` 三个数据行全过（旧前缀会报「找不到源文件」）。
-- [ ] 4.4 `LocTableTests.EnumerateSourceFiles` 的排除项补 `.tmp-test/`（design D-6）。验证：`LocTableTests.本地化调用点的中文键都有译文`（哨兵 `scanned > 300`）与 `LocTableTests.本地化格式串的占位符数与实参个数一致`（哨兵 `scanned > 50`）仍通过——实测 `.tmp-test/` 下 40 个手写 `.cs` 中 `Loc.T/F/Bind` 调用为 0 处，因此**计数不变**，若数字发生变化说明排除逻辑写错；并复跑 `LocTableTests.列头BindCol必须挂进Columns集合`、`LocTableTests.绑定资源键不得是已译文本` 确认扫描面变化未引入假绿；**两条哨兵的 `scanned` 绝对计数写入完成记录**（与 1.4 基线同值）。
-- [ ] 4.5 跑全量 `dotnet test tests/logcat.Tests/logcat.Tests.csproj -c Debug`，口径必须是 **与 1.4 实测基线一致、0 失败**（design D-13 + D-18）。验证：把实际输出数字与基线逐项比对并写入完成记录；任何差异都必须先解释来源（用例数不增不减是硬约束）。**✋ 停靠点 ②（D-61）**：把 3.x 构建结果（含 3.1 的 `Link` 拍平验证、3.2 的重复类型检查）与全量用例数字回报，等确认再进 section 5。
+- [x] 4.1 `LocTableTests.FindRepoRoot()` 与 `CiLocaleAssertionTests.FindRepoRoot()` 的哨兵断言改为判定 `Path.Combine(root, "logcat-viewer", "logcat.csproj")`；同时改正 `LocTableTests.cs:1055` 的 `FindRepoRoot` doc 注释（现写「那样找不到 `logcat.csproj`」，不改正会让人往仓库根找；`CiLocaleAssertionTests` 的同名注释实测不含该句，无需改），并把 `IsLocTablePath` 的 `<summary>`（`:1047`，「共享库搬迁后落在 logcat.UiCore/Services/」）改为 `logcat-uicore`（design D-6 第 1、2 条）。验证：`dotnet test tests/logcat.Tests/logcat.Tests.csproj --filter "FullyQualifiedName~LocTableTests|FullyQualifiedName~CiLocaleAssertionTests"` 全过，无「注入的 RepoRoot 不对」失败。
+- [x] 4.2 `LocTableTests.IsLocTablePath` 的前缀判定改为 `"logcat-uicore/Services/LocTable."`，同时清掉搬迁前的 `"Services/LocTable."` 兜底。验证：用例 `LocTableTests.本地化调用点的中文键都有译文` 通过（译文表被误判为调用点时该用例会报缺译文）。
+- [x] 4.3 `LocTableTests` 三条 `[InlineData("logcat.UiCore/Forms/…")]` 改前缀为 `logcat-uicore/Forms/…`。验证：用例 `LocTableTests.拼接式说明文案的整串必须有译文` 三个数据行全过（旧前缀会报「找不到源文件」）。
+- [x] 4.4 `LocTableTests.EnumerateSourceFiles` 的排除项补 `.tmp-test/`（design D-6）。验证：`LocTableTests.本地化调用点的中文键都有译文`（哨兵 `scanned > 300`）与 `LocTableTests.本地化格式串的占位符数与实参个数一致`（哨兵 `scanned > 50`）仍通过——实测 `.tmp-test/` 下 40 个手写 `.cs` 中 `Loc.T/F/Bind` 调用为 0 处，因此**计数不变**，若数字发生变化说明排除逻辑写错；并复跑 `LocTableTests.列头BindCol必须挂进Columns集合`、`LocTableTests.绑定资源键不得是已译文本` 确认扫描面变化未引入假绿；**两条哨兵的 `scanned` 绝对计数写入完成记录**（与 1.4 基线同值）。
+- [x] 4.5 跑全量 `dotnet test tests/logcat.Tests/logcat.Tests.csproj -c Debug`，口径必须是 **与 1.4 实测基线一致、0 失败**（design D-13 + D-18）。验证：把实际输出数字与基线逐项比对并写入完成记录；任何差异都必须先解释来源（用例数不增不减是硬约束）。**✋ 停靠点 ②（D-61）**：把 3.x 构建结果（含 3.1 的 `Link` 拍平验证、3.2 的重复类型检查）与全量用例数字回报，等确认再进 section 5。
 
 ## 5. 脚本与仓库卫生
 

@@ -327,7 +327,7 @@ public class CiLocaleAssertionTests
             .FirstOrDefault(a => a.Key == "RepoRoot");
         var root = attr?.Value;
         Assert.False(string.IsNullOrEmpty(root), "缺少 AssemblyMetadata(\"RepoRoot\")，检查 logcat.Tests.csproj");
-        Assert.True(File.Exists(Path.Combine(root!, "logcat.csproj")), $"注入的 RepoRoot 不对：{root}");
+        Assert.True(File.Exists(Path.Combine(root!, "logcat-viewer", "logcat.csproj")), $"注入的 RepoRoot 不对：{root}");
         return root!;
     }
 }
