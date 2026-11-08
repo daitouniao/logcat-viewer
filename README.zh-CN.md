@@ -1,10 +1,10 @@
 # logcat viewer
 
-[![Version: V0.1.9-pre1](https://img.shields.io/badge/version-V0.1.9--pre1-green)](logcat.csproj)
+[![Version: V0.1.9-pre1](https://img.shields.io/badge/version-V0.1.9--pre1-green)](logcat-viewer/logcat.csproj)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
 [![Platform: Windows](https://img.shields.io/badge/platform-Windows-lightgrey)](#环境要求)
 [![CI](https://github.com/daitouniao/logcat-viewer/actions/workflows/ci.yml/badge.svg)](https://github.com/daitouniao/logcat-viewer/actions/workflows/ci.yml)
-[![Tests: 848 passing](https://img.shields.io/badge/tests-848%20passing-green)](docs/TESTING.md)
+[![Tests: 852 passing](https://img.shields.io/badge/tests-852%20passing-green)](docs/TESTING.md)
 [![Coverage: 97.31% lines](https://img.shields.io/badge/coverage-97.31%25%20lines-blue)](docs/TESTING.md)
 
 Windows 桌面端 Android 日志（logcat）工具组。基于 WinForms，一个仓库出**两个 exe**：`logcat.exe` 日志查看器——内存映射文件 + 列式索引，可直接打开并流畅浏览千万行级别的日志文件，支持 ADB 实时采集；`logcat-andtools.exe` 安卓工具箱——截图、录屏、文件互传、APK 安装/卸载与命令窗口合并为一个页签式窗口，可独立使用。查看器的「设备操作」入口一键拉起工具箱，两者也可各开各的。
@@ -136,7 +136,7 @@ Windows 桌面端 Android 日志（logcat）工具组。基于 WinForms，一个
 - **切换入口**：`帮助 → 语言 → 简体中文 / English`，选择写入 exe 同级目录的 `language.json`（两个 exe 共用，一侧改过另一侧重启后跟随）
 - **默认语言**：首次启动跟随系统区域（`CultureInfo.CurrentUICulture`）；设置缺失或损坏时也回退到它
 - **切换时不只换文字**：整个 UI 是代码构建的（`frmMain.Designer.cs` 只有 37 行），所以切换会遍历所有已打开窗体，换上目标语言的字体（中文用「微软雅黑 UI」——Segoe UI 无中文字形，高 DPI 下会被裁字；英文用原生 Segoe UI），再按实测文本宽度重算定宽按钮与绝对定位对话框的尺寸——英文普遍比同义中文长 30~50%
-- **规模**：`logcat.UiCore/Services/LocTable.*.cs` 按区域拆分的译文表，另有一批按语言区分的列宽与对话框尺寸常量
+- **规模**：`logcat-uicore/Services/LocTable.*.cs` 按区域拆分的译文表，另有一批按语言区分的列宽与对话框尺寸常量
 
 双语布局审计会在两种语言下按「最小 / 默认 / 半宽」三档遍历控件树，断言**裁字数为 0**。
 
@@ -163,9 +163,9 @@ Windows 桌面端 Android 日志（logcat）工具组。基于 WinForms，一个
 
 ```powershell
 dotnet build logcat.slnx -c Release        # 构建（两个 exe 一起出）
-dotnet run --project .                     # 运行日志查看器
-dotnet publish logcat.csproj -c Release -o publish\fd
-dotnet publish logcat.AndTools\logcat.AndTools.csproj -c Release -o publish\fd
+dotnet run --project logcat-viewer         # 运行日志查看器
+dotnet publish logcat-viewer\logcat.csproj -c Release -o publish\fd
+dotnet publish logcat-android-tools\logcat.AndTools.csproj -c Release -o publish\fd
                                            # 发布（框架依赖；两条都要跑，两 exe 落同一目录；自包含见 docs/BUILDING.md）
 ```
 
@@ -193,7 +193,7 @@ dotnet test tests/logcat.Tests/logcat.Tests.csproj --collect:"XPlat Code Coverag
 python tests/coverage-report.py     # 输出 tests/coverage-report.html
 ```
 
-当前状态：**848 个用例全部通过**；行/分支覆盖率沿用 2026-11-01 采样（工程拆分后统计口径待重定），见 [docs/TESTING.md](docs/TESTING.md)。
+当前状态：**852 个用例全部通过**；行/分支覆盖率沿用 2026-11-01 采样（工程拆分后统计口径待重定），见 [docs/TESTING.md](docs/TESTING.md)。
 
 覆盖口径见 `tests/logcat.Tests/coverlet.runsettings`，排除两类代码：
 - **UI 层**：`Forms` / `Controls` / `frmMain` / `Program`，以及 `DpiFix` / `DpiDiag` / `Loc`。`Loc`（本地化运行时）与 `DpiFix` 同理——它一半的代码是控件树遍历、字体替换与文本像素测量，没有真实窗体与消息泵无从验证
@@ -236,12 +236,13 @@ python tests/coverage-report.py     # 输出 tests/coverage-report.html
 
 ## 目录结构
 
-一个解决方案（`logcat.slnx`）三个工程：查看器 exe、工具箱 exe、两 exe 共用的共享库。
+一个解决方案（`logcat.slnx`）三个同级工程目录：查看器 exe、工具箱 exe、两 exe 共用的共享库；另有根级共享基础设施。
 
 ```
-logcat.slnx             解决方案（logcat exe + logcat.UiCore 共享库 + logcat.AndTools exe）
-Directory.Build.props   <Version> 唯一来源（三工程一并继承）
-logcat.UiCore/          共享库：两个 exe 共用的全部能力（自身不出 exe）
+logcat.slnx              解决方案（logcat-viewer exe + logcat-uicore 共享库 + logcat-android-tools exe）
+Directory.Build.props    <Version> 唯一来源（三工程一并继承）
+icon/app.ico             程序图标（两个 exe 的 csproj ApplicationIcon）
+logcat-uicore/           共享库：两个 exe 共用的全部能力（自身不出 exe）
   Controls/
     FilePane.cs           文件面板基类（导航、列表渲染、收藏、重命名、拖放）
     DeviceFilePane.cs     设备端文件面板
@@ -272,41 +273,41 @@ logcat.UiCore/          共享库：两个 exe 共用的全部能力（自身不
     SettingsIO.cs + ConfigMigration.cs + LegacySettings.cs
                           带版本号的 JSON 读写（原子写）+ 旧版单文件 settings.json 的一次性拆分迁移
     AppInfo.cs            产品名与版本号（读取程序集 InformationalVersion，标题与关于对话框共用）
-logcat.AndTools/         安卓工具箱 exe（logcat-andtools.exe）
+logcat-android-tools/    安卓工具箱 exe（logcat-andtools.exe）
   Program.cs             入口：独立单实例互斥量与唤醒事件、配置拆分、唤醒监听
   AndToolsMainForm.cs    主窗口（DeviceOpsDialog 容器升格：标题、自有设备下拉、窗口几何）
   AndToolsWindowGeometry.cs 工具箱窗口几何存取（andtools.json）
   AndToolsMigration.cs   工具箱侧落盘分支（从旧 settings.json 写出 andtools.json 与 language.json）
   WakeUp.cs              二次启动唤醒：请求前置，失败退任务栏闪烁
-Program.cs               查看器入口（logcat.exe）
-frmMain.cs               查看器主窗口：布局、双行工具栏、过滤面板构建与收藏、ADB 功能入口、快捷键
-Controls/
-  LogListView.cs         虚拟模式日志列表（列定义、级别配色、标记、视图快照）
-  LoadPublishBuffer.cs   分块渐进加载的发布缓冲
-Forms/
-  FilterDialog.cs        过滤设置的非模态悬浮窗口（承载主窗体的过滤面板）
-  CrashSummaryForm.cs    崩溃汇总窗口（☠ 摘要行、按类型/包名分组、点击跳转定位）
-  RecordDialog.cs        单条记录详情
-  FileProxyDialog.cs     文件代理监视窗口
-Models/
-  FilterSpec.cs          过滤条件
-  CrashEvent.cs          索引阶段提取出的崩溃事件（类型 / 包名 / 行号 / 时间戳）
-Services/
-  LogDocument.cs         列式索引文档（mmap、并行建索引、增量 Reload）
-  LogParser.cs           行解析（六种格式 + 新记录特征判定）
-  CrashExtractor.cs      崩溃 / ANR / native fault 信号检测（绑进索引扫描）
-  CrashAggregator.cs     崩溃事件按类型与包名分组，供崩溃汇总窗口使用
-  FilterEngine.cs        过滤引擎（预筛 → message 匹配（大文档块扫描 / 增量逐条）→ 导出）
-  LogcatStream.cs        实时 logcat 采集流
-  TextProbe.cs           加载期编码/文本探测
-  LogcatSettings.cs      查看器侧设置（settings.json：窗口几何、显示选项、文件代理）
-  FileProxyService.cs + FileProxyClient.cs + FileProxyMode.cs + ProxyChannel.cs + FileProxyException.cs
+logcat-viewer/           查看器 exe（logcat.exe）
+  Program.cs             入口
+  frmMain.cs             查看器主窗口：布局、双行工具栏、过滤面板构建与收藏、ADB 功能入口、快捷键
+  Controls/
+    LogListView.cs         虚拟模式日志列表（列定义、级别配色、标记、视图快照）
+    LoadPublishBuffer.cs   分块渐进加载的发布缓冲
+  Forms/
+    FilterDialog.cs        过滤设置的非模态悬浮窗口（承载主窗体的过滤面板）
+    CrashSummaryForm.cs    崩溃汇总窗口（☠ 摘要行、按类型/包名分组、点击跳转定位）
+    RecordDialog.cs        单条记录详情
+    FileProxyDialog.cs     文件代理监视窗口
+  Models/
+    FilterSpec.cs          过滤条件
+    CrashEvent.cs          索引阶段提取出的崩溃事件（类型 / 包名 / 行号 / 时间戳）
+  Services/
+    LogDocument.cs         列式索引文档（mmap、并行建索引、增量 Reload）
+    LogParser.cs           行解析（六种格式 + 新记录特征判定）
+    CrashExtractor.cs      崩溃 / ANR / native fault 信号检测（绑进索引扫描）
+    CrashAggregator.cs     崩溃事件按类型与包名分组，供崩溃汇总窗口使用
+    FilterEngine.cs        过滤引擎（预筛 → message 匹配（大文档块扫描 / 增量逐条）→ 导出）
+    LogcatStream.cs        实时 logcat 采集流
+    TextProbe.cs           加载期编码/文本探测
+    LogcatSettings.cs      查看器侧设置（settings.json：窗口几何、显示选项、文件代理）
+    FileProxyService.cs + FileProxyClient.cs + FileProxyMode.cs + ProxyChannel.cs + FileProxyException.cs
                           本地文件代理管线（命名管道、暂存目录、代理进程管理）
-  AndToolsLauncher.cs    工具箱启动器（File.Exists 探测 → 缺失禁用入口并提示，存在则 Process.Start）
-app.ico                  程序图标（两个 exe 的 csproj ApplicationIcon）
+    AndToolsLauncher.cs    工具箱启动器（File.Exists 探测 → 缺失禁用入口并提示，存在则 Process.Start）
 tests/
   coverage-report.py      覆盖率报告生成（coverlet 的 cobertura XML → 可读 HTML）
-  logcat.Tests/           xUnit 测试工程（848 个用例：日志解析 / 列式索引 / 过滤引擎 / 崩溃提取 / 持久化 / 本地化 / 配置拆分 / 设备选择）
+  logcat.Tests/           xUnit 测试工程（852 个用例：日志解析 / 列式索引 / 过滤引擎 / 崩溃提取 / 持久化 / 本地化 / 配置拆分 / 设备选择）
     coverlet.runsettings  覆盖率统计口径（Include / Exclude 规则）
 docs/
   BUILDING.md             怎么编译与发布（每包两条 publish 命令、产物验证、冒烟清单与踩坑表）
@@ -348,7 +349,7 @@ DISCLAIMER.md           免责声明全文
 
 本项目采用 [Apache License 2.0](LICENSE)（全文见 `LICENSE`）。选择它的依据是「跟随所使用的三方库与编译工具的许可」：唯一的非微软依赖就是 Apache-2.0 的 ADB 客户端库，其余皆为 MIT，因此 Apache-2.0 可以无冲突地覆盖整棵依赖树，同时额外提供专利授权。可按 Apache-2.0 条款自由使用、修改、分发（含商用）。
 
-> 源码由 AI 辅助生成，不指定自然人作者，版权以 `logcat viewer contributors` 集体名义声明。若需换成自己的署名，改两处即可：`LICENSE` 附录的 `Copyright` 行、`logcat.csproj` 的 `<Copyright>`。
+> 源码由 AI 辅助生成，不指定自然人作者，版权以 `logcat viewer contributors` 集体名义声明。若需换成自己的署名，改两处即可：`LICENSE` 附录的 `Copyright` 行、`logcat-viewer/logcat.csproj` 的 `<Copyright>`。
 
 ### 许可相容性
 

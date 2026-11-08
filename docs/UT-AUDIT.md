@@ -415,7 +415,7 @@ var a = AppSettings.Default;
 
 ### 🔴 P1-2　取消粒度完全没被验证
 
-**位置**：`Services/LogDocument.cs:447` 的 `lineInChunk % 5000`
+**位置**：`logcat-viewer/Services/LogDocument.cs:447` 的 `lineInChunk % 5000`
 
 变异：`% 5000` → `% 1000000`，**354 全绿**。
 
@@ -479,7 +479,7 @@ Assert.Equal(60, store.TagFilters.Count);   // 只验证数量
 ### 🟡 P2-3　`Describe` 缺全集级别断言
 
 `FilterSpec.IsEmpty` 有「全集级别 → 空条件」的用例，`Describe` 没有对应断言。
-把 `Models/FilterSpec.cs:44` 的全集短路删掉，`Describe` 仍返回 `（无过滤）`，测试全绿。
+把 `logcat-viewer/Models/FilterSpec.cs:44` 的全集短路删掉，`Describe` 仍返回 `（无过滤）`，测试全绿。
 
 > **✅ 处理（10-05）**：新增 `Describe传全集级别视为无过滤`，除全集短路外还加了
 > 「乱序全集」与「少一个级别必须输出」两条边界。现已 KILLED。
@@ -488,7 +488,7 @@ Assert.Equal(60, store.TagFilters.Count);   // 只验证数量
 
 ### 🟡 P2-4　`TryParseInt` 缺脏数据用例
 
-`Services/LogParser.cs:415` 的 `TryParseInt` 在括号内出现非数字时返回 `-1`。
+`logcat-viewer/Services/LogParser.cs:415` 的 `TryParseInt` 在括号内出现非数字时返回 `-1`。
 现有用例只覆盖了「纯空格」（`I/Tag(    ):`）和正常数字，`I/Tag(abc):` 这类脏数据没测。
 把 `if (b < ZERO || b > NINE) return -1;` 改成 `if (false) return -1;`，**354 全绿**。
 
@@ -530,7 +530,7 @@ SURVIVED 里**多数不是问题**。这部分同样重要——避免下次重�
 - **`EnsureCap` 扩容步长、`SetColumns` 初始容量**（改成 1 都 SURVIVED）
   —— 这两处**只影响性能、不影响正确性**，没有断言是合理的。要测得断性能阈值，收益低。
 - **`FilterTail` 的 `n <= start` → `n < start`** —— 实时采集里 `start == RowCount` 确实会发生
-  （`frmMain.cs:713` 传 `_filterDocRows`），但那条路径本就返回空数组，属等价变异。
+  （`logcat-viewer/frmMain.cs:713` 传 `_filterDocRows`），但那条路径本就返回空数组，属等价变异。
 - **`Reload` 去掉「头部变化则重建」判定** —— 需要在 mmap 期间改写文件头才能构造，
   单测无法稳定复现，用例注释已说明。
 
@@ -616,7 +616,7 @@ if (!minSet.Contains(doc.Minute[i])) continue;
    但那是假的，真实结论被淹没。
 2. **kill 脚本会残留变异** —— 脚本只在跑完一个变异后`git checkout --` 回滚，
    中途 kill 的话**当次改的代码留在工作区**。本轮两次都残留在
-   `Services/LogDocument.cs` 的 `f.Position = start;`（`start` 行对齐那个经典吞行 bug），
+   `logcat-viewer/Services/LogDocument.cs` 的 `f.Position = start;`（`start` 行对齐那个经典吞行 bug），
    差点把变异体当成真实代码提交进去。
 
 **正确顺序**：先把所有测试改动 **commit** → 再跑变异 → **期间只读不改**（连 `git status` 都别做）。
@@ -624,9 +624,9 @@ if (!minSet.Contains(doc.Minute[i])) continue;
 **kill 后的自检**（务必做）：
 
 ```bash
-git diff --stat Services/ Models/       # 看有没有残留
+git diff --stat logcat-viewer/Services/ logcat-viewer/Models/       # 看有没有残留
 # 还原残留变异：从备份/编辑器历史恢复该文件，不要 git checkout --（未提交时会被打回 HEAD）
-grep -n "if (false)" Services/*.cs Models/*.cs   # 找残留的变异特征
+grep -n "if (false)" logcat-viewer/Services/*.cs logcat-viewer/Models/*.cs   # 找残留的变异特征
 ```
 
 ### 5.4 自我矛盾时以实测为准

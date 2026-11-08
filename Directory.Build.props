@@ -1,6 +1,6 @@
 <Project>
 
-  <!-- 版本号唯一来源：发布时只改这里，显示约定为 V<Version>（见 Services/AppInfo.cs）。
+  <!-- 版本号唯一来源：发布时只改这里，显示约定为 V<Version>（见 logcat-uicore/Services/AppInfo.cs）。
        仓库内所有工程（logcat / logcat.UiCore / logcat.AndTools / tests）经此文件统一继承。 -->
   <PropertyGroup>
     <Version>0.1.9-pre1</Version>

@@ -18,11 +18,11 @@
 
 | 位置 | 改什么 |
 |---|---|
-| `Directory.Build.props` | `<Version>0.1.7</Version>` |
+| `Directory.Build.props` | `<Version>` 的值 |
 | `README.md` | 顶部 badge 里的版本文字 |
-| `README.md` | "Current version **V0.1.4**" |
+| `README.md` | "Current version **V<版本>**" |
 | `README.zh-CN.md` | 顶部 badge 里的版本文字 |
-| `README.zh-CN.md` | "当前版本 **V0.1.4**" |
+| `README.zh-CN.md` | "当前版本 **V<版本>**" |
 
 标题栏、关于对话框、exe 文件属性都从 `<Version>` 自动取，不用改。
 
@@ -48,14 +48,16 @@ dotnet build tests\logcat.Tests\logcat.Tests.csproj -c Release
 
 ## 四、发布
 
+> 工程目录自 2026-11 重组：主 exe 在 `logcat-viewer/`，共享库在 `logcat-uicore/`，工具 exe 在 `logcat-android-tools/`。旧笔记或 issue 里写的 `logcat.csproj` / `logcat.UiCore` / `logcat.AndTools` 一并按此替换。
+
 以 V0.1.4 为例，**先把版本号换掉**再执行。
 
 每个版本发**两个包**：自包含 + 框架依赖。
 
 | 包 | 目标机要求 | 体积 |
 |---|---|---|
-| **自包含** `logcat-V0.1.4-win-x64.zip` | 只需 Windows | 约 120 MB |
-| **框架依赖** `logcat-V0.1.4-win-x64-fd.zip` | 须预装 .NET 10 Desktop Runtime | 约 2 MB |
+| **自包含** `logcat-V<版本>-win-x64.zip` | 只需 Windows | 约 120 MB |
+| **框架依赖** `logcat-V<版本>-win-x64-fd.zip` | 须预装 .NET 10 Desktop Runtime | 约 2 MB |
 
 ### 1. 先删干净目标目录
 
@@ -73,19 +75,19 @@ Remove-Item -Recurse -Force publish\Release\V0.1.4-fdd
 
 > ⚠️ **`-p:PublishDir` 必须写绝对路径**（`<仓库根>` 换成你的仓库根目录）。
 > 相对路径会被 SDK 按**各工程目录**解析：第二条命令的产物会落进
-> `logcat.AndTools\publish\Release\...` 而不是仓库根，`logcat-andtools.exe`
+> `logcat-android-tools\publish\Release\...` 而不是仓库根，`logcat-andtools.exe`
 > 就此从包里消失。`-p:DebugType=none` 用于剔除本仓库工程的 pdb。
 >
 > ⚠️ **不要加 `-p:PublishSingleFile=true`**，单文件 exe 实测启动失败。
 > ⚠️ 不要改用 `dotnet publish logcat.slnx -o`：会把测试工程一并 publish 进包。
 
 ```powershell
-dotnet publish logcat.csproj -c Release `
+dotnet publish logcat-viewer\logcat.csproj -c Release `
   -p:SelfContained=true -p:RuntimeIdentifier=win-x64 `
   -p:DebugType=none -p:DebugSymbols=false `
   -p:PublishDir=<仓库根>\publish\Release\V0.1.4-selfcontained\
 
-dotnet publish logcat.AndTools\logcat.AndTools.csproj -c Release `
+dotnet publish logcat-android-tools\logcat.AndTools.csproj -c Release `
   -p:SelfContained=true -p:RuntimeIdentifier=win-x64 `
   -p:DebugType=none -p:DebugSymbols=false `
   -p:PublishDir=<仓库根>\publish\Release\V0.1.4-selfcontained\
@@ -100,12 +102,12 @@ Compress-Archive -Path publish\Release\V0.1.4-selfcontained\* `
 `-p:PublishDir` 同样**必须绝对路径**、`-p:DebugType=none` 同样必带：
 
 ```powershell
-dotnet publish logcat.csproj -c Release `
+dotnet publish logcat-viewer\logcat.csproj -c Release `
   -p:RuntimeIdentifier=win-x64 `
   -p:DebugType=none -p:DebugSymbols=false `
   -p:PublishDir=<仓库根>\publish\Release\V0.1.4-fdd\
 
-dotnet publish logcat.AndTools\logcat.AndTools.csproj -c Release `
+dotnet publish logcat-android-tools\logcat.AndTools.csproj -c Release `
   -p:RuntimeIdentifier=win-x64 `
   -p:DebugType=none -p:DebugSymbols=false `
   -p:PublishDir=<仓库根>\publish\Release\V0.1.4-fdd\
@@ -129,11 +131,11 @@ Test-Path publish\Release\V0.1.4-fdd\coreclr.dll   # 应为 False
 Get-ChildItem publish\Release\V0.1.4-selfcontained, publish\Release\V0.1.4-fdd `
   -Include *.pdb, *test*, *xunit*, *coverlet* -Recurse
 
-# 文件代理示例必须随包分发（由 csproj 的 <None Include="sample/**"> 负责，别删该项）
+# 文件代理示例必须随包分发（由 csproj 里指向 sample/ 的 <None Include> 项（..\sample\** + Link="sample\…"）负责，别删该项）
 Test-Path publish\Release\V0.1.4-selfcontained\sample\fileproxy\fileproxy.py   # 应为 True
 Test-Path publish\Release\V0.1.4-fdd\sample\fileproxy\fileproxy.py               # 应为 True
 
-# README 演示图必须随包分发（<None Include="docs/images/main.gif">，路径须与 README 内相对链接一致）
+# README 演示图必须随包分发（..\docs\images\main.gif + Link="docs\images\main.gif"，路径须与 README 内相对链接一致）
 Test-Path publish\Release\V0.1.4-selfcontained\docs\images\main.gif              # 应为 True
 Test-Path publish\Release\V0.1.4-fdd\docs\images\main.gif                        # 应为 True
 
@@ -187,10 +189,10 @@ ASP.NET Core Runtime 都起不来。
 |---|---|
 | 打完的 zip 里有 `coverlet.collector.dll` 等测试产物 | 目标目录没删干净，重新删再 publish |
 | `NETSDK1151 自包含的可执行文件不能由非自包含的可执行文件引用` | `SelfContained=true` 写进了 csproj，移出 |
-| 发出去的 zip 是旧版 | 版本号没同步（`logcat.csproj` + 两个 README 的 badge 与当前版本行） |
-| 发出去的 zip 里没有 `sample/fileproxy/` | csproj 的 `<None Include="sample/**">` 被删或改坏，恢复该 ItemGroup 后重打 |
-| 解压后 README 里的演示图裂图 | csproj 的 `<None Include="docs/images/main.gif">` 被删或改了路径，恢复后重打（路径必须与 README 内相对链接一致） |
+| 发出去的 zip 是旧版 | 版本号没同步（`Directory.Build.props` 的 `<Version>` + 两个 README 的 badge 与当前版本行） |
+| 发出去的 zip 里没有 `sample/fileproxy/` | csproj 里指向 `..\sample\**` 的 `<None Include>` 被删或改坏，恢复该 ItemGroup 后重打（**恢复时必须带 `Link="sample\…"`**，否则包内 `sample/` 层级被拍平而构建不报错） |
+| 解压后 README 里的演示图裂图 | csproj 里指向 `..\docs\images\main.gif` 的 `<None Include>` 被删或改坏，恢复后重打（**恢复时必须带 `Link="docs\images\main.gif"`**，且路径必须与 README 内相对链接一致） |
 | 两个包内容一样大 | 框架依赖那条命令漏了 `-p:SelfContained` 的对比检查，确认 runtimeconfig 是否声明了 frameworks |
-| 包里没有 `logcat-andtools.exe` | 第二条 publish 命令（logcat.AndTools 工程）漏执行；或 `-p:PublishDir` 用了相对路径（产物落进 `logcat.AndTools\publish\`），改用绝对路径 |
+| 包里没有 `logcat-andtools.exe` | 第二条 publish 命令（logcat.AndTools 工程）漏执行；或 `-p:PublishDir` 用了相对路径（产物落进 `logcat-android-tools\publish\`），改用绝对路径 |
 | 包里混进 `logcat.Tests.*` | 用了 `dotnet publish logcat.slnx -o`（会连测试工程一起发），改用两条 publish 命令 |
 | 包里出现 `logcat.UiCore.pdb` 等本仓库工程 pdb | publish 命令漏了 `-p:DebugType=none -p:DebugSymbols=false`（只管本仓库工程的 pdb；第三方包的 pdb 默认不随 publish 复制） |

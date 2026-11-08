@@ -1,19 +1,19 @@
 # 单元测试与覆盖率实操指南
 
-> 最后更新：2026-11-01
+> 最后更新：2026-11-08
 > 本文是「怎么把测试跑起来、覆盖率怎么出」的**唯一操作入口**。
 > 有效性审计（变异测试）见 [`UT-AUDIT.md`](UT-AUDIT.md)。
 > **CI 语言环境陷阱**（本地全绿、推送就红）见 §3.4。
 
-## 0. 当前基线（2026-11-02）
+## 0. 当前基线（2026-11-08）
 
 | 项         | 值                                                           |
 | ---------- | ------------------------------------------------------------ |
-| 用例数     | **848**，全过（含 `LocTableTests` 的 30 条本地化一致性用例） |
-| 行覆盖率   | 97.31% (3,828 / 3,934)——2026-11-01 采样，工程拆分后口径待重定 |
-| 分支覆盖率 | 88.65% (1,625 / 1,833)——同上，未重采                         |
-| 方法覆盖率 | 95.61% (414 / 433，判据「方法内 ≥1 行命中」)——同上，未重采   |
-| 统计口径   | 仅 Services + Models（UI 与设备/系统集成层已排除，见 §4）；主体已迁 `logcat.UiCore/`，排除规则随三工程结构调整后另行重采 |
+| 用例数     | **852**，全过（含 `LocTableTests` 的 30 条本地化一致性用例） |
+| 行覆盖率   | 94.26% (2,677 / 2,840)——随结构重组于 2026-11-08 重新采样 |
+| 分支覆盖率 | 88.64% (1,460 / 1,647)——同上，同一批采集                     |
+| 方法覆盖率 | 92.77% (295 / 318，判据「方法内 ≥1 行命中」)——同上，同一批采集 |
+| 统计口径   | 仅 Services + Models（UI 与设备/系统集成层已排除，见 §4）；主体已迁 `logcat-uicore/` |
 
 > 2026-11-06 **fix-devices-changed-race**：846 → **848**（+2：`DeviceSelectorTests`——
 > 通知参数是快照（后续变更不影响已交付内容）、后台刷新与清空并发时枚举不抛）。
@@ -168,7 +168,7 @@
 - 用 tstrun 报告结果必须带口径声明：**tstrun 口径 N 条**（`[Fact]` 全部 + `[Theory]` 按 `[InlineData]` 展开），
   并声明已知跳过类别——`MemberData` / `ClassData` 驱动的 Theory 会被 runner **静默跳过**（§3.2 坑 3），
   汇总行里看不到它们。
-- 交叉验证：tstrun 口径条数应与上表基线（**848**）一致；不一致先怀疑 runner 漏扫，
+- 交叉验证：tstrun 口径条数应与上表基线（**852**）一致；不一致先怀疑 runner 漏扫，
   **不要改数字迁就 runner**。
 - 两条路径都跑不了时（如沙箱故障），如实写「**未验证**」——禁止声称「通过」。
 
@@ -426,7 +426,7 @@ TSTRUN_FAIL_FAST=1 dotnet run           # 首败即停（变异测试脚本用�
 2. **插值表达式里内嵌 `"null"` 会提前闭合字符串**：`$"...{string.Join(", ", data)}..."` 在某些参数下
    会被解析成 `string.Join(", ", data) + "..."` 之类，`string.Join` 的结果要**先提到变量**再插值。
 3. **只匹配 `FactAttribute` 会漏掉全部 Theory** —— 所以要么同时匹配 `TheoryAttribute` 并按
-   `[InlineData]` 展开（上面的代码已做），要么**必须**拿「用例总数」与已知基线（当前 **848**）交叉验证
+   `[InlineData]` 展开（上面的代码已做），要么**必须**拿「用例总数」与已知基线（当前 **852**）交叉验证
    runner 本身没漏。这个交叉验证是每次改 runner 后的必做动作。
 
 ### 3.3 本地化相关的两个特殊坑（2026-10-07）
@@ -443,7 +443,7 @@ Assert.True(scanned > 300, $"只找到 {scanned} 个调用点，解析逻辑大�
 
 改扫描逻辑后，**务必跑一份独立 Python 脚本交叉验证条数**，别信"全绿"。
 
-仓库路径用 csproj 的 `AssemblyMetadata("RepoRoot")` **编译期注入**，不要靠 `AppContext.BaseDirectory` 往上找 `logcat.csproj`——tstrun 跑在 `.tmp-test/` 下，bin 输出目录与仓库根的相对层级会随 runner 重建变化，靠往上找不稳。
+仓库路径用 csproj 的 `AssemblyMetadata("RepoRoot")` **编译期注入**，不要靠 `AppContext.BaseDirectory` 往上找 `logcat-viewer/logcat.csproj`——tstrun 跑在 `.tmp-test/` 下，bin 输出目录与仓库根的相对层级会随 runner 重建变化，靠往上找不稳。
 
 **② `LocTableTests` 只扫 `Loc.*` 调用点，不扫所有字面量**
 
@@ -455,7 +455,7 @@ Assert.True(scanned > 300, $"只找到 {scanned} 个调用点，解析逻辑大�
 
 #### 机制
 
-界面语言由 `Services/Loc.cs` 的**静态构造期**按 `CultureInfo.CurrentUICulture` 探测；
+界面语言由 `logcat-uicore/Services/Loc.cs` 的**静态构造期**按 `CultureInfo.CurrentUICulture` 探测；
 仓库根没有 `settings.json` 时完全由**系统区域**决定：
 
 | 环境       | CurrentUICulture | 界面语言 |

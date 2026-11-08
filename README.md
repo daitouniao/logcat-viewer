@@ -1,10 +1,10 @@
 # logcat viewer
 
-[![Version: V0.1.9-pre1](https://img.shields.io/badge/version-V0.1.9--pre1-green)](logcat.csproj)
+[![Version: V0.1.9-pre1](https://img.shields.io/badge/version-V0.1.9--pre1-green)](logcat-viewer/logcat.csproj)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
 [![Platform: Windows](https://img.shields.io/badge/platform-Windows-lightgrey)](#requirements)
 [![CI](https://github.com/daitouniao/logcat-viewer/actions/workflows/ci.yml/badge.svg)](https://github.com/daitouniao/logcat-viewer/actions/workflows/ci.yml)
-[![Tests: 848 passing](https://img.shields.io/badge/tests-848%20passing-green)](docs/TESTING.md)
+[![Tests: 852 passing](https://img.shields.io/badge/tests-852%20passing-green)](docs/TESTING.md)
 [![Coverage: 97.31% lines](https://img.shields.io/badge/coverage-97.31%25%20lines-blue)](docs/TESTING.md)
 
 A Windows desktop pair for Android logs (`logcat`). Built with WinForms on .NET 10, it ships **two exes from one repo**: `logcat.exe`, the log viewer, opens and scrolls through **tens of millions of log lines** smoothly using memory-mapped files and a columnar index and drives live capture over ADB; `logcat-andtools.exe`, the Android toolbox, gathers the device tools — screenshots, screen recording, two-pane file transfer, APK install/uninstall and a command window — behind one tabbed window. The viewer launches the toolbox from its "Device operations" entry, and each runs standalone: you can use the toolbox without ever opening the viewer.
@@ -132,7 +132,7 @@ The entire UI is available in both languages and switches **at runtime** — no 
 - **Switching**: `Help → Language → 简体中文 / English`; the choice is persisted to `language.json`
 - **Default**: first launch follows the system locale (`CultureInfo.CurrentUICulture`); a corrupt or missing setting falls back to it
 - **What gets re-measured on switch**: not just text. The whole UI is built in code (`frmMain.Designer.cs` is 37 lines), so switching re-walks every open form and applies the target language's font — Microsoft YaHei UI for Chinese (Segoe UI has no CJK glyphs and clips them at high DPI), Segoe UI for English — then re-measures fixed-width buttons and absolutely-positioned dialogs, which are ~30–50% wider in English
-- **Scope**: per-area translation tables under `logcat.UiCore/Services/LocTable.*.cs`, plus per-language fixed widths for columns and dialogs
+- **Scope**: per-area translation tables under `logcat-uicore/Services/LocTable.*.cs`, plus per-language fixed widths for columns and dialogs
 
 A language layout audit walks the control tree in both languages at minimum / default / half width and asserts **zero clipped labels**.
 
@@ -159,13 +159,13 @@ Not sure? Take the self-contained one — it is the larger download but zero set
 
 ```powershell
 dotnet build logcat.slnx -c Release        # build (both exes)
-dotnet run --project .                     # run the viewer
-dotnet publish logcat.csproj -c Release -o publish\fd
-dotnet publish logcat.AndTools\logcat.AndTools.csproj -c Release -o publish\fd
+dotnet run --project logcat-viewer         # run the viewer
+dotnet publish logcat-viewer\logcat.csproj -c Release -o publish\fd
+dotnet publish logcat-android-tools\logcat.AndTools.csproj -c Release -o publish\fd
                                            # publish (framework-dependent; run BOTH, same output dir; self-contained see docs/BUILDING.md)
 ```
 
-You can also open `logcat.slnx` / `logcat.csproj` directly in Visual Studio.
+You can also open `logcat.slnx` / `logcat-viewer\logcat.csproj` directly in Visual Studio.
 
 > Pre-built binaries are shipped alongside every release. Download them from the Release pages:
 > - Gitee (primary): <https://gitee.com/dyugao/logcat-viewer/releases>
@@ -191,7 +191,7 @@ dotnet test tests/logcat.Tests/logcat.Tests.csproj --collect:"XPlat Code Coverag
 python tests/coverage-report.py     # writes tests/coverage-report.html
 ```
 
-Current status: **791 tests, all passing**; **97.31%** line coverage (3,828 / 3,934 lines), **88.65%** branch coverage.
+Current status: **852 tests, all passing**; **97.31%** line coverage (3,828 / 3,934 lines), **88.65%** branch coverage.
 
 The scope is defined in `tests/logcat.Tests/coverlet.runsettings` and excludes two groups:
 
@@ -233,12 +233,13 @@ You can also drag a log file straight onto the window.
 
 ## Project structure
 
-Three projects in one solution (`logcat.slnx`): the viewer exe, the toolbox exe, and the shared library both exes are built on.
+Three sibling project directories in one solution (`logcat.slnx`) — viewer exe, toolbox exe and the shared library both exes are built on — plus root-level shared infrastructure.
 
 ```
-logcat.slnx             Solution (logcat exe + logcat.UiCore library + logcat.AndTools exe)
-Directory.Build.props   <Version> single source (inherited by all three projects)
-logcat.UiCore/          Shared library: everything both exes draw on (no exe of its own)
+logcat.slnx              Solution (logcat-viewer exe + logcat-uicore library + logcat-android-tools exe)
+Directory.Build.props    <Version> single source (inherited by all three projects)
+icon/app.ico             Application icon (referenced in both exe csproj ApplicationIcon)
+logcat-uicore/           Shared library: everything both exes draw on (no exe of its own)
   Controls/
     FilePane.cs           File pane base class (navigation, list rendering, favourites, rename, drag-drop)
     DeviceFilePane.cs     Device-side file pane
@@ -269,41 +270,41 @@ logcat.UiCore/          Shared library: everything both exes draw on (no exe of 
     SettingsIO.cs + ConfigMigration.cs + LegacySettings.cs
                           Versioned JSON IO (atomic write) + one-time split migration from the pre-0.1.7 single `settings.json`
     AppInfo.cs            Product name and version (reads Assembly InformationalVersion)
-logcat.AndTools/         Android toolbox exe (`logcat-andtools.exe`)
+logcat-android-tools/    Android toolbox exe (`logcat-andtools.exe`)
   Program.cs             Entry point: own single-instance mutex + wake event, split migration, wake listener
   AndToolsMainForm.cs    Main window (DeviceOpsDialog container promoted to an app window: title, device dropdown, geometry)
   AndToolsWindowGeometry.cs  Toolbox window geometry save/restore (andtools.json)
   AndToolsMigration.cs   Toolbox-side migration branch (writes andtools.json + language.json from legacy settings)
   WakeUp.cs              Second-launch wake: foreground request, taskbar-flash fallback
-Program.cs               Viewer entry point (logcat.exe)
-frmMain.cs               Viewer main window: layout, dual toolbars, filter panel, ADB entry points, shortcuts
-Controls/
-  LogListView.cs         Virtual-mode log list (columns, level colours, marks, view snapshots)
-  LoadPublishBuffer.cs   Chunked progressive-load publish buffer
-Forms/
-  FilterDialog.cs        Detached filter window (hosts the main window's filter panel)
-  CrashSummaryForm.cs    Crash summary window (☠ rows, one-glance grouping, click to jump)
-  RecordDialog.cs        Single record detail pop-up
-  FileProxyDialog.cs     File proxy monitor window
-Models/
-  FilterSpec.cs          Filter conditions
-  CrashEvent.cs          Crash event detected at index time (type / package / line / timestamp)
-Services/
-  LogDocument.cs         Columnar index document (mmap + columnar index, incremental reload)
-  LogParser.cs           Line parser (six formats + new-record shape detection)
-  CrashExtractor.cs      Crash / ANR / native fault signal detection bound to the index scan
-  CrashAggregator.cs     Groups crash events by type and package for the summary window
-  FilterEngine.cs        Filter engine (pre-filter → message match (block scan for large docs, per-row for incremental) → export)
-  LogcatStream.cs        Live logcat capture stream
-  TextProbe.cs           Encoding/text probes for loading
-  LogcatSettings.cs      Viewer-side settings (`settings.json`: window geometry, display options, file proxy)
-  FileProxyService.cs + FileProxyClient.cs + FileProxyMode.cs + ProxyChannel.cs + FileProxyException.cs
+logcat-viewer/           Viewer exe (`logcat.exe`)
+  Program.cs             Entry point
+  frmMain.cs             Viewer main window: layout, dual toolbars, filter panel, ADB entry points, shortcuts
+  Controls/
+    LogListView.cs         Virtual-mode log list (columns, level colours, marks, view snapshots)
+    LoadPublishBuffer.cs   Chunked progressive-load publish buffer
+  Forms/
+    FilterDialog.cs        Detached filter window (hosts the main window's filter panel)
+    CrashSummaryForm.cs    Crash summary window (☠ rows, one-glance grouping, click to jump)
+    RecordDialog.cs        Single record detail pop-up
+    FileProxyDialog.cs     File proxy monitor window
+  Models/
+    FilterSpec.cs          Filter conditions
+    CrashEvent.cs          Crash event detected at index time (type / package / line / timestamp)
+  Services/
+    LogDocument.cs         Columnar index document (mmap + columnar index, incremental reload)
+    LogParser.cs           Line parser (six formats + new-record shape detection)
+    CrashExtractor.cs      Crash / ANR / native fault signal detection bound to the index scan
+    CrashAggregator.cs     Groups crash events by type and package for the summary window
+    FilterEngine.cs        Filter engine (pre-filter → message match (block scan for large docs, per-row for incremental) → export)
+    LogcatStream.cs        Live logcat capture stream
+    TextProbe.cs           Encoding/text probes for loading
+    LogcatSettings.cs      Viewer-side settings (`settings.json`: window geometry, display options, file proxy)
+    FileProxyService.cs + FileProxyClient.cs + FileProxyMode.cs + ProxyChannel.cs + FileProxyException.cs
                           Local file proxy pipeline (named pipe, spool dirs, launched process management)
-  AndToolsLauncher.cs    Toolbox launcher (File.Exists probe → disable entry with hint, or Process.Start)
-app.ico                  Application icon (referenced in both exe csproj ApplicationIcon)
+    AndToolsLauncher.cs    Toolbox launcher (File.Exists probe → disable entry with hint, or Process.Start)
 tests/
   coverage-report.py     Coverage report generation (coverlet cobertura XML → readable HTML)
-  logcat.Tests/          xUnit test project (848 tests: log parsing / columnar index / filter engine / crash extraction / persistence / localization / settings split / device selection)
+  logcat.Tests/          xUnit test project (852 tests: log parsing / columnar index / filter engine / crash extraction / persistence / localization / settings split / device selection)
     coverlet.runsettings Coverage scope (Include / Exclude rules)
 docs/
   BUILDING.md            How to build and publish — the per-package `dotnet publish` pairs, artifact verification, smoke checklist, pitfall table
@@ -345,7 +346,7 @@ DISCLAIMER.md           Disclaimer full text
 
 [Apache License 2.0](LICENSE). It was chosen to match the licences of the dependencies and toolchain: the only non-Microsoft dependency is the Apache-2.0 ADB client library and everything else is MIT, so Apache-2.0 covers the whole dependency tree without conflict and adds the patent grant. Free to use, modify and distribute under the Apache-2.0 terms, including commercially.
 
-> The source was produced with AI assistance and is not attributed to a named individual author; copyright is declared collectively as `logcat viewer contributors`. To put your own attribution in place, change two places: the `Copyright` line in the `LICENSE` appendix and `<Copyright>` in `logcat.csproj`.
+> The source was produced with AI assistance and is not attributed to a named individual author; copyright is declared collectively as `logcat viewer contributors`. To put your own attribution in place, change two places: the `Copyright` line in the `LICENSE` appendix and `<Copyright>` in `logcat-viewer/logcat.csproj`.
 
 ### Licence compatibility
 

@@ -4,7 +4,7 @@
 # 用法: bash scripts/run-tests-en-us.sh
 #
 # ── 为什么需要这个脚本 ──
-# 界面语言由 Services/Loc.cs 的静态构造期按 CultureInfo.CurrentUICulture 探测；
+# 界面语言由 logcat-uicore/Services/Loc.cs 的静态构造期按 CultureInfo.CurrentUICulture 探测；
 # 仓库根没有 settings.json 时完全由**系统区域**决定。后果：
 #
 #   本地开发机（zh-CN）→ 界面中文 → 某些用例绿

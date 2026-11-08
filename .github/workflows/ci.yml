@@ -37,7 +37,7 @@ jobs:
       # 避免 ProjectReference 主工程的 assets 与测试工程不同步。
       #
       # ── 语言环境：显式钉成 en-US ──
-      # 界面语言由 Services/Loc.cs 静态构造期按 CurrentUICulture 探测，
+      # 界面语言由 logcat-uicore/Services/Loc.cs 静态构造期按 CurrentUICulture 探测，
       # 无 settings.json 时完全由系统区域决定 → 本地 zh-CN、runner en-US。
       # 历史上 CI 有 4 次因此翻车（10-09 ×2、10-10、10-18），症状是
       # 「本地全绿、推送就红」：某些用例把本地化文案硬编码成中文断言。
