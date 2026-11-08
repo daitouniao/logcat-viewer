@@ -8,19 +8,24 @@
 
 | 项 | 命令 | 实测值 |
 | --- | --- | --- |
-| 用例数（Debug） | `dotnet test tests/logcat.Tests/logcat.Tests.csproj -c Debug` | 待填（不得预设 848 / 852） |
-| 行覆盖率 | 见下方「覆盖率三步」 | 待填（不得预设 97.31%） |
-| 分支覆盖率 | 同上 | 待填（不得预设 88.65%） |
-| 方法覆盖率 | 同上 | 待填（不得预设 95.61%） |
+| 用例数（Debug） | `dotnet test tests/logcat.Tests/logcat.Tests.csproj -c Debug` | **852** 总计 / 852 通过 / 0 失败 / 0 跳过（= `V0.1.9-pre1` tag 记录值，等于 848 之外的另一个证据） |
+| 行覆盖率 | 见下方「覆盖率三步」 | **94.26%**（2,677 / 2,840 行） |
+| 分支覆盖率 | 同上 | **88.64%**（1,460 / 1,647 分支） |
+| 方法覆盖率 | 同上 + 下方「方法覆盖率口径」 | **92.77%**（295 / 318 方法） |
 
 覆盖率三步：`dotnet test tests/logcat.Tests/logcat.Tests.csproj --collect:"XPlat Code Coverage" --settings tests/logcat.Tests/coverlet.runsettings` → `python tests/coverage-report.py` → 抄行 / 分支 / 方法三项（含分母）。
+
+- 采集日期：**2026-11-08**（worktree 首跑，改任何文件之前）；cobertura 文件 `tests/logcat.Tests/TestResults/cf4962cf-f14f-4e5e-b72a-f361ecb40725/coverage.cobertura.xml`
+- 行 / 分支：取 cobertura 根节点 `line-rate` / `lines-covered` / `lines-valid` 与 `branch-rate` / `branches-covered` / `branches-valid`
+- **方法覆盖率口径**（本次记录用，7.3 必须同法复算）：`//class/methods/method` 共 N 条，`line-rate > 0` 计为已覆盖；本次 `295/318`
+- 与 `docs/TESTING.md:13-15` 的 2026-11-01 采值（97.31% / 88.65% / 95.61%，分母 3,934 / 1,833 / 433）**分母均不同**——基线已先期漂移，7.3 只与本表比（见 §3）
 
 ## 2. 阶段记录
 
 | 任务 | 要记录的东西 | 实测值 / 结论 |
 | --- | --- | --- |
-| 1.1 | `git rev-list --count master..V0.1.9`；`git rev-parse V0.1.9`（D-35 冻结基准）；合并带入的文件与行数（应 3 文件 5 行）；`docs/BUILDING.md` 是否零差异 | 待填 |
-| 2.5 | `git status --short` 的 rename / 新增 / 删除条数 | 待填 |
+| 1.1 | `git rev-list --count master..V0.1.9`；`git rev-parse V0.1.9`（D-35 冻结基准）；合并带入的文件与行数（应 3 文件 5 行）；`docs/BUILDING.md` 是否零差异 | `master..V0.1.9` = **0**；`V0.1.9` = **354c301**；merge commit **778829a**，`3 files changed, 5 insertions(+), 5 deletions(-)`（`Directory.Build.props` / `README.md` / `README.zh-CN.md`）；`docs/BUILDING.md` 差异 **0 行**。⚠️ `<Version>` 实测为 **`0.1.9-pre1`**（tasks 预估 `0.1.9`）：V0.1.9 分支本就是预发布号，非本 change 改号 |
+| 2.5 | `git status --short` 的 rename / 新增 / 删除条数 | **R = 90 / ?? = 0 / D = 0**（M = 2，为 `apply-log.md` / `tasks.md` 自身）；90 = viewer 32 + uicore 51 + andtools 6 + `app.ico` 1，与搬迁前计数逐项相等；**90 条 R 的文件名主干全部未变**（脚本比对 `BASENAME_CHANGED=0`）——csproj 的 R 条目只是目录段变化（`logcat.csproj -> logcat-viewer/logcat.csproj`），文件名未改，符合 D-23 |
 | 3.1 | 根级 `None` 改 `..\` 后的本地 build：`bin\Debug\net10.0-windows\` 下 `sample\fileproxy\...` 与 `docs\images\main.gif` 的层级是否保留（D-11 拍平坑，D-53） | 待填 |
 | 4.4 | 两条哨兵用例的 `scanned` 计数（应不变） | 待填 |
 | 4.5 | 全量用例数与 1.4 基线逐项比对 | 待填 |
@@ -36,5 +41,6 @@
 
 | 项 | 原因 | 处置 |
 | --- | --- | --- |
+| 覆盖率基线分母与 `docs/TESTING.md` 的 2026-11-01 采值不同（行 2,840 vs 3,934、分支 1,647 vs 1,833、方法 318 vs 433） | 旧采值早已漂移（工程拆分后统计口径变化，文档 `:16` 也写着「另行重采」从未执行），**非搬迁造成**；1.4 是在改任何文件之前采的 | 7.3 的「持平」只对 1.4 基线比较；按 7.3 后段要求，同批把 `docs/TESTING.md:13-15`、双 README 覆盖率徽章与 `README.md:194` 更新为本次实测值 |
 
 > 本表**就是交付说明**（design **D-44**）：交付时整段摘出随验收请求给出，不另写第二份。确无内容时写一行 `（无）`，不留空白表（同 D-41）。
