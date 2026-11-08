@@ -45,9 +45,9 @@
 
 ## 5. 脚本与仓库卫生
 
-- [ ] 5.1 `scripts/mutation-test.py`：8 条现役变异路径（`Services/LogParser.cs`、`Services/LogDocument.cs`、`Services/FilterEngine.cs`、`Services/CrashAggregator.cs`、`Services/CrashExtractor.cs`、`Services/FileProxyService.cs`、`Services/FileProxyClient.cs`、`Models/FilterSpec.cs`）加 `logcat-viewer/` 前缀；删除 4 条 stale 条目（`Services/AdbManager.cs`、`Services/AppSettings.cs`、`Services/CommandStore.cs`、`Services/FavoritesStore.cs`——相关类早已在 UiCore）；同步重写顶部「类名提示」字典的键（design D-7）。验证：把脚本里所有变异元组的首个路径元素抽出来逐条 `Test-Path`，全部 True 且 stale 条目 0 条。
-- [ ] 5.2 `.gitignore` 补泛化 `target/` 与 `node_modules/`（**不用** `logcat-core/target/` 这类限定写法，design D-8）。验证：`git check-ignore -v logcat-core/target/debug/x` 与 `git check-ignore -v logcat-mcp/node_modules/a.js` 均命中新规则。
-- [ ] 5.3 确认没有为将来的 Rust / Node 资产开新例外：`git check-ignore -v testdata/big_test.log` 仍命中 `*.log`；`*.dll` 仍全局忽略（`logcat_core.dll` 将来由 CI 产出、不入库）。golden 小样本的 `*.log` 例外留待刀1，本 change 不开。验证：两条 `git check-ignore` 输出与搬迁前一致。
+- [x] 5.1 `scripts/mutation-test.py`：8 条现役变异路径（`Services/LogParser.cs`、`Services/LogDocument.cs`、`Services/FilterEngine.cs`、`Services/CrashAggregator.cs`、`Services/CrashExtractor.cs`、`Services/FileProxyService.cs`、`Services/FileProxyClient.cs`、`Models/FilterSpec.cs`）加 `logcat-viewer/` 前缀；删除 4 条 stale 条目（`Services/AdbManager.cs`、`Services/AppSettings.cs`、`Services/CommandStore.cs`、`Services/FavoritesStore.cs`——相关类早已在 UiCore）；同步重写顶部「类名提示」字典的键（design D-7）。验证：把脚本里所有变异元组的首个路径元素抽出来逐条 `Test-Path`，全部 True 且 stale 条目 0 条。
+- [x] 5.2 `.gitignore` 补泛化 `target/` 与 `node_modules/`（**不用** `logcat-core/target/` 这类限定写法，design D-8）。验证：`git check-ignore -v logcat-core/target/debug/x` 与 `git check-ignore -v logcat-mcp/node_modules/a.js` 均命中新规则。
+- [x] 5.3 确认没有为将来的 Rust / Node 资产开新例外：`git check-ignore -v testdata/big_test.log` 仍命中 `*.log`；`*.dll` 仍全局忽略（`logcat_core.dll` 将来由 CI 产出、不入库）。golden 小样本的 `*.log` 例外留待刀1，本 change 不开。验证：两条 `git check-ignore` 输出与搬迁前一致。
 
 ## 6. 文档同步
 

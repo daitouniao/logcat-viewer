@@ -29,6 +29,9 @@
 | 3.1 | 根级 `None` 改 `..\` 后的本地 build：`bin\Debug\net10.0-windows\` 下 `sample\fileproxy\...` 与 `docs\images\main.gif` 的层级是否保留（D-11 拍平坑，D-53） | **层级全部保留**：`sample/fileproxy/fileproxy.py` True、`sample/fileproxy/fileproxy.js` True、`docs/images/main.gif` True、`README.md` True、`LICENSE` True；输出根下**零** `fileproxy.py` / `main.gif` / `fileproxy.js` 裸文件（无拍平）。同时 `logcat-viewer/bin/.../logcat.UiCore.dll` True（3.3 的 ProjectReference 生效）。**另做一次 `dotnet publish logcat-viewer/logcat.csproj -c Release -o <临时目录>`**：`sample\fileproxy\{fileproxy.py,fileproxy.js,README.md,README.zh-CN.md}`、`docs\images\main.gif`、`README.md`、`README.zh-CN.md`、`LICENSE`、`THIRD-PARTY-NOTICES.md`、`DISCLAIMER.md`、`logcat.UiCore.dll`、`logcat.exe` **均 True**；输出根下无 `fileproxy.py` / `main.gif` / `fileproxy.js` 裸文件，`sample\` 子树结构与仓库内一致 |
 | 4.4 | 两条哨兵用例的 `scanned` 计数（应不变） | **`scanned` 实计（LocTableTests）**：`本地化调用点的中文键都有译文`（哨兵 `>300`）= **461**；`本地化格式串的占位符数与实参个数一致`（哨兵 `>50`）= **180**；另记两条扫描同类：`绑定资源键不得是已译文本` = **168**、`列头BindCol必须挂进Columns集合` = **23**。取数方式：临时 `Console.WriteLine` 插桩一次运行后立即还原（已复核 `SCAN_PROBE` 残留 0 行）。`.tmp-test/` 影响面：主树 `.tmp-test` 下 **82 个 `.cs`**、`Loc.(T\|F\|Bind)` 命中 **0 处** → 补排除后计数理论不变。⚠️ 1.4 基线**当时未采**这两个计数，本次为**首次记录**，无法逐值对比；「不变」的依据是上述 0 命中，非历史同值 |
 | 4.5 | 全量用例数与 1.4 基线逐项比对 | **852 总计 / 852 通过 / 0 失败 / 0 跳过**；行 `dotnet test tests/logcat.Tests/logcat.Tests.csproj -c Debug`。与 1.4 基线（852 / 852 / 0 / 0）**逐项一致**，无新增失败、无用例增减。构建期 warning 仍为既有 2 条（`DeviceSelectorTests.cs:133` xUnit2013、`FilterEngineTests.cs:689` xUnit2029） |
+| 5.1 | 8 条现役变异路径的 `Test-Path`；stale 条目数 | **全部 True（8/8，去重后 8 个文件）**，缺失 **0**；`SUBSET_OVERRIDES` 7 个键均指向存在文件。清理后：`TEXT_MUTATIONS` **75 条** / `LINE_MUTATIONS` **7 条**：删掉 17 条已失效条目（CommandStore 5 文本 + 2 行号、FavoritesStore 7、AppSettings 3、AdbManager 3），删掉 `SUBSET_OVERRIDES` 的 `AppSettings.cs` 键。**锚点健康度（额外采证）**：75 条文本锚点全部精确命中 1 次（无 SKIP-匹配数噪声）；行号型 7 条中 **6 条命中、1 条失配**（见§3） |
+| 5.2 | `git check-ignore -v logcat-core/target/debug/x` / `logcat-mcp/node_modules/a.js` | 均命中新规则：`.gitignore:17:target/`、`.gitignore:18:node_modules/` |
+| 5.3 | `testdata/big_test.log` 与 `logcat_core.dll` 的忽略来源 | 未变：`*.log`（`.gitignore:68`）、`*.dll`（`.gitignore:48`）均仍命中；本 change **未开**任何新例外 |
 | 6.9 | 全仓字面量扫描的分类结果（路径命中 / 命名空间命中 / 工程文件名命中） | 待填 |
 | 7.1 | `dotnet build logcat.slnx -c Debug` 的 error 数；4 个工程是否都出现（D-53） | 待填 |
 | 7.2 | Release / Debug / en-US 三次的用例数字 | 待填 |
@@ -43,5 +46,7 @@
 | --- | --- | --- |
 | 覆盖率基线分母与 `docs/TESTING.md` 的 2026-11-01 采值不同（行 2,840 vs 3,934、分支 1,647 vs 1,833、方法 318 vs 433） | 旧采值早已漂移（工程拆分后统计口径变化，文档 `:16` 也写着「另行重采」从未执行），**非搬迁造成**；1.4 是在改任何文件之前采的 | 7.3 的「持平」只对 1.4 基线比较；按 7.3 后段要求，同批把 `docs/TESTING.md:13-15`、双 README 覆盖率徽章与 `README.md:194` 更新为本次实测值 |
 | **图标目视**（3.3 / 3.4 要求的「exe 属性-详细信息里可见图标」） | 无图形化核对手段，未做目视 | 替代证据：① 构建全文**无图标缺失告警**（如 MSB3552），只有 2 条 CS9191 + 2 条 xUnit 分析器 warning；② `Shell.Application` 读 `System.Copyright` 两 exe 均可读到正确版权串；③ `ExtractAssociatedIcon` 两 exe 均能取到 32×32 图标且哈希一致。真图标与默认图标的区分留待 7.4 双包产物核对时目视 |
+| 5.1 删掉的 4 条 stale 条目里，**15 个锚点在新位置仍可命中**（探针实测：AdbManager 3/3、CommandStore 5 文本 + 2 行号、FavoritesStore 7/7），仅 `AppSettings` 的 3 条彻底失效（`AppSettings` 类已不存在，现为 `LogcatSettings`） | 这些条目是 UiCore 拆分时路径没跟着改留下的，在本仓库从未生效 | **按 design D-7 删除**（本 change 不动变异覆盖范围）。若要复活这 15 个锚点，需把路径改指 `logcat-uicore/Services/…` 并跑一轮变异验证，属独立改动，不在本 change 做 |
+| `LINE_MUTATIONS` 的 `LogDocument.cs:240`（`TagOf：去掉上界检查`）锚点失配：实际代码在 **:309**（脚本注释说「TagOf 从 253 漂到 240」） | 既有漂移，发生在本 change 之前（搬迁不改文件内容） | 未改（不属 5.1 范围）。后果仅是该点静默 SKIP（脚本设计上的安全失败）；修正只需改行号，可并入刀 1 的脚本维护 |
 
 > 本表**就是交付说明**（design **D-44**）：交付时整段摘出随验收请求给出，不另写第二份。确无内容时写一行 `（无）`，不留空白表（同 D-41）。
