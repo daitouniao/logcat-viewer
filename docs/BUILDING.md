@@ -71,34 +71,44 @@ Remove-Item -Recurse -Force publish\Release\V0.1.4-fdd
 两个 exe 工程**先后 publish 到同一目标目录**（SDK 原生合并；单工程 publish 不会带出
 另一个 exe，第二条命令必须执行）。zip 名沿用 `logcat-V<版本>-win-x64.zip`：
 
+> ⚠️ **`-p:PublishDir` 必须写绝对路径**（`<仓库根>` 换成你的仓库根目录）。
+> 相对路径会被 SDK 按**各工程目录**解析：第二条命令的产物会落进
+> `logcat.AndTools\publish\Release\...` 而不是仓库根，`logcat-andtools.exe`
+> 就此从包里消失。`-p:DebugType=none` 用于剔除本仓库工程的 pdb。
+>
+> ⚠️ **不要加 `-p:PublishSingleFile=true`**，单文件 exe 实测启动失败。
+> ⚠️ 不要改用 `dotnet publish logcat.slnx -o`：会把测试工程一并 publish 进包。
+
 ```powershell
 dotnet publish logcat.csproj -c Release `
   -p:SelfContained=true -p:RuntimeIdentifier=win-x64 `
-  -p:PublishDir=publish\Release\V0.1.4-selfcontained\
+  -p:DebugType=none -p:DebugSymbols=false `
+  -p:PublishDir=<仓库根>\publish\Release\V0.1.4-selfcontained\
 
 dotnet publish logcat.AndTools\logcat.AndTools.csproj -c Release `
   -p:SelfContained=true -p:RuntimeIdentifier=win-x64 `
-  -p:PublishDir=publish\Release\V0.1.4-selfcontained\
+  -p:DebugType=none -p:DebugSymbols=false `
+  -p:PublishDir=<仓库根>\publish\Release\V0.1.4-selfcontained\
 
 Compress-Archive -Path publish\Release\V0.1.4-selfcontained\* `
   -DestinationPath publish\Release\logcat-V0.1.4-win-x64.zip -Force
 ```
 
-⚠️ **不要加 `-p:PublishSingleFile=true`**，单文件 exe 实测启动失败。
-⚠️ 不要改用 `dotnet publish logcat.slnx -o`：会把测试工程一并 publish 进包。
-
 ### 3. 发布框架依赖包
 
-两个工程都不带 `-p:SelfContained`（csproj 默认 `false`）：
+两个工程都不带 `-p:SelfContained`（csproj 默认 `false`），
+`-p:PublishDir` 同样**必须绝对路径**、`-p:DebugType=none` 同样必带：
 
 ```powershell
 dotnet publish logcat.csproj -c Release `
   -p:RuntimeIdentifier=win-x64 `
-  -p:PublishDir=publish\Release\V0.1.4-fdd\
+  -p:DebugType=none -p:DebugSymbols=false `
+  -p:PublishDir=<仓库根>\publish\Release\V0.1.4-fdd\
 
 dotnet publish logcat.AndTools\logcat.AndTools.csproj -c Release `
   -p:RuntimeIdentifier=win-x64 `
-  -p:PublishDir=publish\Release\V0.1.4-fdd\
+  -p:DebugType=none -p:DebugSymbols=false `
+  -p:PublishDir=<仓库根>\publish\Release\V0.1.4-fdd\
 
 Compress-Archive -Path publish\Release\V0.1.4-fdd\* `
   -DestinationPath publish\Release\logcat-V0.1.4-win-x64-fd.zip -Force
@@ -115,8 +125,9 @@ Test-Path publish\Release\V0.1.4-selfcontained\coreclr.dll
 Select-String -Path publish\Release\V0.1.4-fdd\logcat.runtimeconfig.json -Pattern 'Microsoft.WindowsDesktop.App'
 Test-Path publish\Release\V0.1.4-fdd\coreclr.dll   # 应为 False
 
-# 两个包都要查有没有混进测试产物和 pdb
-Select-String -Path publish\Release\V0.1.4-*\*\*.* -Pattern 'xunit|coverlet|TestPlatform' -List
+# 两个包都要查有没有混进测试产物和 pdb（当前目录一级排除即可，工程 pdb 已由 -p:DebugType=none 剔除）
+Get-ChildItem publish\Release\V0.1.4-selfcontained, publish\Release\V0.1.4-fdd `
+  -Include *.pdb, *test*, *xunit*, *coverlet* -Recurse
 
 # 文件代理示例必须随包分发（由 csproj 的 <None Include="sample/**"> 负责，别删该项）
 Test-Path publish\Release\V0.1.4-selfcontained\sample\fileproxy\fileproxy.py   # 应为 True
@@ -180,5 +191,6 @@ ASP.NET Core Runtime 都起不来。
 | 发出去的 zip 里没有 `sample/fileproxy/` | csproj 的 `<None Include="sample/**">` 被删或改坏，恢复该 ItemGroup 后重打 |
 | 解压后 README 里的演示图裂图 | csproj 的 `<None Include="docs/images/main.gif">` 被删或改了路径，恢复后重打（路径必须与 README 内相对链接一致） |
 | 两个包内容一样大 | 框架依赖那条命令漏了 `-p:SelfContained` 的对比检查，确认 runtimeconfig 是否声明了 frameworks |
-| 包里没有 `logcat-andtools.exe` | 第二条 publish 命令（logcat.AndTools 工程）漏执行，单工程 publish 不带出另一个 exe |
+| 包里没有 `logcat-andtools.exe` | 第二条 publish 命令（logcat.AndTools 工程）漏执行；或 `-p:PublishDir` 用了相对路径（产物落进 `logcat.AndTools\publish\`），改用绝对路径 |
 | 包里混进 `logcat.Tests.*` | 用了 `dotnet publish logcat.slnx -o`（会连测试工程一起发），改用两条 publish 命令 |
+| 包里出现 `logcat.UiCore.pdb` 等本仓库工程 pdb | publish 命令漏了 `-p:DebugType=none -p:DebugSymbols=false`（只管本仓库工程的 pdb；第三方包的 pdb 默认不随 publish 复制） |
