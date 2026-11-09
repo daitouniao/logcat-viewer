@@ -63,6 +63,10 @@ public partial class frmMain : Form, ILocalizedUi
     string? _statusKey;
     object?[]? _statusArgs;
 
+    // 状态栏取证探针：上一次记下的统计项宽度（-1=未记录）。
+    // 只在「统计项宽度异常」或「刚从异常恢复」时记滚动帧，避免拖动滚动条刷屏。
+    int _lastStatProbeW = -1;
+
     // 过滤面板控件
     CheckBox[] _lvlBoxes = new CheckBox[8];
     TextBox _edTag = null!, _edMsg = null!, _edPid = null!, _edTid = null!, _edMin = null!;
@@ -982,6 +986,7 @@ public partial class frmMain : Form, ILocalizedUi
         _lblFile.Text = path;
         _lblStat.Text = "";
         _lblStat.Size = _lblStat.GetPreferredSize(Size.Empty);   // 空文本收回到零宽（AutoSize 已关，尺寸自管）
+        LogStatBar("clear");   // 探针：清零帧（全代码唯一让统计项归零的入口）
 
         // 等待在途的 Append/过滤结束后再关旧文档（mmap 一关后台扫描就会炸）
         await _docBusy.WaitAsync();
@@ -1026,6 +1031,7 @@ public partial class frmMain : Form, ILocalizedUi
                     RebuildRecentMenu();   // 即时刷新排序并恢复子菜单 Enabled
                 }
                 await ApplyFilter();
+                LogStatBar("stat");   // 探针：代理路径的统计回写帧（ApplyFilter 内 UpdateStat 已跑完）
                 return;
             }
 
@@ -1040,8 +1046,11 @@ public partial class frmMain : Form, ILocalizedUi
             // 命中路径的装载耗时只算「读盘 + 装配」（验收线 ≤ 600 ms），不含其后的全量过滤
             _indexMs = loaded.LoadedFromSidecar ? LastSidecarLoadMs : sw.Elapsed.TotalMilliseconds;
             _doc = loaded;   // 分块路径已由 FlushLoadOps 接管视图；此处确保引用就位
+            LogStatBar("stat");   // 探针：加载收尾的统计回写帧（ApplyLoadOps / 静默过滤里的 UpdateStat 已跑完）
             _lblFile.Text = $"{loaded.Path}   ({HumanSize(loaded.Size)})";
+            LogStatBar("tail-file");      // 探针：尾写 1（文件名）
             RefreshChannelState();   // 新文档就位：按当前渠道重算
+            LogStatBar("tail-channel");   // 探针：尾写 2（渠道状态）
             if (FavoritesStore.Default.AddRecentFile(loaded.Path))
             {
                 FavoritesStore.Default.Save();
@@ -1050,6 +1059,7 @@ public partial class frmMain : Form, ILocalizedUi
             ShowStatusRaw(loaded.LoadedFromSidecar
                 ? $"缓存命中 {loaded.RowCount:N0} 行，装载 {_indexMs:N0} ms"
                 : $"加载 {loaded.RowCount:N0} 行，{_indexMs:N0} ms");
+            LogStatBar("tail-msg");   // 探针：尾写 3（加载完成文案，本路径最长的一条）
             if (_crashSummary != null && !_crashSummary.IsDisposed)
                 _crashSummary.RefreshFrom(_doc);
 
@@ -1075,6 +1085,22 @@ public partial class frmMain : Form, ILocalizedUi
         {
             if (_workerGen == gen) ShowStatusRaw("");
             if (_pbarGen == gen) _pbar.Visible = false;
+            FinishOpenFileProbe(gen);
+        }
+    }
+
+    /// <summary>
+    /// 打开收尾的探针帧（尾写 4：清消息 + 藏进度条之后）：成功、失败、取消、被新一代抢占
+    /// 都无条件落一帧——否则「日志里没有 tail-finally」会被误读成「没走到收尾」。
+    /// 延迟快照只给当前代，避免被抢占后刷出别人接管后的状态。
+    /// </summary>
+    internal void FinishOpenFileProbe(int gen)
+    {
+        LogStatBar("tail-finally");
+        if (_workerGen == gen)
+        {
+            ScheduleStatBarProbe("idle+200", 200);
+            ScheduleStatBarProbe("idle+2s", 2000);
         }
     }
 
@@ -1665,6 +1691,10 @@ public partial class frmMain : Form, ILocalizedUi
         {
             int dr = _listView.DocRow(top);
             _lblPos.Text = Loc.F("视口 {0:N0}/{1:N0} (记录 #{2})", top + 1, _listView.RowCount, dr + 1);
+            // 探针：统计项仍异常窄、或刚从异常恢复时各记一帧（正常状态滚动一次只留一帧，不刷屏）
+            int statW = _lblStat.Width;
+            if (statW <= 0 || _lastStatProbeW <= 0) LogStatBar("scroll");
+            _lastStatProbeW = statW;
         }
     }
 
@@ -1683,6 +1713,39 @@ public partial class frmMain : Form, ILocalizedUi
         //   2) 调用方保证统计回写是对状态栏的最后一个布局动作（ApplyFilter 完成段先清进度再 UpdateStat）。
         _lblStat.Size = _lblStat.GetPreferredSize(Size.Empty);
         _statusStrip.PerformLayout();
+    }
+
+    // ── 状态栏取证探针 ──
+    // 一次打开只产固定几行快照，挂在状态栏写入调用点上（不在进度回调、逐块发布、逐行路径）。
+    // 目的：把「统计项偶发不显示」判成项宽被算成 0 / 文本没刷 / 整条溢出被裁 / 只是没重绘 四者之一。
+
+    /// <summary>拍一帧状态栏快照（tag 取固定词表：clear / stat / tail-* / scroll / idle+*）。</summary>
+    internal void LogStatBar(string tag) => StatBarProbe.Log(tag, _statusStrip,
+        ("file", _lblFile), ("chan", _lblChannel), ("stat", _lblStat),
+        ("pos", _lblPos), ("msg", _lblMsg), ("pbar", _pbar));
+
+    /// <summary>
+    /// 打开收尾之后的延迟快照（一次性定时器）：落到消息泵空闲阶段，语义是「再过这么久还没好」。
+    /// 句柄未创建（如单元测试无消息泵）或正在销毁时静默丢弃。
+    /// </summary>
+    internal void ScheduleStatBarProbe(string tag, int delayMs)
+    {
+        try
+        {
+            if (!IsHandleCreated || IsDisposed || Disposing) return;
+            var timer = new System.Windows.Forms.Timer { Interval = delayMs };
+            timer.Tick += (_, _) =>
+            {
+                timer.Stop();
+                timer.Dispose();
+                LogStatBar(tag);
+            };
+            timer.Start();
+        }
+        catch
+        {
+            /* 诊断不得影响主流程 */
+        }
     }
 
     /// <summary>

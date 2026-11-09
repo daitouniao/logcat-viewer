@@ -4,7 +4,7 @@
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
 [![Platform: Windows](https://img.shields.io/badge/platform-Windows-lightgrey)](#requirements)
 [![CI](https://github.com/daitouniao/logcat-viewer/actions/workflows/ci.yml/badge.svg)](https://github.com/daitouniao/logcat-viewer/actions/workflows/ci.yml)
-[![Tests: 852 passing](https://img.shields.io/badge/tests-852%20passing-green)](docs/TESTING.md)
+[![Tests: 856 passing](https://img.shields.io/badge/tests-856%20passing-green)](docs/TESTING.md)
 [![Coverage: 94.26% lines](https://img.shields.io/badge/coverage-94.26%25%20lines-blue)](docs/TESTING.md)
 
 A Windows desktop pair for Android logs (`logcat`). Built with WinForms on .NET 10, it ships **two exes from one repo**: `logcat.exe`, the log viewer, opens and scrolls through **tens of millions of log lines** smoothly using memory-mapped files and a columnar index and drives live capture over ADB; `logcat-andtools.exe`, the Android toolbox, gathers the device tools — screenshots, screen recording, two-pane file transfer, APK install/uninstall and a command window — behind one tabbed window. The viewer launches the toolbox from its "Device operations" entry, and each runs standalone: you can use the toolbox without ever opening the viewer.
@@ -191,7 +191,7 @@ dotnet test tests/logcat.Tests/logcat.Tests.csproj --collect:"XPlat Code Coverag
 python tests/coverage-report.py     # writes tests/coverage-report.html
 ```
 
-Current status: **852 tests, all passing**; **94.26%** line coverage (2,677 / 2,840 lines), **88.64%** branch coverage.
+Current status: **856 tests, all passing**; **94.26%** line coverage (2,677 / 2,840 lines), **88.64%** branch coverage.
 
 The scope is defined in `tests/logcat.Tests/coverlet.runsettings` and excludes two groups:
 
@@ -304,7 +304,7 @@ logcat-viewer/           Viewer exe (`logcat.exe`)
     AndToolsLauncher.cs    Toolbox launcher (File.Exists probe → disable entry with hint, or Process.Start)
 tests/
   coverage-report.py     Coverage report generation (coverlet cobertura XML → readable HTML)
-  logcat.Tests/          xUnit test project (852 tests: log parsing / columnar index / filter engine / crash extraction / persistence / localization / settings split / device selection)
+  logcat.Tests/          xUnit test project (856 tests: log parsing / columnar index / filter engine / crash extraction / persistence / localization / settings split / device selection)
     coverlet.runsettings Coverage scope (Include / Exclude rules)
 docs/
   BUILDING.md            How to build and publish — the per-package `dotnet publish` pairs, artifact verification, smoke checklist, pitfall table
