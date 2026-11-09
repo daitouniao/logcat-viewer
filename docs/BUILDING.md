@@ -144,6 +144,18 @@ Test-Path publish\Release\V0.1.4-selfcontained\logcat.exe                       
 Test-Path publish\Release\V0.1.4-selfcontained\logcat-andtools.exe               # 应为 True
 Test-Path publish\Release\V0.1.4-selfcontained\logcat.UiCore.dll                 # 应为 True
 Test-Path publish\Release\V0.1.4-fdd\logcat-andtools.exe                         # 应为 True
+# 两个 exe 的内嵌应用图标必须不同（工具箱用自有图标；相同则任务栏固定按钮不可区分）
+Add-Type -AssemblyName System.Drawing
+foreach ($f in 'logcat.exe', 'logcat-andtools.exe') {
+  $i = [System.Drawing.Icon]::ExtractAssociatedIcon((Resolve-Path "publish\Release\V0.1.4-selfcontained\$f").Path)
+  $ms = New-Object System.IO.MemoryStream
+  $i.ToBitmap().Save($ms, [System.Drawing.Imaging.ImageFormat]::Png)
+  "{0}  {1}" -f $f, [BitConverter]::ToString([System.Security.Cryptography.SHA256]::Create().ComputeHash($ms.ToArray()))
+}
+# 两行哈希必须不同；报错（图标缺失）或哈希相同均不通过
+
+# icon/app-tools.ico 须与 app.ico 同规格：6 条目（16/32/48/64/128/256）、32bpp、PNG 帧
+$b = [IO.File]::ReadAllBytes('icon\app-tools.ico'); [BitConverter]::ToUInt16($b, 4)   # 应为 6
 ```
 
 预期：自包含约 120 MB、`frameworks` 匹配不到（字段为空）、`coreclr.dll` 存在；
@@ -166,6 +178,7 @@ Test-Path publish\Release\V0.1.4-fdd\logcat-andtools.exe                        
 - [ ] 工具箱二次启动不出现第二个窗体，已有实例被前置
 - [ ] 两边各自拖动/最大化主窗体后退出重启：各自几何恢复，互不干扰
 - [ ] 两 exe 同时开着各改各的设置，退出后 `settings.json` 与 `andtools.json` 互不覆盖
+- [ ] 两个 exe 在任务栏与标题栏显示互不相同的图标（此前固定过工具箱的按钮需取消固定后重新固定才刷新）
 
 ## 两包的取舍
 

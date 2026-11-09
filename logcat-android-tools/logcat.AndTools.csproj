@@ -7,7 +7,7 @@
     <OutputType>WinExe</OutputType>
     <AssemblyName>logcat-andtools</AssemblyName>
     <RootNamespace>logcat.AndTools</RootNamespace>
-    <ApplicationIcon>..\icon\app.ico</ApplicationIcon>
+    <ApplicationIcon>..\icon\app-tools.ico</ApplicationIcon>
     <TargetFramework>net10.0-windows</TargetFramework>
     <Nullable>enable</Nullable>
     <UseWindowsForms>true</UseWindowsForms>

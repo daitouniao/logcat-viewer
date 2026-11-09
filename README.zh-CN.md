@@ -241,7 +241,8 @@ python tests/coverage-report.py     # 输出 tests/coverage-report.html
 ```
 logcat.slnx              解决方案（logcat-viewer exe + logcat-uicore 共享库 + logcat-android-tools exe）
 Directory.Build.props    <Version> 唯一来源（三工程一并继承）
-icon/app.ico             程序图标（两个 exe 的 csproj ApplicationIcon）
+icon/app.ico             程序图标（查看器 exe 的 csproj ApplicationIcon）
+icon/app-tools.ico       程序图标（工具箱 exe 专属，与查看器不同，便于区分任务栏固定按钮）
 logcat-uicore/           共享库：两个 exe 共用的全部能力（自身不出 exe）
   Controls/
     FilePane.cs           文件面板基类（导航、列表渲染、收藏、重命名、拖放）

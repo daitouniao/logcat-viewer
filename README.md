@@ -238,7 +238,8 @@ Three sibling project directories in one solution (`logcat.slnx`) — viewer exe
 ```
 logcat.slnx              Solution (logcat-viewer exe + logcat-uicore library + logcat-android-tools exe)
 Directory.Build.props    <Version> single source (inherited by all three projects)
-icon/app.ico             Application icon (referenced in both exe csproj ApplicationIcon)
+icon/app.ico             Application icon, viewer exe (csproj ApplicationIcon)
+icon/app-tools.ico       Application icon, toolbox exe (distinct, so pinned taskbar buttons differ)
 logcat-uicore/           Shared library: everything both exes draw on (no exe of its own)
   Controls/
     FilePane.cs           File pane base class (navigation, list rendering, favourites, rename, drag-drop)
