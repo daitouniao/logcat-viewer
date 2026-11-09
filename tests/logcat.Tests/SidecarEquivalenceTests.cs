@@ -196,6 +196,138 @@ public class SidecarEquivalenceTests
         }
     }
 
+    static readonly MethodInfo ApplyFilterMethod =
+        typeof(frmMain).GetMethod("ApplyFilter", NonPublicInstance)!;
+
+    /// <summary>在 UI 线程上跑一次全量过滤（private，反射调用后 await 真完成）。</summary>
+    static async Task RunFilter(frmMain form)
+    {
+        var task = (Task)ApplyFilterMethod.Invoke(form, new object?[] { null, false })!;
+        await task;
+    }
+
+    /// <summary>同上，返回可被 <see cref="UiThread.RunAsync{T}"/> 接受的泛型 Task。</summary>
+    static async Task<object?> RunFilterOf(frmMain form)
+    {
+        await RunFilter(form);
+        return null;
+    }
+
+    /// <summary>
+    /// 零命中装载的绑定不变量：装载期过滤条件把新文件全滤掉时不产生任何发布操作，
+    /// 文档仍必须接管并绑定视图。若只在发布路径绑定，文档会成为「当前文档」而视图始终无绑定，
+    /// 此后任何过滤只改行数不补绑定——现场表现为「总 N 条 / 命中 N，但每行渲染为空」。
+    /// </summary>
+    [Fact]
+    public void ZeroHitLoad_StillBindsDocumentToView()
+    {
+        using var tmp = new TempLogFile(SidecarCacheTests.Sample(3));
+        using var storeDir = new TempDir();
+        using var ui = new UiThread();
+        var form = ui.Invoke(() =>
+        {
+            var f = new frmMain();
+            f._sidecarStore = new SidecarCacheStore(storeDir.Path);
+            // 装载期就带一个必不命中的关键词 → 全程零发布
+            ((System.Windows.Forms.TextBox)Fld(f, "_edMsg")!).Text = "QqZzNoSuchTerm";
+            return f;
+        });
+        try
+        {
+            int gen = ui.Invoke(() => Gen(form));
+            var doc = ui.RunAsync(() => form.LoadLocalFileAsync(tmp.Path, gen, CancellationToken.None));
+
+            Assert.NotNull(doc);
+            var listView = ui.Invoke(() => (LogListView)Fld(form, "_listView")!);
+
+            Assert.Equal(0, ui.Invoke(() => listView.RowCount));   // 确实零命中、零发布
+            Assert.NotNull(ui.Invoke(() => Fld(form, "_doc")));    // 文档必须已接管（零发布也要接管）
+            Assert.True(ui.Invoke(() => listView.Document != null),
+                "装载完成但视图未绑定文档：后续过滤将只改行数、整屏空白");
+            Assert.True(ui.Invoke(() => ReferenceEquals(listView.Document, Fld(form, "_doc"))));
+
+            ui.Invoke(() => doc!.Dispose());
+        }
+        finally
+        {
+            ui.Invoke(() => form.Dispose());
+        }
+    }
+
+    /// <summary>清掉过滤条件后再过滤：行必须真的上屏（绑定在装载时已就位，不依赖重新装载）。</summary>
+    [Fact]
+    public void ClearingFilterAfterZeroHitLoad_RendersRows()
+    {
+        using var tmp = new TempLogFile(SidecarCacheTests.Sample(3));
+        using var storeDir = new TempDir();
+        using var ui = new UiThread();
+        var form = ui.Invoke(() =>
+        {
+            var f = new frmMain();
+            f._sidecarStore = new SidecarCacheStore(storeDir.Path);
+            ((System.Windows.Forms.TextBox)Fld(f, "_edMsg")!).Text = "QqZzNoSuchTerm";
+            return f;
+        });
+        try
+        {
+            int gen = ui.Invoke(() => Gen(form));
+            var doc = ui.RunAsync(() => form.LoadLocalFileAsync(tmp.Path, gen, CancellationToken.None));
+            Assert.NotNull(doc);
+
+            ui.Invoke(() => ((System.Windows.Forms.TextBox)Fld(form, "_edMsg")!).Text = "");   // 条件清零
+            ui.RunAsync(() => RunFilterOf(form));
+
+            var listView = ui.Invoke(() => (LogListView)Fld(form, "_listView")!);
+            Assert.Equal(ui.Invoke(() => doc!.RowCount), ui.Invoke(() => listView.RowCount));
+            Assert.True(ui.Invoke(() => ReferenceEquals(listView.Document, Fld(form, "_doc"))));
+
+            ui.Invoke(() => doc!.Dispose());
+        }
+        finally
+        {
+            ui.Invoke(() => form.Dispose());
+        }
+    }
+
+    /// <summary>
+    /// 绑定丢失后过滤自愈：视图被清掉绑定（行数也清零）时，下一次过滤必须重新绑定当前文档，
+    /// 而不是只塞回行数——这是「清条件仍空白」的直接成因。
+    /// </summary>
+    [Fact]
+    public void Filter_RebindsViewWhenBindingLost()
+    {
+        using var tmp = new TempLogFile(SidecarCacheTests.Sample(3));
+        using var storeDir = new TempDir();
+        using var ui = new UiThread();
+        var form = ui.Invoke(() =>
+        {
+            var f = new frmMain();
+            f._sidecarStore = new SidecarCacheStore(storeDir.Path);
+            return f;
+        });
+        try
+        {
+            int gen = ui.Invoke(() => Gen(form));
+            var doc = ui.RunAsync(() => form.LoadLocalFileAsync(tmp.Path, gen, CancellationToken.None));
+            Assert.NotNull(doc);
+
+            var listView = ui.Invoke(() => (LogListView)Fld(form, "_listView")!);
+            ui.Invoke(() => listView.SetDocument(null));   // 制造「有文档、无绑定」的历史现场
+
+            ui.RunAsync(() => RunFilterOf(form));
+
+            Assert.True(ui.Invoke(() => ReferenceEquals(listView.Document, Fld(form, "_doc"))),
+                "过滤上屏前未补绑定");
+            Assert.True(ui.Invoke(() => listView.RowCount) > 0);
+
+            ui.Invoke(() => doc!.Dispose());
+        }
+        finally
+        {
+            ui.Invoke(() => form.Dispose());
+        }
+    }
+
     /// <summary>
     /// 最小 UI 线程（STA + 消息泵）：窗体必须在同一线程上创建并驱动。
     /// <para>

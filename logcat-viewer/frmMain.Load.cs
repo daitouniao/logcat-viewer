@@ -82,7 +82,10 @@ public partial class frmMain
                     {
                         var ops = buf.TakeAll();
                         if (ops.Count > 0) ApplyLoadOps(ops);
-                        else if (_doc != null) UpdateStat();
+                        else if (!TryAdoptPendingDoc())
+                        {
+                            if (_doc != null) UpdateStat();
+                        }
                     }
                 }
                 _loading = false;
@@ -180,6 +183,22 @@ public partial class frmMain
     }
 
     /// <summary>
+    /// 接管本次加载建好的文档并绑定视图（幂等，已接管或代际不符时返回 false）。
+    /// 绑定必须独立于「有没有发布操作」：装载期过滤条件把新文件全滤掉时零发布，
+    /// 若只在发布路径绑定，文档会成为「当前文档」而视图始终没有绑定——
+    /// 此后任何过滤只改行数不补绑定，界面整屏空白。
+    /// </summary>
+    bool TryAdoptPendingDoc()
+    {
+        if (_doc != null || _loadPendingDoc == null || _workerGen != _loadPendingDocGen) return false;
+
+        _doc = _loadPendingDoc;
+        _loadOwnedDoc = _loadPendingDoc;
+        _listView.SetDocument(_doc);
+        return true;
+    }
+
+    /// <summary>
     /// 应用一批发布操作：接管首次发布的文档、按序应用替换/追加、跟随与状态栏。
     /// 节流定时器与加载收尾的最终整批发布共用此路径（含接管判断，不可旁路——
     /// ≤ 首块的小文件可能从未有过成功 flush，收尾强制消费是其唯一上屏机会）。
@@ -187,12 +206,7 @@ public partial class frmMain
     void ApplyLoadOps(List<LoadPublishOp> ops)
     {
         // 首次发布接管文档（worker 建好并已产出第一批行之后；跨代抢占下不接管旧代文档）
-        if (_doc == null && _loadPendingDoc != null && _workerGen == _loadPendingDocGen)
-        {
-            _doc = _loadPendingDoc;
-            _loadOwnedDoc = _loadPendingDoc;
-            _listView.SetDocument(_doc);
-        }
+        TryAdoptPendingDoc();
 
         foreach (var op in ops)
         {

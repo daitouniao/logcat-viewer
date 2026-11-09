@@ -1287,6 +1287,9 @@ public partial class frmMain : Form, ILocalizedUi
             _filterDocRows = filteredDocRows;
             sw.Stop();
             _filterMs = sw.Elapsed.TotalMilliseconds;
+            // 不变量：上屏前视图必须绑定当前文档。行与绑定分居两处（SetRows 只改行、
+            // 绑定只在接管时做），任一路径漏掉绑定都会「行数对、整屏空白」。
+            if (!ReferenceEquals(_listView.Document, _doc)) _listView.SetDocument(_doc);
             _listView.SetRows(rows);
             // 塌缩回炉（见 UpdateStat 注释）：先清本代进度反馈，再写统计——保证
             // UpdateStat 的强制重排是本次过滤对状态栏的最后一个布局动作。
