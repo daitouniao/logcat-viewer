@@ -73,8 +73,13 @@
 | `openspec/notes/2026-11-07-MESSAGE-INDEX-MECHANISM.md:6` | `openspec/specs/message-filter/`、`openspec/specs/time-column/`、`openspec/specs/sidecar-index-cache/`、`openspec/specs/chunked-file-load/` | 四个路径各加 `old/` |
 | `openspec/notes/BACKLOG-APP-LIFECYCLE.md:42` | `openspec/specs/fileproxy/spec.md` | `openspec/specs/old/fileproxy/spec.md` |
 | `openspec/notes/DLT-INTEGRATION.md:94` | `openspec/specs/message-filter/spec.md` | `openspec/specs/old/message-filter/spec.md` |
+| `openspec/notes/2026-11-08-SOURCE-ACQUIRE-CONTRACT.md:44` / `:245` / `:369` | `openspec/specs/fileproxy/spec.md`（共 3 处）、`:369` 另有 `adb-capture/spec.md` 等 3 个简写路径 | 全部补 `old/`，简写路径写成完整路径 |
 
-**不动的**：`openspec/notes/archive/**`（冻结档）、`openspec/changes/archive/**`（当时的事实）、`docs/**`（实测零引用）。
+**`2026-11-08-SOURCE-ACQUIRE-CONTRACT.md` 是实施阶段补入的第 4 份**（apply 时发现）：规划时它还是未跟踪文件（`git grep` 只扫已跟踪文件，故 D-4 初稿漏了它），在 `a5fb2d4` 入库后才进入扫描面。它不是「任务外夹带」，而是同一类「本 change 直接让引用失效」的补齐。
+
+**不动的**：`openspec/notes/archive/**`（冻结档）、`openspec/changes/archive/**`（当时的事实）、`docs/archive/**`。`2026-11-08-SOURCE-ACQUIRE-CONTRACT.md:282` 的「`openspec/specs/` 现 13 个 capability」保持原样——13 这个数字仍然成立，只是现在嵌在 `old/` 之下，且它不是可点击的路径。
+
+**订正（apply 时实测）**：初稿写「`docs/**` 实测零引用」是错的。`docs/archive/2026-10-22-IMPLEMENTATION-TRACKER.md` 有 **3 处**旧路径（`:4` / `:25` / `:49`）。按 AGENTS §3.2，`docs/archive/` 属「不再维护（之后统一删除）」的快照类，存量仅作历史参考、不作为依据，故**不回填**——与「历史记录不改」同口径。初稿误判的原因是规划时的扫描命令带 `:(exclude)docs/archive` 路径排除项却没生效，把零命中的结论写进了文档。
 
 ### D-5 「迁移靠 git mv」，delta 只表达需求变更
 

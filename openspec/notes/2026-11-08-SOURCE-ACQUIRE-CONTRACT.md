@@ -41,7 +41,7 @@ StartIndex(path)                                    logcat-viewer/frmMain.cs:952
  +-- 出口: ProxyChannel 三态 + FileProxyException 失败分类 + DirectOpenError 附注
 ```
 
-对应的既有条款（「装载入口分流」「代理使用判定」「分流时序」「失败分类与错误消息」「渠道状态区」「乱码配置回退关闭」「重载」）都在 `openspec/specs/fileproxy/spec.md`：**15 条 Requirement / 27 个场景**。
+对应的既有条款（「装载入口分流」「代理使用判定」「分流时序」「失败分类与错误消息」「渠道状态区」「乱码配置回退关闭」「重载」）都在 `openspec/specs/old/fileproxy/spec.md`：**15 条 Requirement / 27 个场景**。
 
 > 更正：初稿把「超大文件确认」列为 spec 条款，实际 15 条 Requirement 标题中无此项——它只是实现细节，A5 删除它不需要改 spec。
 
@@ -242,7 +242,7 @@ AcquireRequest{kind: Device, device:{serial}}
 | `logcat-uicore/Services/LocTable.FileProxyUi.cs:73`–`:75` | 删两条文案（「目标文件大小 {0}…是否继续？」与「文件代理」——后者仅 `frmMain.cs:1106` 引用） |
 | `tests/logcat.Tests/FileProxyLoopbackTests.cs:517`–`:520` | 删阈值断言 4 条 |
 | `scripts/mutation-test.py:293`–`:296` | 删 `NeedsHugeFileConfirm` 的 `>`/`>=` 变异项 |
-| `openspec/specs/fileproxy/spec.md` | **不改**：15 条 Requirement 无此条款 |
+| `openspec/specs/old/fileproxy/spec.md` | **不改**：15 条 Requirement 无此条款 |
 
 行为差异仅一处：经代理打开 >1 GB 的文件不再询问，直接 spool；磁盘不足仍按既有口径透出 I/O 错误原文。若断言所在用例整条删除，基线 852 → 851，`docs/TESTING.md` 与两份 README 数字需同批更新。
 
@@ -366,5 +366,5 @@ AcquireRequest{kind: Device, device:{serial}}
 - `RUST-CORE-REWRITE-SLICING.md`：七刀与 FFI 契约面（§4.3 分页原语、§4.5 panic 与并发硬约束、§7 分发实账）。本契约是刀5 的前置。
 - `RUST-CORE-EVALUATION.md`：语言决策与性能基线。
 - `DLT-INTEGRATION.md`：格式侧设计与 K1–K8；本契约改写其 K2 与 §3.5。
-- `openspec/specs/fileproxy/spec.md`（15 条 / 27 场景）、`adb-capture/spec.md`、`chunked-file-load/spec.md`、`sidecar-index-cache/spec.md`：验收语料。
+- `openspec/specs/old/fileproxy/spec.md`（15 条 / 27 场景）、`openspec/specs/old/adb-capture/spec.md`、`openspec/specs/old/chunked-file-load/spec.md`、`openspec/specs/old/sidecar-index-cache/spec.md`：验收语料。
 - `BACKLOG-MCP-AND-FORMATS.md`：MCP 侧对源描述的需求口径（两套未拍板）。

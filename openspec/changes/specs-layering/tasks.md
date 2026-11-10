@@ -20,20 +20,20 @@
 
 ## 4. 笔记引用收敛
 
-- [ ] 4.1 按 `design.md` D-4 的表给 3 处引用补 `old/` 前缀（`openspec/notes/2026-11-07-MESSAGE-INDEX-MECHANISM.md:6` 的四个路径、`openspec/notes/BACKLOG-APP-LIFECYCLE.md:42` 一处、`openspec/notes/DLT-INTEGRATION.md:94` 一处）；验证：`git grep -n "openspec/specs/" -- openspec/notes` 的命中**全部**含 `specs/old/`，且 `openspec/notes/archive/**` 零改动（`git status --porcelain -- openspec/notes/archive` 为空）
+- [x] 4.1 按 `design.md` D-4 的表给 **4 份**笔记的旧 spec 路径补 `old/` 前缀（`2026-11-07-MESSAGE-INDEX-MECHANISM.md:6` 四个路径、`BACKLOG-APP-LIFECYCLE.md:42` 一处、`DLT-INTEGRATION.md:94` 一处、`2026-11-08-SOURCE-ACQUIRE-CONTRACT.md:44`/`:245`/`:369` 六处——第 4 份是 apply 时补入的，规划时它未被 git 跟踪所以 `git grep` 扫不到）；验证：`git grep -n "openspec/specs/" -- openspec/notes` 在**排除 `openspec/notes/archive/**`** 后，除 `2026-11-08-SOURCE-ACQUIRE-CONTRACT.md:282`（`openspec/specs/` 不带 capability 段，数字陈述，不回填）外，命中**全部**含 `specs/old/`；且 `openspec/notes/archive/**` 零改动（`git status --porcelain -- openspec/notes/archive` 为空）
 
 ## 5. 全量验收
 
 - [x] 5.1 复核迁移结果；验证：`openspec list --specs --json` 13 条 id **全部**形如 `old/<capability>`，且 `requirementCount` 与任务 1.2 的定稿期望值逐项一致、合计仍为 82
 - [x] 5.2 校验全部规范结构合法；验证：`openspec validate --specs --json` 13 条全部通过，零 findings
 - [x] 5.3 校验本 change 自身合法（`skip_specs: true` 与零 delta 相容）；验证：`openspec validate specs-layering --type change --json` 通过，`openspec status --change specs-layering --json` 中 `specs` 为 `skipped`、`proposal` / `design` / `tasks` 为 `done`
-- [ ] 5.4 全仓旧路径扫描；验证：`git grep -n "openspec/specs/\(adb-capture\|adb-server\|android-toolbox\|app-shutdown\|chunked-file-load\|device-file-transfer\|file-browser\|fileproxy\|message-filter\|settings-storage\|sidecar-index-cache\|time-column\|ui-language\)"` 在排除 `openspec/changes/archive/**` 与 `openspec/notes/archive/**` 之后**零命中**（历史档不回填，属设计 D-4 的边界）
-- [ ] 5.5 确认未越界；验证：`git status --porcelain` 全部命中都在 `openspec/` 内（`openspec/specs/` 的 13 条 rename、`openspec/config.yaml`、`openspec/notes/` 被改的笔记、本 change 目录），无任何 `.cs` / `.csproj` / `scripts/**` / `docs/**` 改动。**注**：`AGENTS.md` 未入库（`.gitignore:139`），其改动不在 `git status` 输出中，须单独以任务 3.3 的判据确认
+- [x] 5.4 全仓旧路径扫描；验证：`git grep -nE "openspec/specs/(adb-capture|adb-server|android-toolbox|app-shutdown|chunked-file-load|device-file-transfer|file-browser|fileproxy|message-filter|settings-storage|sidecar-index-cache|time-column|ui-language)"` 在排除 `openspec/changes/archive`、`openspec/notes/archive`、`docs/archive`（三类历史快照，按 §3.2 不回填）与 `openspec/changes/specs-layering`（本 change 在描述「旧地址不再存在」，其文本必然含旧路径）之后**零命中**
+- [x] 5.5 确认未越界；验证：`git status --porcelain` 全部命中都在 `openspec/` 内（`openspec/specs/` 的 13 条 rename、`openspec/config.yaml`、`openspec/notes/` 被改的笔记、本 change 目录），无任何 `.cs` / `.csproj` / `scripts/**` / `docs/**` 改动。**注**：`AGENTS.md` 未入库（`.gitignore:139`），其改动不在 `git status` 输出中，须单独以任务 3.3 的判据确认
 
 ## 6. 提交与收口
 
-- [ ] 6.1 提交本 change 的全部改动（需当轮明确授权；message 用 `docs(openspec): specs 按实现代际分层，13 条迁入 old/`）；验证：`git log -1 --stat` 的文件清单与任务 5.5 扫出的范围一致，`git status --porcelain` 只剩本 change 目录
-- [ ] 6.2 确认合入条件；验证：本 change 不使用 worktree，`git worktree list` 无 `wt/specs-layering`、`git branch --contains` 无需检查——在 tasks 全部勾选后，`AGENTS.md` §2.2 的归档门禁（tasks 全关 + wt 已合入目标分支）对「wt 已合入」一项自动满足
+- [x] 6.1 提交本 change 的全部改动（commit `a301168`，18 文件：13 条 rename 全部 100% 相似度 + `config.yaml` + 3 份笔记 + 本 tasks；`AGENTS.md` 不入库故不在其中）（需当轮明确授权；message 用 `docs(openspec): specs 按实现代际分层，13 条迁入 old/`）；验证：`git log -1 --stat` 的文件清单与任务 5.5 扫出的范围一致，`git status --porcelain` 只剩本 change 目录
+- [x] 6.2 确认合入条件；验证：本 change 不使用 worktree，`git worktree list` 无 `wt/specs-layering`、`git branch --contains` 无需检查——在 tasks 全部勾选后，`AGENTS.md` §2.2 的归档门禁（tasks 全关 + wt 已合入目标分支）对「wt 已合入」一项自动满足
 
 ## Workflow follow-up
 
