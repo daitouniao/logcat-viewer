@@ -7,6 +7,7 @@ context: |
   CI 语言环境：界面语言由 logcat-uicore/Services/Loc.cs 静态构造期按 CurrentUICulture 探测，无 settings.json 时完全由系统区域决定（本地 zh-CN / runner en-US）。故「Loc.* 输出 + 硬编码中文断言」= 本地全绿、CI 必红（历史翻车 4 次）。写这类断言必须用 LangScope.InZh/InEn 双语各「生成+断言」一遍；本地复现 CI 环境用 bash scripts/run-tests-en-us.sh。详见 docs/TESTING.md §3.4。
   文档红线（公开仓库，双站推送）：产物不得硬编码本机绝对路径或用户名；openspec/ 与 docs/ 公开内容一律视为对克隆者可见；docs/private/** 的内容不进任何产物。
   规范定位：openspec/specs/ 是系统行为的权威描述——只写行为契约（需求 + GIVEN/WHEN/THEN 场景），不写实现细节；类名、库选择、算法取舍归属 design.md。
+  规范分层（2026-11-10 定）：`openspec/specs/` 按实现代际分层，落位形如 `specs/<分类>/<capability>/spec.md`；当前分类只有 `old`（既有 C# 实现承载的全部契约）。新宿主接管某能力时新建分类（如 `logcore` 承接 Rust 重写），分类名须先登记在本段，不得随手新建，也不得为「预留」建空目录（git 不跟踪空目录）。落位判据是「这段契约由谁的代码执行」，不是谁先写的。迁移规则「动谁迁谁」：一次 change 若要修改的能力已归或即将归新分类的宿主执行，须在同一 change 内把该 capability **整条**迁入新分类，不得在 `old/` 下原地 MODIFY；同一 capability 名不得在两个分类下并存；迁移完成后 `old/` 下不得残留旧副本。整条 capability 只有部分行为归新宿主时，迁移前须先按宿主边界把它拆成两条 capability（留在 `old` 的那条须改名以体现其边界），再把承接新宿主的那条整条迁出。目录搬运不在 openspec CLI 能力内（`openspec spec` 只有 show / list / validate），一律手工 `git mv` 并写进 change 的 tasks。
   文档口径：docs/FEATURES.md 不再维护（之后统一删除），archive 时不再更新它；docs/archive/、docs/bugfixes/、docs/design/、docs/private/** 均不再维护（之后统一删除），不需要更新和关注，存量内容仅作历史参考、不作为依据。
   工作流门禁（AGENTS.md §2.2）：openspec 阶段 explore → propose → apply → archive 仅凭用户明确指令进入与推进，不跳阶段、不自动推进；propose 写完即停、等 apply 指令。探索产物落 openspec/notes/（公开），change 归档时同批将关联探索笔记归档至 openspec/notes/archive/ 并冻结不再维护，新探索生成新笔记。apply 在 change 专属的独立 git worktree 中实施，worktree 标识（分支 wt/<change-name>）记入 tasks.md 首条防断链，禁写本机绝对路径。归档门禁：tasks 必须全部关闭（含「wt 合入目标分支」任务，任务中写明目标分支名），且 wt/<change-name> 已合入该目标分支，才可执行 openspec archive；用户「可以归档 <name>」一并授权该次 wt 合入、归档与 worktree 清除。
   探索规范（AGENTS.md §2.4）：探索阶段结果生成文档，放到 openspec/notes/，以代码或 Log 为事实，可以跑探针测试，不猜测；有猜测的内容显式标注为猜测；需要澄清的问题写清——为什么需要澄清、有哪些方案、当前偏向哪个。
@@ -19,6 +20,7 @@ rules:
   specs:
     - 每条需求至少一个 GIVEN/WHEN/THEN 场景
     - 禁止出现类名、文件路径等实现细节
+    - 落位形如 `specs/<分类>/<capability>/spec.md`；当前分类只有 `old`。分层与迁移规则见 `context` 的「规范分层」。
   design:
     - 关键技术决策必须附理由；优先引用项目现有模式，不发明新模式
   tasks:

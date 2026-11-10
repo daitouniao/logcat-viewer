@@ -39,7 +39,7 @@
 
 ## B-APP-03 单实例/退出类需求在 capability 中的归口（整理项，无功能改动）
 
-**事实**：`openspec/specs/fileproxy/spec.md` 当前挂着「单实例守卫（BREAKING，已拍板）」需求；`fileproxy` 的主题是设备侧文件代理与暂存目录，单实例属应用生命周期。本次新增的 `app-shutdown` 只覆盖关窗耗时与关闭后重启，与该需求语义相邻但未合并。
+**事实**：`openspec/specs/old/fileproxy/spec.md` 当前挂着「单实例守卫（BREAKING，已拍板）」需求；`fileproxy` 的主题是设备侧文件代理与暂存目录，单实例属应用生命周期。本次新增的 `app-shutdown` 只覆盖关窗耗时与关闭后重启，与该需求语义相邻但未合并。
 
 **待办**：后续用一个只含 spec delta 的 change，把启动/退出类的应用级需求（单实例守卫、关闭后重启、将来的启动清理语义）收拢到 `app-shutdown`（或另立 `app-lifecycle`），`fileproxy` 只保留代理与暂存相关内容。纯文档整理，不改代码行为。
 

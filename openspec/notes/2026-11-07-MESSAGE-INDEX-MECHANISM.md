@@ -3,7 +3,7 @@
 - 状态：**结论文档**（只读探索，未编码）
 - 日期：2026-11-07
 - 事实基准：**2026-11-07 核对代码**（HEAD）
-- 关联：`openspec/specs/message-filter/`、`openspec/specs/time-column/`、`openspec/specs/sidecar-index-cache/`、`openspec/specs/chunked-file-load/`；已归档 design `remove-join-merge`（D1 索引口径）、`sidecar-cache-index`（D2/D3/D5/D9）、`chunked-progressive-load`
+- 关联：`openspec/specs/old/message-filter/`、`openspec/specs/old/time-column/`、`openspec/specs/old/sidecar-index-cache/`、`openspec/specs/old/chunked-file-load/`；已归档 design `remove-join-merge`（D1 索引口径）、`sidecar-cache-index`（D2/D3/D5/D9）、`chunked-progressive-load`
 - 归档：无对应 change，留在 `openspec/notes/` 作常驻参考
 
 ## 1. 结论

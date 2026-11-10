@@ -4,19 +4,19 @@
 
 ## 1. 准备
 
-- [ ] 1.1 确认在 `master` 上工作且无历史 worktree 残留；验证：`git branch --show-current` 输出 `master`，`git worktree list` 中**不存在** `wt/specs-layering`
-- [ ] 1.2 处置主工作树的在途改动并复测基线；验证：`git status --porcelain` 只剩本 change 目录（`openspec/changes/specs-layering/`）未跟踪，维护者自己的在途修改已提交或明确要求忽略；再跑 `openspec list --specs --json`，输出 **13 条无前缀 id** 且 `requirementCount` 与本任务内联期望值逐项一致——adb-capture 4 / adb-server 3 / android-toolbox 6 / app-shutdown 3 / chunked-file-load 8 / device-file-transfer 8 / file-browser 3 / fileproxy 27 / message-filter 7 / settings-storage 2 / sidecar-index-cache 7 / time-column 3 / ui-language 1（合计 **82**）。**若实测与 82 不符**：停下报告，按实测值更新本文件 1.2 与 5.1 的期望值后再继续（说明期间有人改过 specs，基线已漂移）
+- [x] 1.1 确认在 `master` 上工作且无历史 worktree 残留；验证：`git branch --show-current` 输出 `master`，`git worktree list` 中**不存在** `wt/specs-layering`
+- [x] 1.2 处置主工作树的在途改动并复测基线；验证：`git status --porcelain` 只剩本 change 目录（`openspec/changes/specs-layering/`）未跟踪，维护者自己的在途修改已提交或明确要求忽略；再跑 `openspec list --specs --json`，输出 **13 条无前缀 id** 且 `requirementCount` 与本任务内联期望值逐项一致——adb-capture 4 / adb-server 3 / android-toolbox 6 / app-shutdown 3 / chunked-file-load 8 / device-file-transfer 8 / file-browser 3 / fileproxy 27 / message-filter 7 / settings-storage 2 / sidecar-index-cache 7 / time-column 3 / ui-language 1（合计 **82**）。**若实测与 82 不符**：停下报告，按实测值更新本文件 1.2 与 5.1 的期望值后再继续（说明期间有人改过 specs，基线已漂移）
 
 ## 2. 迁移 13 条 capability（内容零改动）
 
-- [ ] 2.1 建立 `openspec/specs/old/` 并逐条 `git mv openspec/specs/<capability> openspec/specs/old/<capability>`，覆盖 13 个目录（adb-capture、adb-server、android-toolbox、app-shutdown、chunked-file-load、device-file-transfer、file-browser、fileproxy、message-filter、settings-storage、sidecar-index-cache、time-column、ui-language）；验证：`Get-ChildItem openspec/specs -Directory` 只剩 `old`，`Get-ChildItem openspec/specs/old -Directory` 恰好 13 个且名字集合与迁移前一致
-- [ ] 2.2 确认只搬路径、未改内容；验证：`git status --porcelain -- openspec/specs` 显示 13 对 rename（`R`）且无 `M`，`git diff --cached -M --stat -- openspec/specs` 输出为空。**此步之前不得编辑被移动文件的内容**（编辑会拉低相似度，让 rename 识别失败）
+- [x] 2.1 建立 `openspec/specs/old/` 并逐条 `git mv openspec/specs/<capability> openspec/specs/old/<capability>`，覆盖 13 个目录（adb-capture、adb-server、android-toolbox、app-shutdown、chunked-file-load、device-file-transfer、file-browser、fileproxy、message-filter、settings-storage、sidecar-index-cache、time-column、ui-language）；验证：`Get-ChildItem openspec/specs -Directory` 只剩 `old`，`Get-ChildItem openspec/specs/old -Directory` 恰好 13 个且名字集合与迁移前一致
+- [x] 2.2 确认只搬路径、未改内容；验证：`git status --porcelain -- openspec/specs` 显示 13 对 rename（`R`）且无 `M`，`git diff --cached -M --stat -- openspec/specs` 输出为空。**此步之前不得编辑被移动文件的内容**（编辑会拉低相似度，让 rename 识别失败）
 
 ## 3. 规则落库（`openspec/config.yaml` + `AGENTS.md`）
 
-- [ ] 3.1 在 `openspec/config.yaml` 的 `context` 中「规范定位」段之后插入「规范分层」段，措辞逐字取 `design.md` D-2 ①；验证：`openspec instructions proposal --change specs-layering --json` 输出的 `context` 字段包含「规范分层（2026-11-10 定）」与「迁移规则『动谁迁谁』」
-- [ ] 3.2 在 `rules.specs` 末尾追加一条落位规则，措辞逐字取 `design.md` D-2 ②；验证：同一命令输出的 `rules` 数组含该条，且原有的两条规则（每条需求至少一个场景、禁止类名与文件路径）仍在
-- [ ] 3.3 把 `AGENTS.md` §3.1「规范类」单元格里的 `（主规范，按 capability）` 替换为 `（主规范，按实现代际分层：specs/<分类>/<capability>/，当前分类只有 old）`，行内其余文字与「更新时机」列不动；验证：`Select-String -Path AGENTS.md -Pattern "按 capability"` 零命中，`Select-String -Path AGENTS.md -Pattern "按实现代际分层"` 命中 1 行，且 `git diff AGENTS.md` 只有一行改动
+- [x] 3.1 在 `openspec/config.yaml` 的 `context` 中「规范定位」段之后插入「规范分层」段，措辞逐字取 `design.md` D-2 ①；验证：`openspec instructions proposal --change specs-layering --json` 输出的 `context` 字段包含「规范分层（2026-11-10 定）」与「迁移规则『动谁迁谁』」
+- [x] 3.2 在 `rules.specs` 末尾追加一条落位规则，措辞逐字取 `design.md` D-2 ②；验证：`openspec instructions specs --change specs-layering --json` 输出的 `rules` 数组含该条且共 3 条，原有两条（每条需求至少一个场景、禁止类名与文件路径）仍在
+- [x] 3.3 把 `AGENTS.md` §3.1「规范类」单元格里的 `（主规范，按 capability）` 替换为 `（主规范，按实现代际分层：\`specs/<分类>/<capability>/\`，当前分类只有 \`old\`）`，行内其余文字与「更新时机」列不动；验证：`Select-String -Path AGENTS.md -Pattern "按 capability"` 零命中，`Select-String -Path AGENTS.md -Pattern "按实现代际分层"` 命中 1 行，且该行仍含 `openspec/changes/`、`openspec/notes/`、`openspec/config.yaml`、`增删活文档须同次修改本表` 四段。**注**：`AGENTS.md` 在 `.gitignore:139` 被忽略、未入库（§一.4），故该改动只存在于工作区、不产生 `git diff`
 
 ## 4. 笔记引用收敛
 
@@ -24,11 +24,11 @@
 
 ## 5. 全量验收
 
-- [ ] 5.1 复核迁移结果；验证：`openspec list --specs --json` 13 条 id **全部**形如 `old/<capability>`，且 `requirementCount` 与任务 1.2 的定稿期望值逐项一致、合计仍为 82
-- [ ] 5.2 校验全部规范结构合法；验证：`openspec validate --specs --json` 13 条全部通过，零 findings
-- [ ] 5.3 校验本 change 自身合法（`skip_specs: true` 与零 delta 相容）；验证：`openspec validate specs-layering --type change --json` 通过，`openspec status --change specs-layering --json` 中 `specs` 为 `skipped`、`proposal` / `design` / `tasks` 为 `done`
+- [x] 5.1 复核迁移结果；验证：`openspec list --specs --json` 13 条 id **全部**形如 `old/<capability>`，且 `requirementCount` 与任务 1.2 的定稿期望值逐项一致、合计仍为 82
+- [x] 5.2 校验全部规范结构合法；验证：`openspec validate --specs --json` 13 条全部通过，零 findings
+- [x] 5.3 校验本 change 自身合法（`skip_specs: true` 与零 delta 相容）；验证：`openspec validate specs-layering --type change --json` 通过，`openspec status --change specs-layering --json` 中 `specs` 为 `skipped`、`proposal` / `design` / `tasks` 为 `done`
 - [ ] 5.4 全仓旧路径扫描；验证：`git grep -n "openspec/specs/\(adb-capture\|adb-server\|android-toolbox\|app-shutdown\|chunked-file-load\|device-file-transfer\|file-browser\|fileproxy\|message-filter\|settings-storage\|sidecar-index-cache\|time-column\|ui-language\)"` 在排除 `openspec/changes/archive/**` 与 `openspec/notes/archive/**` 之后**零命中**（历史档不回填，属设计 D-4 的边界）
-- [ ] 5.5 确认未越界；验证：`git status --porcelain` 全部命中都在 `openspec/` 与 `AGENTS.md` 内（`openspec/specs/`、`openspec/config.yaml`、`openspec/notes/` 三份笔记、本 change 目录），无任何 `.cs` / `.csproj` / `scripts/**` / `docs/**` 改动
+- [ ] 5.5 确认未越界；验证：`git status --porcelain` 全部命中都在 `openspec/` 内（`openspec/specs/` 的 13 条 rename、`openspec/config.yaml`、`openspec/notes/` 被改的笔记、本 change 目录），无任何 `.cs` / `.csproj` / `scripts/**` / `docs/**` 改动。**注**：`AGENTS.md` 未入库（`.gitignore:139`），其改动不在 `git status` 输出中，须单独以任务 3.3 的判据确认
 
 ## 6. 提交与收口
 

@@ -91,7 +91,7 @@ PID/TID 恒空。Message 不复刻 dlt-viewer 的 `-----` 装饰符；control �
 
 新 capability `dlt-log-format`（6 条 requirement：入口判定 / 解码 / 字段映射 / 临时文件 / 未取证容错 / 文本分支；含「DLT 文档使用 DLT 列头」）+ `time-column` 1 条 delta。
 
-「无级别记录只在无级别过滤时可见」**不需要新增条款**：`openspec/specs/message-filter/spec.md` 的「元数据类过滤下的记录可见性」已覆盖。
+「无级别记录只在无级别过滤时可见」**不需要新增条款**：`openspec/specs/old/message-filter/spec.md` 的「元数据类过滤下的记录可见性」已覆盖。
 
 ## 4 事实基线
 
