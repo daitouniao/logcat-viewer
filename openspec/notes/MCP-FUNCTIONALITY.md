@@ -2,7 +2,7 @@
 
 - 状态：**待评审**（合并两套既有草案，给出统一口径建议；D 系列决策待拍板）
 - 日期：2026-11-06
-- 关联：合并自 `openspec/notes/BACKLOG-MCP-AND-FORMATS.md`（B3 卡）与 `openspec/notes/MCP-LOG-ANALYSIS-API.md`；格式侧依赖 `openspec/notes/DLT-INTEGRATION.md`
+- 关联：合并自 `openspec/notes/BACKLOG-MCP-AND-FORMATS.md`（B3 卡）与 `openspec/notes/MCP-LOG-ANALYSIS-API.md`；格式侧依赖 `openspec/notes/DLT-FORMAT-AND-RUST.md`
 - 验收结论：不适用（未实施）
 
 > 本文只做探索与口径收敛，不实施。两份旧笔记保留原位作为输入与历史，本稿是后续 propose 的工作参考。

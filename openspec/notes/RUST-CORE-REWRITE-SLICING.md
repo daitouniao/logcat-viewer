@@ -279,7 +279,7 @@ dll 不可直接 diff，故 `crates/cli` 提供 `dump` / `selftest`，对拍在�
 
 ### 6.4 不越界
 
-Rust 只接受本地路径或经其自身获取链产出的本地文件；设备侧与工具箱按 §4.2 例外；`Loc` 整体留 `logcat.UiCore`；DLT 解码不进内核（沿用 `RUST-CORE-EVALUATION.md` C3）。
+Rust 只接受本地路径或经其自身获取链产出的本地文件；设备侧与工具箱按 §4.2 例外；`Loc` 整体留 `logcat.UiCore`；DLT 解码归属待拍板（见 `DLT-FORMAT-AND-RUST.md` K1）——本句原写的「DLT 解码不进内核」已作废，与 D1 冲突。
 
 ## 7. 分发与 CI 实账
 
@@ -442,7 +442,7 @@ Rust 只接受本地路径或经其自身获取链产出的本地文件；设备
 - `PROJECT-STRUCTURE-RESTRUCTURE.md`：**已归档，仅作状态说明**，不作依据（AGENTS §3.2）；其刀0 关键约束已文字转述进 §14.4，供重新确认。
 - `BACKLOG-MCP-AND-FORMATS.md`：D2 顺序、D6 分发、D7 切片（均被推翻或沿用理由）。
 - `MCP-FUNCTIONALITY.md`、`MCP-LOG-ANALYSIS-API.md`：MCP 工具面两套口径未拍板，属刀4 的待决项；分析型原语与分页原语同源（锚点 + 窗口 + 上下文）。
-- `DLT-INTEGRATION.md`：解码归属，范围外。
+- `DLT-FORMAT-AND-RUST.md`：DLT 格式接入与 Rust 侧落点；解码归属待拍板（其 K1）。
 - `2026-11-07-MESSAGE-INDEX-MECHANISM.md`：索引与取文本机制，刀1 的现状依据。
 - `docs/TESTING.md`、`docs/BUILDING.md`：测试基线与发布步骤，§7 的实账来源。
 

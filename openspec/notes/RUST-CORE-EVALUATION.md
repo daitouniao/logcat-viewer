@@ -178,8 +178,8 @@ append 的 remap 有两种收法（design 阶段二选一）：
 ### C3 DLT 等二进制格式的解码归属
 
 - **为什么需要澄清**：DLT 解码产出文本行再走索引；若 Rust 建索引，解码在 C# 则需先落文本再喂 Rust（多一次写盘），在 Rust 则扩大内核面。
-- **有哪些方案**：甲 解码留 C#（Rust 只吃文本字节）；乙 解码入 Rust；丙 等 DLT 真正落地时再定（`DLT-INTEGRATION.md` 已有独立 change 规划）。
-- **当前偏向**：丙，本轮标为范围外。
+- **有哪些方案**：甲 解码留 C#（Rust 只吃文本字节）；乙 解码入 Rust；丙 等 DLT 真正落地时再定（格式侧见 `DLT-FORMAT-AND-RUST.md`）。
+- **当前偏向**：丙，本轮标为范围外。**（2026-11-12 复核：丙项下「留 C#」与 D1「文件操作完全归 Rust」冲突，已被合并文档改写；DLT 解码归属见 `DLT-FORMAT-AND-RUST.md` K1）**
 
 ### C4 过滤结果的形状
 
@@ -191,5 +191,5 @@ append 的 remap 有两种收法（design 阶段二选一）：
 
 - `BACKLOG-MCP-AND-FORMATS.md`：三工程边界、Core TFM、MCP 薄壳定位、D2 顺序、D6 分发形态（NuGet dotnet tool）。
 - `MCP-LOG-ANALYSIS-API.md`：MCP 分析型工具面，决定 Core 需要额外暴露的统计原语。
-- `DLT-INTEGRATION.md`：DLT 解码路径，对应 C3。
+- `DLT-FORMAT-AND-RUST.md`：DLT 格式接入与 Rust 侧落点，对应 C3（该笔记已改写 C3 结论）。
 - `UTF8-BYTE-SIMD-SEARCH.md`、`CHUNKED-TAIL-LOSS`：均已归档进 `openspec/notes/archive/`，仅作历史状态说明；§3 数字须在阶段 0 重新采集。

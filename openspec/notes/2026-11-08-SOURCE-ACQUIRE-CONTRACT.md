@@ -96,7 +96,7 @@ StartIndex(path)                                    logcat-viewer/frmMain.cs:952
 
 | 事实 | 依据 |
 | --- | --- |
-| DLT 判定必须先于代理分派，且 DLT 恒本地解码 | `openspec/notes/DLT-INTEGRATION.md` §3.4 |
+| DLT 判定必须先于代理分派，且 DLT 恒本地解码 | `openspec/notes/DLT-FORMAT-AND-RUST.md` §4.1 |
 | 读魔数失败倾向「回退代理 spool 取副本再判」 | 同上 K4 |
 | 列集按格式切换：logcat 7 列 / DLT 固定 5 列；PID/TID 恒空 | 同上 §3.2、§3.5 |
 | 中间个别记录损坏 → 跳过 + 计数继续；首条解析失败 → 不打开 | 同上 §3.4 |
@@ -261,13 +261,13 @@ AcquireRequest{kind: Device, device:{serial}}
 
 ### S4 首版是否包含 `warnings[]` 通道
 
-- **事实**：DLT 需要「中间损坏跳过 + 计数继续」（`DLT-INTEGRATION.md` §3.4）；现状没有任何「装载告警」通道，只有致命错误。
+- **事实**：DLT 需要「中间损坏跳过 + 计数继续」（`DLT-FORMAT-AND-RUST.md` §4.3）；现状没有任何「装载告警」通道，只有致命错误。
 - **可选**：甲 首版留空数组；乙 DLT change 时再加字段（需改描述符结构，C# 与 Node 两侧同步）。
 - **阻塞点**：描述符字段集在 propose 定稿，事后加字段是契约版本变更。
 
 ### S9 与 DLT change 的先后与冲突面
 
-- **事实**：`DLT-INTEGRATION.md` K1 要求 DLT 也在 `frmMain.StartIndex` 加分派；本契约的判定入口同处一处，并行实施会在同一函数产生合并冲突；K4 的「读魔数失败回退代理再判」已被本契约吸收。
+- **事实**：`DLT-FORMAT-AND-RUST.md` 要求 DLT 也在 `frmMain.StartIndex` 加分派；本契约的判定入口同处一处，并行实施会在同一函数产生合并冲突；「读魔数失败回退代理再判」已被本契约吸收。
 - **可选**：甲 本契约先走，DLT 基于契约实现 `format = Dlt`；乙 DLT 先走，本契约吸收其判定链；丙 合并成一个 change。
 - **阻塞点**：决定 change 的边界与顺序。
 
@@ -347,12 +347,12 @@ AcquireRequest{kind: Device, device:{serial}}
 | D1「文件操作完全归 Rust」 | 同上 §1 | 成立；本契约是其对外可见面 |
 | 「ADB 采集走 Reload 增长分支，故不进获取链」 | 同上 §3.3 | **被 A3 改写**：采集进入契约；取流实现归属仍不在本阶段 |
 | C3「Windows 外壳边界粒度」 | 同上 §8.1 | 本契约不暴露这些细节给 UI，只给 `channel` 与 `leaseId`；C3 选择仍待拍 |
-| DLT 解码器落 `Services/Dlt*/` | `DLT-INTEGRATION.md` K2 | **将被改写**：解码归 Rust core，C# 不再有 DLT 解码器 |
+| DLT 解码器落 `Services/Dlt*/` | `DLT-FORMAT-AND-RUST.md` §6.2 | **将被改写**：解码归 Rust core，C# 不再有 DLT 解码器 |
 | DLT「读魔数失败回退代理再判」 | 同上 K4 | 由本契约吸收（判定环在 Rust 内） |
 | DLT「静态 COLUMNS 改为按格式重建」 | 同上 §3.5 | **升级为 A4**：按 `descriptor.columns[]` 重建，C# 不持有格式→列集映射 |
 | 状态栏渠道三态在 UI 侧判定 | `ProxyChannel.cs` | 入参从「UI 自算」改为「描述符 + 事件」；文案与互斥规则不变 |
 | 编码判定口径待定 | `RUST-CORE-REWRITE-SLICING.md` §8.2 C7 | 不变，独立 change 立 spec |
-| DLT 与本契约同改 `frmMain.StartIndex` | `DLT-INTEGRATION.md` K1 | 冲突面显式化：按 S9 定先后 |
+| DLT 与本契约同改 `frmMain.StartIndex` | `DLT-FORMAT-AND-RUST.md` §4.1 | 冲突面显式化：按 S9 定先后 |
 
 ## 9. 下一步
 
@@ -365,6 +365,6 @@ AcquireRequest{kind: Device, device:{serial}}
 
 - `RUST-CORE-REWRITE-SLICING.md`：七刀与 FFI 契约面（§4.3 分页原语、§4.5 panic 与并发硬约束、§7 分发实账）。本契约是刀5 的前置。
 - `RUST-CORE-EVALUATION.md`：语言决策与性能基线。
-- `DLT-INTEGRATION.md`：格式侧设计与 K1–K8；本契约改写其 K2 与 §3.5。
+- `DLT-FORMAT-AND-RUST.md`：格式侧设计与 Rust 侧落点（本契约改写其解码归属与列集口径；旧 C# 期落地改动已整条删除）。
 - `openspec/specs/old/fileproxy/spec.md`（15 条 / 27 场景）、`openspec/specs/old/adb-capture/spec.md`、`openspec/specs/old/chunked-file-load/spec.md`、`openspec/specs/old/sidecar-index-cache/spec.md`：验收语料。
 - `BACKLOG-MCP-AND-FORMATS.md`：MCP 侧对源描述的需求口径（两套未拍板）。
