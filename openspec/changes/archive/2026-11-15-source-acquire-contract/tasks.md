@@ -53,4 +53,4 @@
 ## 8. 合入与收尾
 
 - [x] 8.1 tasks 全部关闭后自检：变更仅含新增文件 + 文档更新（BUILDING / TESTING / 两份 README 的数字与徽章）+ openspec 产物，未触碰既有 C# 链路（A13，csproj / slnx 未改），`git status` 干净度核对
-- [ ] 8.2 **wt 合入目标分支**：将 `wt/source-acquire-contract` 合入 `master`（归档前置条件；用户「可以归档 source-acquire-contract」即一并授权本次合入、归档 git mv 与 worktree 清除）
+- [x] 8.2 **wt 合入目标分支**：将 `wt/source-acquire-contract` 合入 `master`（归档前置条件；用户「可以归档 source-acquire-contract」即一并授权本次合入、归档 git mv 与 worktree 清除）
