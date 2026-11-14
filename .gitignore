@@ -16,6 +16,9 @@ artifacts/
 ## Rust / Node 构建产物（泛化模式，不用限定路径）
 target/
 node_modules/
+# Rust 的 src/bin/ 是源码目录（如测试代理），不是构建产物
+!logcore/src/bin/
+!logcore/src/bin/*.rs
 
 ## 运行时输出（日志 / 录屏 / 截图）
 [Ll]og/

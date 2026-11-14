@@ -4,7 +4,7 @@
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
 [![Platform: Windows](https://img.shields.io/badge/platform-Windows-lightgrey)](#requirements)
 [![CI](https://github.com/daitouniao/logcat-viewer/actions/workflows/ci.yml/badge.svg)](https://github.com/daitouniao/logcat-viewer/actions/workflows/ci.yml)
-[![Tests: 852 passing](https://img.shields.io/badge/tests-852%20passing-green)](docs/TESTING.md)
+[![Tests: 902 passing](https://img.shields.io/badge/tests-902%20passing-green)](docs/TESTING.md)
 [![Coverage: 94.26% lines](https://img.shields.io/badge/coverage-94.26%25%20lines-blue)](docs/TESTING.md)
 
 A Windows desktop pair for Android logs (`logcat`). Built with WinForms on .NET 10, it ships **two exes from one repo**: `logcat.exe`, the log viewer, opens and scrolls through **tens of millions of log lines** smoothly using memory-mapped files and a columnar index and drives live capture over ADB; `logcat-andtools.exe`, the Android toolbox, gathers the device tools — screenshots, screen recording, two-pane file transfer, APK install/uninstall and a command window — behind one tabbed window. The viewer launches the toolbox from its "Device operations" entry, and each runs standalone: you can use the toolbox without ever opening the viewer.
@@ -153,7 +153,7 @@ Not sure? Take the self-contained one — it is the larger download but zero set
   transfer, APK install). The app starts the ADB server itself if it isn't running. Everything
   else (opening and filtering log files) works without it.
 
-**To build from source:** .NET 10 SDK (`net10.0-windows`, WinForms).
+**To build from source:** .NET 10 SDK (`net10.0-windows`, WinForms); the Rust core needs a Rust toolchain (`cargo build -p logcore`).
 
 ## Build and run
 
@@ -183,6 +183,9 @@ engine, the persistence stores and the localization tables are covered by xUnit 
 device/system-integration layers are intentionally excluded from the coverage scope.
 
 ```powershell
+# the Rust core integration tests need the native library first
+cargo build -p logcore
+
 # run the suite
 dotnet test tests/logcat.Tests/logcat.Tests.csproj
 
@@ -191,7 +194,7 @@ dotnet test tests/logcat.Tests/logcat.Tests.csproj --collect:"XPlat Code Coverag
 python tests/coverage-report.py     # writes tests/coverage-report.html
 ```
 
-Current status: **852 tests, all passing**; **94.26%** line coverage (2,677 / 2,840 lines), **88.64%** branch coverage.
+Current status: **902 tests, all passing**; **94.26%** line coverage (2,677 / 2,840 lines), **88.64%** branch coverage.
 
 The scope is defined in `tests/logcat.Tests/coverlet.runsettings` and excludes two groups:
 
@@ -277,6 +280,7 @@ logcat-android-tools/    Android toolbox exe (`logcat-andtools.exe`)
   AndToolsWindowGeometry.cs  Toolbox window geometry save/restore (andtools.json)
   AndToolsMigration.cs   Toolbox-side migration branch (writes andtools.json + language.json from legacy settings)
   WakeUp.cs              Second-launch wake: foreground request, taskbar-flash fallback
+logcore/                 Rust core crate (source-acquisition contract: C ABI + JSON framing, sidecar cache, startup maintenance)
 logcat-viewer/           Viewer exe (`logcat.exe`)
   Program.cs             Entry point
   frmMain.cs             Viewer main window: layout, dual toolbars, filter panel, ADB entry points, shortcuts
@@ -303,9 +307,10 @@ logcat-viewer/           Viewer exe (`logcat.exe`)
     FileProxyService.cs + FileProxyClient.cs + FileProxyMode.cs + ProxyChannel.cs + FileProxyException.cs
                           Local file proxy pipeline (named pipe, spool dirs, launched process management)
     AndToolsLauncher.cs    Toolbox launcher (File.Exists probe → disable entry with hint, or Process.Start)
+    Logcore/               Rust core binding (P/Invoke + JSON contracts; new files only, not yet wired to the UI chain)
 tests/
   coverage-report.py     Coverage report generation (coverlet cobertura XML → readable HTML)
-  logcat.Tests/          xUnit test project (852 tests: log parsing / columnar index / filter engine / crash extraction / persistence / localization / settings split / device selection)
+  logcat.Tests/          xUnit test project (902 tests: log parsing / columnar index / filter engine / crash extraction / persistence / localization / settings split / device selection / Rust core binding + FFI integration)
     coverlet.runsettings Coverage scope (Include / Exclude rules)
 docs/
   BUILDING.md            How to build and publish — the per-package `dotnet publish` pairs, artifact verification, smoke checklist, pitfall table

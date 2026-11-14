@@ -1,19 +1,37 @@
 # 单元测试与覆盖率实操指南
 
-> 最后更新：2026-11-08
+> 最后更新：2026-11-14
 > 本文是「怎么把测试跑起来、覆盖率怎么出」的**唯一操作入口**。
 > 有效性审计（变异测试）见 [`UT-AUDIT.md`](UT-AUDIT.md)。
 > **CI 语言环境陷阱**（本地全绿、推送就红）见 §3.4。
 
-## 0. 当前基线（2026-11-08）
+## 0. 当前基线（2026-11-14）
 
 | 项         | 值                                                           |
 | ---------- | ------------------------------------------------------------ |
-| 用例数     | **852**，全过（含 `LocTableTests` 的 30 条本地化一致性用例） |
+| 用例数     | **902**，全过（852 + `source-acquire-contract` 新增 50：绑定层 UT 14 + 经 FFI 的 IT 36） |
 | 行覆盖率   | 94.26% (2,677 / 2,840)——随结构重组于 2026-11-08 重新采样 |
 | 分支覆盖率 | 88.64% (1,460 / 1,647)——同上，同一批采集                     |
 | 方法覆盖率 | 92.77% (295 / 318，判据「方法内 ≥1 行命中」)——同上，同一批采集 |
 | 统计口径   | 仅 Services + Models（UI 与设备/系统集成层已排除，见 §4）；主体已迁 `logcat-uicore/` |
+
+> 2026-11-14 **source-acquire-contract**：852 → **902**（+50：`LogcoreBindingTests` 14 条绑定层
+> UT——封送往返、错误码与 `INVALID_ARG.field` 映射、commit 受理描述形状、事件反序列化、
+> 维护入口封送、缺失 dll 明确报错、`MAX_FEED_LINES` 与 core 常量对拍；19 个 `SourceAcquire*IT`
+> 类共 36 条经 FFI 打真实 core 的 IT——commit 受理模型、本地直读、sidecar 二次打开与版本降级、
+> 代理 spool 与实例复用、失败路径、取消、配置快照、停止排空、关闭作废、关闭并发、多源并存、
+> 状态矩阵、超长路径、启动维护、推入与吞吐）。
+> 全量实测 **897/902**：5 条 `SingleInstanceTests` / `SingleInstanceNameTests` 在**本机已有
+> `logcat.exe` 运行**时必然失败（`Local\logcat-viewer-single-instance` 互斥量已被占用），
+> 与本 change 无关（同一环境下在 master 上复跑同样 5 条也失败）；关停所有 logcat / andtools
+> 实例后可全过。
+> 吞吐观测：`SourceAcquireFeedThroughputIT` 以 10×1 万行推入，Debug 构建实测 10 万行
+> **788 ms（约 12.6 万行/秒，含 D8 深拷贝）**，行数零丢失。该数字只作背压评估，不推导退出等待（D12）。
+> 覆盖率**未重采**（表内 94.26% / 88.64% / 92.77% 仍是 2026-11-08 口径，不含本轮新增绑定层）；
+> Rust 侧覆盖率口径独立，见 §6。
+
+> 2026-11-08 **结构重组后的基线**：852 条（含 `LocTableTests` 的 30 条本地化一致性用例），
+> 行覆盖率 94.26%、分支 88.64%、方法 92.77%，均为同批重采。
 
 > 2026-11-06 **fix-devices-changed-race**：846 → **848**（+2：`DeviceSelectorTests`——
 > 通知参数是快照（后续变更不影响已交付内容）、后台刷新与清空并发时枚举不抛）。
@@ -168,7 +186,7 @@
 - 用 tstrun 报告结果必须带口径声明：**tstrun 口径 N 条**（`[Fact]` 全部 + `[Theory]` 按 `[InlineData]` 展开），
   并声明已知跳过类别——`MemberData` / `ClassData` 驱动的 Theory 会被 runner **静默跳过**（§3.2 坑 3），
   汇总行里看不到它们。
-- 交叉验证：tstrun 口径条数应与上表基线（**852**）一致；不一致先怀疑 runner 漏扫，
+- 交叉验证：tstrun 口径条数应与上表基线（**902**）一致；不一致先怀疑 runner 漏扫，
   **不要改数字迁就 runner**。
 - 两条路径都跑不了时（如沙箱故障），如实写「**未验证**」——禁止声称「通过」。
 
@@ -621,7 +639,35 @@ bash scripts/run-tests-en-us.sh
 
 ---
 
-## 6. 一句话速查
+## 6. Rust core（`logcore`）
+
+Rust core 的测试分两层，**口径与上表的 C# 数字互不相加**：
+
+| 层 | 入口 | 说明 |
+| --- | --- | --- |
+| UT | `cargo test --manifest-path logcore/Cargo.toml -- --test-threads=1` | crate 内 `#[cfg(test)]` 模块：路由九格、嗅探边界、sidecar 键与命中/降级、缓存维护、描述符、事件不变量、推入/排空/关闭、状态矩阵、FFI 导出 |
+| IT | `dotnet test` 中的 `SourceAcquire*IT` | xUnit 经 C ABI 打真实 core：本地直读、sidecar、FakeProxy / `logcore-test-proxy.exe` spool、失败路径、取消、多源、启动维护、吞吐 |
+
+**必须串行**：代理实例注册表与 `shutdown` 是进程全局状态，默认并行跑会出现互踩的伪失败
+（实测默认并行 6 条代理用例失败，`--test-threads=1` 后全过）。报告 Rust 结果时写明
+「串行口径 N 条」。本机实测：Rust UT **176/176**（串行，2026-11-15）；
+C# 侧绑定 UT + 经 FFI 的 IT 合计 **50/50**。
+
+**前置**：C# IT 要求先 `cargo build -p logcore`（产出 `logcore/target/debug/logcore.dll`
+与 `logcore-test-proxy.exe`，探测顺序见 [`BUILDING.md`](BUILDING.md)）。缺 dll 时 IT 会以
+`LogcoreUnavailableException` 明确失败，而不是静默跳过。
+
+**覆盖率**：Rust 覆盖率是独立口径（`cargo llvm-cov`），不并入 C# 的 94.26% 统计。
+本机实测（2026-11-15，串行）：行 **88.64%**（4,527 / 5,107）、区域 89.08%、函数 87.23%。
+`src/bin/test_proxy.rs`（测试代理入口，0%）计入分母，剔除后库本体行覆盖 **89.22%**；
+库内最低是 `winserver.rs` 64.10%（监听线程的异常分支多由代理子进程侧触发，进程内测不到）。
+采集命令：`cargo llvm-cov -- --test-threads=1`（需先 `cargo install cargo-llvm-cov` 并
+`rustup component add llvm-tools-preview`）。插桩构建把测试代理建在 cargo 的 target 目录，
+`test_proxy_exe()` 在测试可执行目录旁找不到时按 `cargo metadata` 的 `target_directory` 回退。
+
+---
+
+## 7. 一句话速查
 
 - 我在终端 → §2.1（`dotnet test --collect` + `python tests/coverage-report.py`）。
 - 智能体沙箱 → §3 建 tstrun 跑测试、§2.2 用 coverlet console 出覆盖率。

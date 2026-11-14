@@ -1,0 +1,22 @@
+[
+  {
+    "path": "C:\\logs\\sample.log",
+    "entry": "sample_8e462ca853aa200f.lcs"
+  },
+  {
+    "path": "C:\\\u65E5\u5FD7\\\u5E94\u7528.log",
+    "entry": "\u5E94\u7528_a68b49716ca0d5db.lcs"
+  },
+  {
+    "path": "C:\\Program Files\\My App\\Some.Very.Long.File.Name.For.Prefix.Truncation.log",
+    "entry": "Some_Very_Long_File_Name_cae81d6e451c085d.lcs"
+  },
+  {
+    "path": "D:\\data\\UPPER.LOG",
+    "entry": "UPPER_502d35394b19c115.lcs"
+  },
+  {
+    "path": "\\\\server\\share\\logs\\a.log",
+    "entry": "a_7348509ef1a38847.lcs"
+  }
+]

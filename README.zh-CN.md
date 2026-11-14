@@ -4,7 +4,7 @@
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
 [![Platform: Windows](https://img.shields.io/badge/platform-Windows-lightgrey)](#环境要求)
 [![CI](https://github.com/daitouniao/logcat-viewer/actions/workflows/ci.yml/badge.svg)](https://github.com/daitouniao/logcat-viewer/actions/workflows/ci.yml)
-[![Tests: 852 passing](https://img.shields.io/badge/tests-852%20passing-green)](docs/TESTING.md)
+[![Tests: 902 passing](https://img.shields.io/badge/tests-902%20passing-green)](docs/TESTING.md)
 [![Coverage: 94.26% lines](https://img.shields.io/badge/coverage-94.26%25%20lines-blue)](docs/TESTING.md)
 
 Windows 桌面端 Android 日志（logcat）工具组。基于 WinForms，一个仓库出**两个 exe**：`logcat.exe` 日志查看器——内存映射文件 + 列式索引，可直接打开并流畅浏览千万行级别的日志文件，支持 ADB 实时采集；`logcat-andtools.exe` 安卓工具箱——截图、录屏、文件互传、APK 安装/卸载与命令窗口合并为一个页签式窗口，可独立使用。查看器的「设备操作」入口一键拉起工具箱，两者也可各开各的。
@@ -157,7 +157,7 @@ Windows 桌面端 Android 日志（logcat）工具组。基于 WinForms，一个
 - 使用 ADB 功能需要 `adb` 在 `PATH` 中（实时采集、截图、文件互传、APK 安装等；
   程序会自动尝试启动 ADB server）。**不涉及设备的功能（打开 / 过滤日志文件）
   不需要 adb。**
-- 从源码构建才需要 .NET 10 SDK（`net10.0-windows`，WinForms）
+- 从源码构建才需要 .NET 10 SDK（`net10.0-windows`，WinForms）；Rust core 需要 Rust 工具链（`cargo build -p logcore`）
 
 ### 构建与运行
 
@@ -185,6 +185,9 @@ dotnet publish logcat-android-tools\logcat.AndTools.csproj -c Release -o publish
 日志解析、列式索引（含增量追加与行边界对齐）、过滤引擎、各类持久化存储与本地化译文表都有 xUnit 测试覆盖；UI 层与设备/系统集成层不在单测口径内。
 
 ```powershell
+# Rust core 集成测试需要先构建原生库
+cargo build -p logcore
+
 # 跑全量测试
 dotnet test tests/logcat.Tests/logcat.Tests.csproj
 
@@ -193,7 +196,7 @@ dotnet test tests/logcat.Tests/logcat.Tests.csproj --collect:"XPlat Code Coverag
 python tests/coverage-report.py     # 输出 tests/coverage-report.html
 ```
 
-当前状态：**852 个用例全部通过**；行覆盖率 **94.26%**（2,677 / 2,840）、分支覆盖率 **88.64%**（1,460 / 1,647），2026-11-08 按重组后口径重采，详见 [docs/TESTING.md](docs/TESTING.md)。
+当前状态：**902 个用例全部通过**；行覆盖率 **94.26%**（2,677 / 2,840）、分支覆盖率 **88.64%**（1,460 / 1,647），覆盖率数字仍为 2026-11-08 口径（本轮未重采），详见 [docs/TESTING.md](docs/TESTING.md)。
 
 覆盖口径见 `tests/logcat.Tests/coverlet.runsettings`，排除两类代码：
 - **UI 层**：`Forms` / `Controls` / `frmMain` / `Program`，以及 `DpiFix` / `DpiDiag` / `Loc`。`Loc`（本地化运行时）与 `DpiFix` 同理——它一半的代码是控件树遍历、字体替换与文本像素测量，没有真实窗体与消息泵无从验证
@@ -280,6 +283,7 @@ logcat-android-tools/    安卓工具箱 exe（logcat-andtools.exe）
   AndToolsWindowGeometry.cs 工具箱窗口几何存取（andtools.json）
   AndToolsMigration.cs   工具箱侧落盘分支（从旧 settings.json 写出 andtools.json 与 language.json）
   WakeUp.cs              二次启动唤醒：请求前置，失败退任务栏闪烁
+logcore/                 Rust core crate（获取契约：C ABI + JSON 封帧、sidecar 缓存、启动维护）
 logcat-viewer/           查看器 exe（logcat.exe）
   Program.cs             入口
   frmMain.cs             查看器主窗口：布局、双行工具栏、过滤面板构建与收藏、ADB 功能入口、快捷键
@@ -306,9 +310,10 @@ logcat-viewer/           查看器 exe（logcat.exe）
     FileProxyService.cs + FileProxyClient.cs + FileProxyMode.cs + ProxyChannel.cs + FileProxyException.cs
                           本地文件代理管线（命名管道、暂存目录、代理进程管理）
     AndToolsLauncher.cs    工具箱启动器（File.Exists 探测 → 缺失禁用入口并提示，存在则 Process.Start）
+    Logcore/               Rust core 绑定层（P/Invoke + JSON 契约；仅新增文件，尚未接入 UI 主链）
 tests/
   coverage-report.py      覆盖率报告生成（coverlet 的 cobertura XML → 可读 HTML）
-  logcat.Tests/           xUnit 测试工程（852 个用例：日志解析 / 列式索引 / 过滤引擎 / 崩溃提取 / 持久化 / 本地化 / 配置拆分 / 设备选择）
+  logcat.Tests/           xUnit 测试工程（902 个用例：日志解析 / 列式索引 / 过滤引擎 / 崩溃提取 / 持久化 / 本地化 / 配置拆分 / 设备选择 / Rust core 绑定与 FFI 集成）
     coverlet.runsettings  覆盖率统计口径（Include / Exclude 规则）
 docs/
   BUILDING.md             怎么编译与发布（每包两条 publish 命令、产物验证、冒烟清单与踩坑表）

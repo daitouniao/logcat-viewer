@@ -1,61 +1,60 @@
-# 审查记录：source-acquire-contract
+# 契约最终状态：source-acquire-contract
 
-- 状态：S1–S5、P2.*、P3.* 与采集终态 / 收尾时序已全部收口，无待定项
-- 日期：2026-11-12
-- 来源：proposal / specs delta / design / tasks 四件产物的一致性审查，与 `openspec/notes/2026-11-08-SOURCE-ACQUIRE-CONTRACT.md` 交叉核对
+- 状态：规划产物已收口，无待决项
+- 口径：只记录最终结论，不保留决策日期、过程叙事与被否决方案；行为契约见 `specs/logcore/source-acquire/spec.md`，实现决策见 `design.md`。
+- 原始探索：`openspec/notes/2026-11-08-SOURCE-ACQUIRE-CONTRACT.md`
 
-## 已应用（2026-11-12）
+## 一、流程与句柄
 
-- S1 编码口径：采集文件固定 UTF-8 无 BOM + CRLF（宿主已按 UTF-8 解码后推入）；`feed` 超上限推入被拒且不入队；文件源编码判定归 core、本轮仅 UTF-8、检测随独立 change。
-- S2 失败分类：spec 新增 Requirement「失败分类」+ 3 场景；design D6 补失败种类；proposal 事件条目补注。
-- S3 关闭后保留：spec「采集收尾语义」补场景「关闭后采集文件保留」。
-- S4 绑定层落位：design D11（`logcat-viewer/` 新增文件、不改 csproj / slnx、类型 public）；tasks 6.1 / 8.1 同步。
-- S5 `sidecarHit`：移出 core 产物，由宿主按 identity 查自己的 sidecar 存储（2026-11-12 方向调整后改由 core 自查缓存，命中以 `loadMode` 表达，见文末）。
-- P2.6 / P2.8 / P2.9 / P2.10：采集跳过探测场景、格式编码不变 / 配置快照 / plan 取消用例。
-- P2.12 / P3.13 / P3.15：A10 引用、采集文件名、`config.yaml` 分类句。
+- 两段式：plan 做存在性、格式、文本嗅探、代理路由、首尾样本与元数据读取、缓存命中判定，只读不写（不建索引、不建目录、不写条目）；plan 成功返回计划与句柄，commit 复用该句柄与判定结果。
+- 判定环与「直接打开失败转代理」只在 plan 内完成；plan 返回的路由即最终渠道，commit MUST NOT 改渠道；受理后直接打开失败按运行期失败处理（码 12 + 错误事件 + `Failed`），不再尝试代理。
+- commit 受理即返，返回值只表达受理；暂存、解码、索引与缓存复核在 core 内部线程继续。
+- 受理前校验失败同步返回：状态 / 参数不合法按对应码；计划结果不可用（如计划连接已断）返回 11，句柄保持 `PlanReady`、释放该代理连接（计数 -1）、作废计划结果、不产出描述骨架；此后再次 commit 返回 `INVALID_STATE`，宿主先 `close` 再重新 `plan`。
+- 受理后运行期失败只经错误事件上报，句柄转 `Failed`，不回填已返回的调用；失败只是状态，句柄保留至宿主显式释放。
+- 完成信号：文件源以 `done` 为唯一完成信号；采集源受理即 `Running`，终态是 `stopped` 或 `error`；commit 受理本身不发布事件。
+- 取消：plan 与 commit 受理后、装载完成前有效（句柄转 `Closed` 并释放计划阶段代理连接与产物）；装载完成后返回 `INVALID_STATE`。
+- 八状态：`PlanReady` / `Committing` / `Loaded` / `Running` / `Stopping` / `Stopped` / `Failed` / `Closed`。状态 × 操作按 design D23 矩阵，表外组合一律 `INVALID_STATE`。
+- `close` 在 `PlanReady` / `Committing` 上等价 `cancel`；在 `Stopping` 上中止排空、此后不发 `stopped`，被阻塞的 `stop` 返回 `CLOSED`。
+- `close` 只释放源资源，不释放句柄；`free_handle` 仅 `Closed` 合法，其余状态返回 `INVALID_STATE` 且不释放资源；`close` 后各读取入口返回 `CLOSED`。
+- plan 阶段：`poll_events` 返回空数组、`get_progress` 返回 `Opening` 初始快照、`get_descriptor` 返回 `INVALID_STATE`。
+- 多活动源并存：core 不设数量上限、不回收、不因已有源拒绝；宿主负责关闭闲置源并保留最近使用的活动源；`BUSY` 保留不再触发。
 
-## 已收口：采集终态事件语义与退出等待（2026-11-12）
+## 二、文件源、身份与缓存
 
-- 终态按源类型分派（方案甲）：文件源 `done` / `error`，采集源 `stopped` / `error`；同源至多一个终态事件，终态后不再发该源装载事件；`close` 同步排空、不发终态事件。
-- 落点：spec「采集收尾语义」「事件通道为轮询制」补需求与 4 个场景（先停取流、只消化已入队行、超时放弃须显式记录、关闭不发终态）；design D4 事件清单补 `stopped` 并写分派理由；proposal 事件条目同步。
-- 退出策略 c：`stop` / `close` 由宿主在停止取流并推完残余后发起，core 不停止宿主取流；`close` 同步阻塞、返回即源资源释放且已入队行全落盘；宿主不得在 `close` 返回前退出；等待上限由 6.3 压测吞吐推导，超时后显式选择「继续等待 / 放弃并退出」，放弃记录为数据丢失。落点为 design D12 与 tasks 4.4 / 6.2 / 6.3。
+- 请求 `path` MUST 为绝对路径（盘符绝对或 UNC），相对路径一律 `INVALID_ARG`（`field = "path"`）；`displayPath` 原样保留，不规范化、不解析符号链接、不改分隔符与大小写；`sourcePath` 为实际打开路径（超长补 `\\?\` 或 `\\?\UNC\`），失败时 `params.path` 回显原路径。
+- 身份四要素：`size`、`mtimeMs`、`headHash`、`tailHash`（首尾各 64 KB FNV-1a，16 位小写十六进制；不超过 64 KB 的文件复用头哈希），空身份整体 `null`。
+- 身份只属于本地直读源：plan 读首尾样本算全身份并判定缓存命中（只读），描述骨架在受理时即给出身份与装载模式，commit 开始复核，文件已变则两者一并更新一次、转 `Progressive` 完整解析；代理暂存源与采集源整体为 `null`（不适用），不补算暂存文件身份。
+- 缓存归 core：键派生沿用既有实现，字节格式冻结 v1（旧缓存直接复用），缓存不含文本，只服务本地直读源。
+- 命中（且复核一致）为 `OneShot`、跳过解析；未命中、身份不一致、条目损坏或版本不符为 `Progressive`；低版本条目原地重写，高版本不覆盖；任何缓存异常静默降级，不发布错误、不使获取失败。
+- 写入走临时文件 + 原子替换；容量按条目与目录两级上限（可由快照覆盖，缺省 1 GB / 4 GB）、LRU 回收，先淘汰到装得下，新写必留、在用必留，单条超上限不缓存。
+- 在用 = 本进程内未关闭的本地直读源所对应的缓存键：命中或写回时登记（引用计数），关闭 / 取消 / 失败收尾时注销；容量回收跳过在用条目；`startup_maintain` 以空在用集合运行，可回收其他进程的条目，后果仅为该文件下次获取重新解析；`kept` 为回收后保留的有效条目数。
+- 按 route 取值：`LocalDirect` → `ReloadOnly` / `None` / `null` / `Original`；`ProxySpool` → `ReloadOnly` / `Ephemeral` / 暂存目录名 / `Original`；`DeviceStream` → `Appendable` / `Ephemeral` / 采集文件名主干 / `Original`。每个枚举值必须有生产者，无生产者删除或标预留（`Retained` 已删，`Relative` 预留）。
+- 启动维护：无句柄、幂等；缓存侧校验条目、清理损坏与写入残留、容量回收；临时目录侧以锁标记判定存活（可独占视为无主，删产物与标记；被占用则跳过；产物无标记视为无主；孤立标记删除；不碰不匹配命名）；目录不存在视为空且不创建；任一目录失败不抛错、不阻断后续获取。
 
-## 已收口：句柄生命周期、stop 合法性、plan 句柄、事件轮询义务（2026-11-12）
+## 三、采集
 
-- 句柄（Q1 甲）：`close` 只释放源资源，句柄保留至 `free_handle`；关闭后 `feed` / `poll_events` / `get_progress` 安全返回 `CLOSED`；关闭期间允许另一线程并发轮询。落点 spec「取消与不变量」、design D13、tasks 1.3 / 6.1 / 6.2。
-- stop 合法性与幂等（Q2 偏向默认）：`stop` 对文件源返回 `INVALID_STATE`；`Failed` 上返回 `FAILED`；`stop` / `close` 幂等且不重复发事件；错误码表增 `INVALID_STATE` / `INTERNAL`。落点 spec「取消与不变量」、design D3、tasks 1.2 / 4.4。
-- plan 句柄（Q3 甲）：`plan` 返回句柄，`commit` 复用判定与已拉起代理，`cancel` 两阶段有效。落点 spec「两段式获取流程」、design D2、tasks 1.3。
-- 事件轮询义务（Q4 甲）：事件不设上限、不丢不合并；宿主 MUST 周期轮询以控内存。落点 spec「事件通道为轮询制」、design D4、tasks 5.1。
+- `feed` 异步入队即返；行数据在返回前深拷贝为 core 自有内存，宿主可立即释放或复用缓冲；队列无上限、不丢行。
+- 单批超过 65536 行整批拒绝，返回 `INVALID_ARG`（`field = "lines"`），不部分入队、不发事件；上限随绑定层编译期常量发布，core 不提供查询入口。
+- 单消化线程按入队顺序解析、追加索引、落盘、发事件；每批完成发增量事件，仅在行数增长时发布，空批次不发。
+- 采集文件固定 UTF-8 无 BOM、行尾 CRLF，由 core 创建并追加；路径经描述 `sourcePath` 交还宿主。
+- `stop` 前置：宿主先停止取流并推完残余；进入排空后 `feed` 返回 `STOPPED`，`stop` 幂等；排空完成发 `stopped`（终态）并保留采集文件供保存。
+- 排空进度只描述本次排空：进入归零，总量为发起停止时的队列行数快照，结束时两者相等；累计行数取自增量事件的累计值或描述行数。
+- `close`：停消化 → 作废未消化队列 → 尽力删除采集文件 → 释放其余源资源 → 同步返回；不进入排空、不发终态事件、未取走的事件随关闭作废。
+- 产物删除尽力而为：外部占用导致删除失败时不改 `close` 返回、不发事件、不改状态，锁标记照常解除，残留由下次启动维护回收；无外部占用时关闭后不留任何采集产物；宿主不得以产物是否存在判定关闭结果。
+- 排空期间落盘失败 → `Failed`：清队列、发 `error`（终态）、不发 `stopped`，被阻塞的 `stop` 返回 `FAILED`，已落盘行与采集文件保留，租约由 `close` 按 `Ephemeral` 处理。
+- 采集源无用户路径：`displayPath` 为 `null`，标题与最近使用由宿主按渠道决定；`identity` 不适用。
 
-## 已收口：描述符 JSON schema（2026-11-12）
+## 四、描述、事件、进度与错误
 
-- 方案甲：收编笔记 §3.4 值表进 design D14，删 `sidecarHit`、删 `channel.DltDecoded`（DLT 产物仍是文件源）、`format` 首版仅 `Logcat`；补 `loadMode`、`identity` 结构与 `warnings` 结构；`identity` 空值为整体 `null`；哈希用 16 位小写十六进制字符串、`mtimeMs` 用整数毫秒（Node JSON 精度）。落点 design D14、tasks 1.3 / 2.5 / 6.1。
+- 描述骨架在 commit 受理时产出：渠道等静态字段为终值；身份与装载模式取 plan 阶段确定值（复核可更新一次）；`rowCount` 从 0 起；`Failed` 返回最后快照（可能只有骨架）；描述可读不表示产物存在或装载成功。
+- `poll_events` 一次返回全部待处理事件，JSON 数组，空数组合法，不合并、不丢弃、不设上限；关闭后返回 `CLOSED`。
+- 事件类型只有 `stage` / `appended` / `stopped` / `done` / `error`；未知类型与未知字段由宿主忽略；无 `warning`，无渠道变化事件。`appended` 仅采集源产生；文件源装载不发增量事件，行数经描述 `rowCount` 读取。
+- 终态按源类型分派：文件源 `done` / `error`，采集源 `stopped` / `error`；同源至多一个终态，终态后不再发该源装载事件；plan 失败只经同步返回，不建句柄、不占事件通道。
+- 进度为 `{ stage, value, total | null }` 原子快照；五阶段 `Opening` / `Spooling` / `Indexing` / `Capturing` / `Draining`，按所属路径固定顺序推进、不倒退；阶段内 `value` 单调不减，切换时归零；无总量为 `null`；终态后返回最后快照；core 不算百分比。
+- 错误码：`0 OK`、`1 BUSY`（保留）、`2 STOPPED`、`3 FAILED`、`4 CLOSED`、`5 INVALID_STATE`、`6 INVALID_ARG`、`7 INTERNAL`、`10 PROXY_LAUNCH_TIMEOUT`、`11 PROXY_DISCONNECT`、`12 DIRECT_OPEN_FAILED`、`13 NOT_FOUND`、`14 UNSUPPORTED_FORMAT`、`15 IO_ERROR`、`16 PROXY_LAUNCH_FAILED`；`params` 只含数据键，不含文案；宿主忽略未知码与未知键；代理失败且直开也曾失败时附 `directOpenError`，直开失败后经代理成功不发事件。
+- 代理实例：进程内按实际管道名登记、拉起单飞、多源共享；取得连接计数 +1（plan 阶段），释放计数 -1（关闭 / 取消 / 失败收尾，含受理前发现连接已断）；归零且由 core 拉起时结束进程。外部代理不登记、不结束。core 自拉起使用派生名 `<基础名>-<pid>`（超 256 判 `INVALID_ARG`，`field = "proxy.pipeName"`）。`shutdown` 只结束本进程拉起的实例并清空登记，中断的连接按 11 处理，幂等。
 
-## 已收口：错误码表与 error.params（2026-11-12）
+## 五、测试与边界
 
-- 方案甲：design D15 扁平表（0–7 状态类、10–15 失败类），`params` 只含语义键与数值、无文案；代理失败且直开也失败时追加 `directOpenError`；宿主忽略未知键与未知码（前向兼容）。落点 design D6 / D15、tasks 1.2 / 5.1 / 6.2。
-
-## 已收口：stage 枚举与进度口径（2026-11-12）
-
-- 方案甲：design D16 定五阶段（`Opening` / `Spooling` / `Indexing` / `Capturing` / `Draining`）、各路径固定顺序、`get_progress` 返回 `{stage, value, total|null}`；装载 bytes、采集中与排空 rows，无总量为 `null`；core 不算百分比，宿主自换算；`stage` 事件仅在切换时发布。落点 spec「事件通道为轮询制」、design D16、tasks 5.1 / 6.2。
-
-## 方向调整：多活动源（2026-11-12，维护者定）
-
-- 决策：取消「同一时刻至多一个活动源 / 第二个返回 BUSY」。MCP 需要同时打开多个文件源，采集与文件也可多实例并存；core 不设数量上限、不自行回收，生命周期归宿主外部管理；宿主超时回收时 MUST 保留最近使用的活动源。
-- 覆盖关系：本条取代笔记 A3 的「采集与文件双向互斥」与笔记 §3.5 第 4 条的单活动源约束；GUI「切换源先停采集再关旧文档」降级为宿主策略，不进 core。
-- 落点：spec「取消与不变量」改为多源并存 + 4 个场景（并存 / 关闭隔离 / core 不回收 / 宿主保留最后源）；design D3 / D13 / D15（`BUSY` 转保留码）/ 新增 D17；tasks 1.2 / 3.3 / 6.2；proposal 能力描述与非目标。
-
-## 已收口：临时产物命名与唯一性（2026-11-12）
-
-- 方案甲：采集文件 `logcat_live_<yyyyMMdd_HHmmss>_<seq>.log`、暂存目录 `logcat_spool_<seq>`，`seq` 为进程内全局原子计数；一律独占创建、撞名递增重试。时间戳只承担可读性，唯一性由 `seq` + 独占创建保证，不引入毫秒或 GUID；崩溃残留只导致跳号。落点 design D7 / D14（`leaseId`）、tasks 3.1 / 4.1。
-
-## 已收口：UNC / 长路径口径（2026-11-12）
-
-- 方案甲：`displayPath` 恒为请求原路径（不规范化、不解析符号链接、不改分隔符/大小写）；`sourcePath` 为实际打开路径，仅超长绝对路径补 `\\?\` / `\\?\UNC\`；失败时 `params.path` 回显原路径。落点 spec「入口判定归 core」、design D14、tasks 2.3 / 3.2 / 6.2。
-
-## 方向调整：sidecar 入 core 与启动维护（2026-11-12，维护者定）
-
-- 决策：sidecar 缓存（键派生、字节格式、命中判定、读写、容量）并入本轮 Rust 实现，覆盖 S14 甲的「存储留 C#」；装载起点新增命中判定流程（命中 → `OneShot` 且不进入 `Indexing`；未命中 → `Progressive`）；进程启动新增一次维护流程（结构校验、清理损坏与写入残留、容量回收）。
-- 覆盖关系：本条取代 S14 甲；S5 的「`sidecarHit` 不入 core 产物」仍成立——命中改以 `loadMode` 表达，不新增布尔字段。C6（格式升级/校验和）与缓存所有权移交仍不在本轮。
-- 默认口径（未另行拍板即按此）：① 字节格式冻结在现有版本（8 段宽度），旧缓存直接可用；② 键派生沿用既有 C# 规则，以 golden 键向量与字节对拍把关；③ 迁移期单一所有者——生产 `cache/` 仍归 C#，Rust 缓存只在测试独立目录验证；④ 容量沿用现有口径（条目 1 GB、目录 4 GB、LRU、新写必留），缓存目录与两级上限经快照传入；⑤ 只服务本地直读源，命中仍须打开源文件取文本；⑥ 维护入口无句柄、幂等、失败不阻断获取。
-- 落点：spec 新增「sidecar 缓存复用」「启动维护流程」两 Requirement（共 11 个场景），并同步「三轴源描述」「配置只经快照传入」；design D2（导出面加 `sidecar_maintain`）、D5（归属反转）、D9（测试分层）、D14（`loadMode` 取值规则）、D16（命中路径不进入 `Indexing`）、新增 D18 / D19、Migration 与 Risks；tasks 3.4 / 3.5 / 5.1 / 6.1 / 6.2；proposal 能力与范围。
+- 本阶段不提供行 / 列读取接口；IT 以描述行数、文档大小与落盘文件逐行内容为准，列断言留下一阶段。
+- 迁移期生产 `cache/` 仍由 C# 独占；Rust 缓存只在测试独立目录验证，禁止两侧同写。
