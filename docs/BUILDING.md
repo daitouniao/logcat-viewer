@@ -38,11 +38,14 @@ dotnet build logcat.slnx -c Release
 `dotnet build` 不会构建它，需单独编译：
 
 ```powershell
-cargo build -p logcore              # 调试：logcore/target/debug/logcore.dll
-cargo build -p logcore --release    # 发布：logcore/target/release/logcore.dll
+cargo build --manifest-path logcore/Cargo.toml            # 调试：logcore/target/debug/logcore.dll
+cargo build --manifest-path logcore/Cargo.toml --release  # 发布：logcore/target/release/logcore.dll
 ```
 
-`cargo build -p logcore` 同时产出测试对端 `logcore-test-proxy.exe`（同一 `target/debug` 目录），
+仓库根没有 Cargo 工作区清单，`-p logcore` 只在 `logcore/` 目录内有效；在根目录执行时务必带
+`--manifest-path`，否则 `cargo` 直接报找不到 `Cargo.toml`。
+
+`cargo build --manifest-path logcore/Cargo.toml` 同时产出测试对端 `logcore-test-proxy.exe`（同一 `target/debug` 目录），
 C# 集成测试要用它模拟文件代理。
 
 C# 绑定层按下列顺序探测 `logcore.dll`，取第一个存在的：
@@ -54,7 +57,7 @@ C# 绑定层按下列顺序探测 `logcore.dll`，取第一个存在的：
 5. 从应用目录逐级向上最多 8 层，查 `<仓库根>/logcore/target/debug/logcore.dll` 或 `release/`（仅开发树）。
 
 全部不存在时，`Logcore.UseLibrary` 抛 `LogcoreUnavailableException`，消息同时给出
-`cargo build -p logcore` 与 `LOGCORE_DLL` 两条出路；已成功加载的库不受后续探测失败影响。
+`cargo build --manifest-path logcore/Cargo.toml` 与 `LOGCORE_DLL` 两条出路；已成功加载的库不受后续探测失败影响。
 
 ## 三、跑测试
 
@@ -62,7 +65,7 @@ C# 绑定层按下列顺序探测 `logcore.dll`，取第一个存在的：
 dotnet test tests\logcat.Tests\logcat.Tests.csproj
 ```
 
-C# 集成测试套件会经 FFI 调真实 core，跑之前必须先 `cargo build -p logcore`（见上）。
+C# 集成测试套件会经 FFI 调真实 core，跑之前必须先 `cargo build --manifest-path logcore/Cargo.toml`（见上）。
 
 Rust core 自身的测试必须**串行**执行——代理实例注册表与 `shutdown` 是进程全局状态，
 并行跑会出现互踩的伪失败：

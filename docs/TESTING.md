@@ -653,7 +653,7 @@ Rust core 的测试分两层，**口径与上表的 C# 数字互不相加**：
 「串行口径 N 条」。本机实测：Rust UT **176/176**（串行，2026-11-15）；
 C# 侧绑定 UT + 经 FFI 的 IT 合计 **50/50**。
 
-**前置**：C# IT 要求先 `cargo build -p logcore`（产出 `logcore/target/debug/logcore.dll`
+**前置**：C# IT 要求先 `cargo build --manifest-path logcore/Cargo.toml`（产出 `logcore/target/debug/logcore.dll`
 与 `logcore-test-proxy.exe`，探测顺序见 [`BUILDING.md`](BUILDING.md)）。缺 dll 时 IT 会以
 `LogcoreUnavailableException` 明确失败，而不是静默跳过。
 

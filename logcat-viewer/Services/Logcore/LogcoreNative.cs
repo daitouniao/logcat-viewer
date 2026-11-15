@@ -120,7 +120,7 @@ internal static class LogcoreNative
     }
 
     static string MissingMessage(string path) =>
-        $"找不到 logcore 原生库：{path}。请先执行 cargo build -p logcore" +
+        $"找不到 logcore 原生库：{path}。请先执行 cargo build --manifest-path logcore/Cargo.toml" +
         $"（产物位于 logcore/target/<配置>/logcore.dll），或设置环境变量 LOGCORE_DLL 指向该文件。";
 
     internal delegate int PlanFn(IntPtr request, out IntPtr handle, out IntPtr planJson);
