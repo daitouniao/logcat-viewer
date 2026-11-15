@@ -5,6 +5,8 @@
 - 关联提交：无（未编码）
 - 验收结论：不适用（未实施）
 
+> 2026-11-15 状态说明：本稿的逐接口 `save_to` 已被合并稿的单一导出原语取代（`export(queryId, path, overwrite)`：任意绝对路径 + 默认不覆盖 + 原子写 + 拒绝源文件）；冲突时以 `openspec/notes/MCP-FUNCTIONALITY.md` 为准。本稿保留为输入与历史。
+
 ## 与 BACKLOG 卡的关系
 
 本笔记是 `BACKLOG-MCP-AND-FORMATS.md` D5（MCP v1 工具语义）之外的一套**分析型工具面**：工具从「AI 查日志的检索原语」（list / search / context / summarize / crashes）重定义为「日志分析统计原语」（probe / count / window / trace_field / cross_align）。两套口径的取舍、合并或并存方式未定，属本笔记的首要待决项。

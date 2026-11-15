@@ -36,7 +36,7 @@ logcat.Core 日志引擎（解析 / 列式索引 / 过滤 / 崩溃提取）
 | v1 只支持 logcat 文本文件 | DLT / 其他格式（另立 change，见 DLT 笔记） |
 | 检索 + 统计聚合 + 崩溃清单 | 让服务端调 LLM 生成自然语言摘要 |
 | 固定英文 JSON 契约（不跟随界面语言） | 跟随系统区域输出中文标签 |
-| 只读、显式绝对路径、输出上限 | 目录递归扫描、通配符、写文件 |
+| 只读打开源文件、显式绝对路径、输出上限；结果经单一 `export` 原语落盘 | 目录递归扫描、通配符、逐工具 `save_to` |
 | stdio 本机 transport | HTTP transport、远端部署、多因素认证 |
 | 发布为可安装的 MCP 工具包（形态见 §6.3） | follow / 实时 tail |
 | 显式路径打开 + 会话内文档缓存 | 跨文件聚合搜索（既有 B2 决策已否决） |
@@ -94,8 +94,8 @@ logcat.Core 日志引擎（解析 / 列式索引 / 过滤 / 崩溃提取）
 | 工具 | 职责 | 吸收草案 B 的部分 |
 | --- | --- | --- |
 | `list` | 列出会话内已打开文档 + 元信息；传 `path` 时打开并返回元信息 | `log_probe` 的 total_lines / ts_range / encoding / pid_dist |
-| `search` | 按关键词/正则检索，返回行或仅计数；支持级别/tag/pid/tid/分钟/时间范围过滤 | `log_count` 的逐关键词独立计数、pid 分布、首末时间 |
-| `context` | 以行号、时间点或关键词为锚，取前后 N 行；可限定同 tag / 同 pid / 同 tid | `log_window` 的时间窗与关键词邻域 |
+| `search` | 按关键词/正则检索，返回行或仅计数；支持级别/tag（推荐 exact）/pid/tid/分钟/时间范围过滤 | `log_count` 的逐关键词独立计数、pid 分布、首末时间 |
+| `context` | 以行号、时间点或关键词为锚，取前后 N 行原始行（含未命中行）；同 tag / 同 pid / 同 tid 等限定在返回窗口上本地过滤，不进 `FilterExpr` | `log_window` 的时间窗与关键词邻域 |
 | `summarize` | 统计聚合：按级别 / tag / 分钟 / pid 的分布 + Top N + 崩溃计数；不生成自然语言 | `log_count` 的分钟分布、`log_probe` 的行样式计数 |
 | `crashes` | 崩溃事件清单与分组汇总，直接复用 `CrashEvent` + `CrashAggregator` | 无 |
 
@@ -120,9 +120,11 @@ mode = "count"  -> 只返回聚合结果（逐关键词总数、pid 分布、首
 | `doc` | 会话内文档 id（`list` 返回），后续调用优先用它 |
 | `encoding` | 显式编码名，v1 支持 `utf-8`；缺省 `utf-8`（见 §8 Q3） |
 | `query` | `{ text, mode: "substring" \| "regex", case, exclude }`；v1 建议正则只作用于 message 体 |
-| `filters` | `levels` / `tags` / `pids` / `tids` / `minutes` / `time_range` |
+| `filters` | `levels` / `tags` / `pids` / `tids` / `minutes` / `time_range`；有 `tags` 时必须显式给 `tag_match: "exact" \| "substring"`（推荐 exact；UI 侧固定 substring 保持现状） |
 | `pagination` | `offset` / `limit`（默认 limit 200，上限 500） |
 | `max_bytes` | 单次返回文本上限，默认 2 MB |
+
+`tag_match=exact` 走 tag 字典 id 比较（`case=false` 时按折叠值映射）；`and` 在 exact 下按集合交集定义（单 tag 行上多个不同 exact 值即空集），不做特判。
 
 ### 5.4 输出契约
 
@@ -131,16 +133,16 @@ mode = "count"  -> 只返回聚合结果（逐关键词总数、pid 分布、首
 - 时间：原样字符串 `ts`（保留文件内格式）+ 可选 `epoch_ms`；不做时区换算。
 - 分页：`total` / `returned` / `truncated` / `next_offset`。
 - 扫描量：`scanned_rows`、`elapsed_ms`，便于 AI 判断结果是否被截断。
-- 错误：`{ "error": { "code": "...", "message": "..." } }`，错误码用稳定英文标识（如 `DOC_NOT_FOUND`、`PATH_NOT_ALLOWED`、`OUTPUT_LIMIT`、`REGEX_TIMEOUT`）。
+- 错误：`{ "error": { "code": "...", "message": "..." } }`，错误码用稳定英文标识（如 `DOC_NOT_FOUND`、`PATH_NOT_ALLOWED`、`OUTPUT_LIMIT`、`REGEX_INVALID`、`EXPORT_FAILED`）。
 - 不返回本机敏感信息；只回显调用方传入的路径。
 
 ### 5.5 安全默认值
 
 - 只接受调用方**显式传入的绝对路径**，不做目录递归、不做通配符。
-- 只读打开；v1 不提供 `save_to` 或其他写操作（旧分析草案的 `save_to` 与「只读」边界冲突，建议删除）。
+- 只读打开源文件；唯一的写能力是 `export(queryId, path, overwrite)`：任意绝对路径、默认不覆盖、覆盖须显式标志、原子写、目标等于源文件时拒绝。
 - 单次返回 ≤ 500 行且 ≤ 2 MB；超限返回 `truncated` 与游标。
-- 正则必须带超时（建议 200 ms），超时按「该行不命中」处理并在响应中留痕。
-- 不暴露 adb、进程控制、文件删除/写入等能力。
+- 正则不需要超时：Rust `regex` 线性时间、无回溯；不支持的语法在编译期拒绝（`REGEX_INVALID`），不做静默降级。
+- 不暴露 adb、进程控制、源文件删除/改写等能力；唯一写路径是 `export`。
 
 ## 6 工程落点与顺序
 
@@ -203,12 +205,12 @@ mode = "count"  -> 只返回聚合结果（逐关键词总数、pid 分布、首
 | D1 | 库边界与 TFM | **已定**（2026-11-01）：双库，`logcat.UiCore` 已建，`logcat.Core` 名字留白给引擎切片 | 维持 |
 | D2 | 与既有工作的先后 | 倾向：拆分卡 → `core-extraction` → `mcp-server` | 维持；补一条与 `sidecar-cache-index` 的顺序 |
 | D3 | 输出契约与本地化 | 未拍板 | 固定英文 JSON，MCP 不引 `Loc` |
-| D4 | 正则作用面与安全 | 未拍板 | 仅 message 体 + 大小写/排除开关 + 超时 |
+| D4 | 正则作用面与方言 | 已定（2026-11-15） | 仅 message 体 + 大小写/排除开关；引擎 = Rust `regex`（线性时间、无回溯），不支持的语法编译期拒绝，无超时 |
 | D5 | v1 工具语义 | 未拍板，且与草案 B 冲突 | 见 §5：五工具 + `search` 双模式；`trace_field` / `cross_align` 后置 |
 | D6 | 发布形态 | 未拍板 | NuGet dotnet tool（甲） |
 | D7 | 切片 | 倾向三个独立 change；切片 1 再分 1a/1b | 维持 |
 | D8 | 版本号与测试工程 | 可默认 | 版本号沿用 `Directory.Build.props`；测试继续单工程引用 Core |
-| D9 | 安全边界数值 | 可默认 | 显式绝对路径、只读、≤500 行 / ≤2 MB、正则 200 ms 超时、无写操作 |
+| D9 | 安全边界数值 | 可默认 | 显式绝对路径、只读打开、≤500 行 / ≤2 MB（内联返回）、Rust `regex` 无超时、写盘仅经 `export`（默认不覆盖 + 原子写） |
 
 ## 8 待澄清问题
 
@@ -220,19 +222,20 @@ mode = "count"  -> 只返回聚合结果（逐关键词总数、pid 分布、首
 - 偏向：甲。若担心统计能力被参数开关稀释，可把 `search mode=count` 的返回结构单独冻结。
 
 **Q2 正则进不进 v1**
-- 为什么：`FilterSpec` 无正则，落地是新能力；灾难性回溯是安全面。
-- 方案：甲 v1 只做子串，正则后置；乙 v1 就做 message 正则 + 超时；丙 只做正则不做子串。
-- 偏向：乙（沿用 D4 倾向），但必须把超时与「超时按不命中」写进 spec 场景。
+- 为什么：`FilterSpec` 无正则，落地是新能力。
+- 方案：甲 v1 只做子串，正则后置；乙 v1 就做 message 正则；丙 只做正则不做子串。
+- 偏向：乙（沿用 D4）。引擎已定 Rust `regex`（2026-11-15），线性时间、无回溯、无超时；契约需拒绝不支持的语法。
 
 **Q3 编码**
 - 为什么：现有解码只有 UTF-8；中文环境存在 GBK 日志，旧分析草案承诺的自动判定并不存在。
 - 方案：甲 v1 只支持 UTF-8，显式 `encoding` 参数留位；乙 v1 加 UTF-8/GBK 自动判定；丙 在面板/GUI 侧先做。
 - 偏向：甲。自动判定涉及解码层与 tag 字典，属于 Core 能力变更，单独评估。
 
-**Q4 `save_to` 与写边界**
-- 为什么：旧分析草案让服务端写结果文件，与「只读」安全口径冲突。
-- 方案：甲 删除 `save_to`；乙 只允许写入配置的输出目录；丙 保留任意路径写入。
-- 偏向：甲。
+**Q4 写边界（已定，2026-11-15）**
+- 结论：保留单一导出原语 `export(queryId, path, overwrite)`，不复活逐工具 `save_to`。
+- 路径：任意绝对路径；默认不覆盖已存在文件，覆盖须显式 `overwrite`；目标等于源文件时拒绝。
+- 写盘：流式写 + 临时文件改名（原子），失败不留半个文件；采集期间按调用时刻的结果集快照导出。
+- 内容：每条记录原文一行、行尾 `\n`、UTF-8 无 BOM（与 GUI 导出口径一致）。
 
 **Q5 `cross_align` 是否越界**
 - 为什么：既有决策「跨文件聚合搜索已被否决」，多源时间对齐与它相邻。
@@ -267,7 +270,7 @@ mode = "count"  -> 只返回聚合结果（逐关键词总数、pid 分布、首
 | 索引常驻内存 | 多文档驻留 + 大索引 | 文档数上限 + LRU；sidecar 落地后改为按需装载 |
 | mmap 长期持有 | Windows 上长期持有文件映射，U 盘拔出 / 文件被替换 | 出错即关闭文档；不做 follow |
 | 文件被修改 | size/mtime 变化后旧索引失效 | 缓存键含 size + mtime；变化则重建 |
-| 正则回溯 | 恶意或过宽正则拖死进程 | 超时 + 仅 message 体 + 结果留痕 |
+| 正则回溯 | 恶意或过宽正则拖死进程 | Rust `regex` 线性时间、无回溯；仅 message 体 |
 | 编码误判 | GBK 日志正文乱码 | v1 显式 UTF-8；后续单独评估自动判定 |
 | SDK 演进 | MCP C# SDK 与模板仍在演进 | propose 时锁定包版本；工具处理函数与 SDK 解耦，便于升级 |
 | 与 GUI 并发 | 同一文件被 GUI 与 MCP 同时 mmap | 只读共享打开；若冲突则 MCP 报错并提示关闭 GUI |
