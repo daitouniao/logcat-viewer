@@ -49,7 +49,7 @@ logcat.Core 日志引擎（解析 / 列式索引 / 过滤 / 崩溃提取）
 2. **引擎与 UI 已直接解耦**：`Services/LogDocument.cs`、`Services/FilterEngine.cs`、`Services/LogParser.cs`、`Services/CrashExtractor.cs`、`Services/CrashAggregator.cs`、`Services/CrashTime.cs`、`Models/CrashEvent.cs`、`Models/FilterSpec.cs` 均无 `System.Windows.Forms` / `System.Drawing` 引用（本次复核逐文件确认）。
 3. **但仍经 `Loc` 传递依赖**：`LogDocument` 的进度文案（如 `Loc.T("扫描行…")`、`Loc.F("合并索引…")`）、`FilterEngine` 的进度文案、`CrashKind.Name` 的类别显示名、`FilterSpec.Describe` 的描述文本都走 `Loc`。`Loc` 现在整体在 `logcat.UiCore`，且混合体未拆（纯译文半 + 约 24 个 WinForms 辅助成员）。这是引擎降到 `net10.0` 的真正前置，不是 `git mv`。
 4. **MCP 所需查询面已存在**：
-   - `LogDocument.RowCount` 与九列只读视图（`Offs` / `Lens` / `Moff` / `Minute` / `Pid` / `Tid` / `Lvl` / `TagId`）；
+   - `LogDocument.RowCount` 与 8 列只读视图（`Offs` / `Lens` / `Moff` / `Minute` / `Pid` / `Tid` / `Lvl` / `TagId`）；
    - 行内容读取 `LineBytes` / `MessageBytes` / `HeaderBytes` / `ReadMessage` / `OpenMessageSession`；
    - 构建 `Build` / `BuildAsync` / `BuildChunkedAsync`；增量 `Reload`；
    - 过滤 `FilterEngine.ApplyFilter` / `ApplyFilterAsync` / `FilterTail` / `ExportRows`；
@@ -57,8 +57,8 @@ logcat.Core 日志引擎（解析 / 列式索引 / 过滤 / 崩溃提取）
 5. **过滤没有用户侧正则**：`Models/FilterSpec.cs` 只有 Levels / Tags / Msg / Pids / Tids / Minutes / MarkedOnly 七类条件；`FilterEngine` 明确注明匹配走字节级子串，正则只用于词法切分；`LogParser` 的正则只用于 long 格式回退解析。→ MCP 正则过滤是**新增能力**。
 6. **正文解码只有 UTF-8**：`LogDocument.Decode` 直接 `Encoding.UTF8.GetString`，构造函数接收 `encoding` 但只存入 `EncodingName`，不参与解码；`TextProbe` 只判文本/二进制，不做编码判定。→ 旧分析草案里的「UTF-8 / GBK 双编码自动判定」**不存在**，属新增工作。
 7. **崩溃识别可复用**：`CrashExtractor` 是纯函数，`CrashAggregator` 按「类别 × 异常类型 × 包名」分组并给出次数与首末行号，MCP 的 `crashes` 不需要新的识别逻辑。
-8. **sidecar 索引缓存正在做**：在途 change `sidecar-cache-index`（0/12 任务）会把列式索引落盘并支持快速重开，触及 `Services/LogDocument.cs` 与主窗体装载编排。MCP 不重复实现索引缓存；落地后可作为 MCP 会话内重开的加速路径。
-9. **另一在途修复与 MCP 弱相关**：`fix-close-dispose-slow` 修的是 WinForms 视图销毁慢，不改变 `LogDocument` 的读取语义；MCP 不需要视图，但需注意「会话内长期持有文档」的关闭成本要单独实测。
+8. **sidecar 索引缓存已落地**：change `sidecar-cache-index` 已归档（`openspec/changes/archive/2026-11-06-sidecar-cache-index`），列式索引落盘并支持快速重开，触及 `Services/LogDocument.cs` 与主窗体装载编排。MCP 不重复实现索引缓存；可作为 MCP 会话内重开的加速路径。
+9. **另一已归档修复与 MCP 弱相关**：`fix-close-dispose-slow`（`openspec/changes/archive/2026-11-06-fix-close-dispose-slow`）修的是 WinForms 视图销毁慢，不改变 `LogDocument` 的读取语义；MCP 不需要视图，但需注意「会话内长期持有文档」的关闭成本要单独实测。
 10. **无任何 MCP 代码与依赖**：全仓库检索 `mcp` 只命中文档，无 MCP SDK 引用、无 `Pack` 配置。现有分发是 GUI 双包 zip（自包含 + 框架依赖）。
 11. **线程安全未声明**：`LogDocument` 在构建完成后的列视图是只读的，但 `Reload`、mmap 视图与 `MessageSession` 指针生命周期属于可写/资源路径；MCP 若并行处理工具调用，需要按文档串行化（这是待验证的假设，不是代码保证）。
 12. **版本号单一来源**：`Directory.Build.props` 当前 `0.1.7`，各工程继承。
@@ -165,7 +165,7 @@ mode = "count"  -> 只返回聚合结果（逐关键词总数、pid 分布、首
 
 - MCP 必须引用 `logcat.Core`，不能引用 `logcat.UiCore`；否则 WinForms/Drawing 被拖进 MCP，跨平台目标落空。
 - `Loc` 的拆法是 1b 的核心工作量；`CrashKind.Name` 与 `FilterSpec.Describe` 两处也要一并处理（要么 Core 保留纯译文半，要么 MCP 侧改用中性标签）。
-- `core-extraction` 与在途 `sidecar-cache-index` 都触碰 `LogDocument`，顺序需要拍板（见 §8 Q6）。
+- `sidecar-cache-index` 已归档，与 `core-extraction` 的先后问题已消解（见 §8 Q6）。
 
 ### 6.2 MCP 工程形态
 
@@ -242,10 +242,9 @@ mode = "count"  -> 只返回聚合结果（逐关键词总数、pid 分布、首
 - 方案：甲 v1 与 v2 都不做；乙 明确它是「对齐」不是「聚合搜索」，另立 change；丙 并入 v1。
 - 偏向：甲，先记录不动。
 
-**Q6 与 `sidecar-cache-index` 的顺序**
+**Q6 与 `sidecar-cache-index` 的顺序 —— 已消解**
 - 为什么：两者都改 `LogDocument` 装载路径；sidecar 能让 MCP 重开文件近零成本。
-- 方案：甲 MCP 先做（stdio 会话常驻，重开不在关键路径）；乙 sidecar 先做，MCP 直接受益；丙 MCP 只依赖 Core 的稳定 API，与 sidecar 并行。
-- 偏向：乙或丙；若 MCP 先做，需接受首次打开全量解析的成本。
+- 现状：`sidecar-cache-index` 已归档落地（原方案乙已发生），本项不再待拍，MCP 直接受益。
 
 **Q7 文档缓存与并行调用**
 - 为什么：stdio server 常驻会持有 mmap 文件；并行工具调用可能触碰同一文档。
@@ -278,7 +277,7 @@ mode = "count"  -> 只返回聚合结果（逐关键词总数、pid 分布、首
 ## 10 下一步
 
 1. 先拍板 Q1（工具面合并）与 Q3（编码边界）——这两项决定 spec 的需求条目数量。
-2. 拍板 Q6（与 sidecar 的顺序）与 Q4（写边界）——决定 `core-extraction` 与 `mcp-server` 的 tasks 依赖。
+2. 拍板 Q4（写边界）——决定 `mcp-server` 的 tasks 依赖（Q6 已消解：sidecar 已归档）。
 3. 顺序上仍建议：`core-extraction`（含 Loc 拆分）→ `mcp-server`；`mcp-server` 提出前补齐 D3–D6 的具体取值。
 4. 本稿作为 `/opsx:propose` 的输入；propose 只写 change 四件套，不在探索阶段动代码。
 
@@ -298,8 +297,8 @@ mode = "count"  -> 只返回聚合结果（逐关键词总数、pid 分布、首
 | 崩溃提取与聚合 | `Services/CrashExtractor.cs`、`Services/CrashAggregator.cs` |
 | 文本/二进制嗅探（非编码判定） | `Services/TextProbe.cs` |
 | 版本号单一来源 | `Directory.Build.props` |
-| 在途索引缓存 | `openspec/changes/sidecar-cache-index/` |
-| 在途关闭修复 | `openspec/changes/fix-close-dispose-slow/` |
+| 已归档索引缓存 | `openspec/changes/archive/2026-11-06-sidecar-cache-index/` |
+| 已归档关闭修复 | `openspec/changes/archive/2026-11-06-fix-close-dispose-slow/` |
 
 ## 附录 B 外部依据
 

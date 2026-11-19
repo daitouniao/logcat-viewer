@@ -73,7 +73,7 @@
 - **原选项的现况**：甲 的前置「等 `chunked-progressive-load` 归档」**已于 2026-11-01 满足**；乙（先抽 Core、chunked 再改）不再可能；丙（并行 worktree）仍是合并必冲突，排除。
 - **重排后的顺序（倾向，待你确认）**：`split-android-tools-exe`（建 `logcat.UiCore`，纯搬迁）→ `core-extraction`（拆 `Loc` + 抽 `logcat.Core`，`net10.0`）→ `mcp-server`。理由：拆分卡先落地，`UiCore` 这个「UI 侧共享层」就在场，`core-extraction` 才有明确的第二块边界可切，不必自己现场发明；且 DLT / sidecar 后续往 `Services/` 加的新文件会直接落进最终工程。
 - **代价（乙方案的已知账，明确记账不重复计价）**：`Loc` 的纯译文半 + `LocTable.*` 11 个文件会被搬两次——第一次随拆分卡进 `UiCore`，第二次随 `core-extraction` 进 `Core`。这两次都是 `git mv`，历史可追；除此之外不产生额外机制。
-- **修订（2026-10-31）**：DLT 切片不在上述顺序约束内——`dlt-log-format`（自研解码 + DLT 文本分支）按独立 worktree 与在途 change 并行（见 `openspec/notes/DLT-FORMAT-AND-RUST.md`）。**2026-11-01 补充**：DLT 一旦落地会把入口分流代码写进 `Services/`，若排在 `core-extraction` 之后，那批文件要跟着进 `logcat.Core`；排在之前则一次到位 → 与上面的顺序结论同向。**2026-11-12 附注**：顺序语境已变——Rust 重写方向接管获取链（在途 `source-acquire-contract`），DLT 的判定与解码归属见 `openspec/notes/DLT-FORMAT-AND-RUST.md`（§4 契约面 / §5 Rust 侧落点，解码归属待拍板 K1）。
+- **修订（2026-10-31）**：DLT 切片不在上述顺序约束内——`dlt-log-format`（自研解码 + DLT 文本分支）按独立 worktree 与在途 change 并行（见 `openspec/notes/DLT-FORMAT-AND-RUST.md`）。**2026-11-01 补充**：DLT 一旦落地会把入口分流代码写进 `Services/`，若排在 `core-extraction` 之后，那批文件要跟着进 `logcat.Core`；排在之前则一次到位 → 与上面的顺序结论同向。**2026-11-12 附注**：顺序语境已变——Rust 重写方向接管获取链（`source-acquire-contract` 已归档，spec 并入 `openspec/specs/logcore/source-acquire/`），DLT 的判定与解码归属见 `openspec/notes/DLT-FORMAT-AND-RUST.md`（§4 契约面 / §5 Rust 侧落点，解码归属待拍板 K1）。
 - **衍生（D2b）**：`SIDECAR-CACHE-INDEX` 的 change 也在 chunked 之后（已满足）。MCP 与 sidecar 谁先？倾向 **MCP 先**：MCP 的 stdio 服务端通常随客户端会话常驻（外部通用做法，非本项目代码事实），重开同一文件的成本不在关键路径上；sidecar 是纯性能优化，MCP 落地后价值不变。
 
 ### D3 MCP 输出契约与本地化（阻塞 MCP 设计）

@@ -184,8 +184,8 @@ Theory 展开后合计 23），新增 10 条（`ParseLine_透传分钟字段`、
 
 ## 0d. 2026-11-01 工具链升级：两级调度（A+B）
 
-> 关联：OpenSpec change `mutation-test-accel`；探索与实测数据见
-> `openspec/notes/MUTATION-TEST-ACCEL.md`（随该 change 归档后移入 notes/archive/）。
+> 关联：OpenSpec change `mutation-test-accel`（已归档）；探索与实测数据见
+> `openspec/notes/archive/2026-11-01-MUTATION-TEST-ACCEL.md`。
 
 **改动**：变异脚本默认走两级调度——每个变异先跑「子集轮」（按「文件 → 测试类名子串」
 映射：约定推导 + 脚本内 `SUBSET_OVERRIDES` 消费方补挂；runner 开 `TSTRUN_FAIL_FAST`

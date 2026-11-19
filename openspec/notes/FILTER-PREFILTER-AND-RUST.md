@@ -27,7 +27,7 @@
 | 结果合并层按候选行序处理 and/or/exclude | `FilterEngine.cs:758` |
 | 增量路径 `FilterTail` 与全量共用 `ScanBlockRounds` / `VerdictPass` | `FilterEngine.cs:1039` |
 | MCP 经同一 core dll 执行；过滤结果集归 Rust | `openspec/notes/RUST-CORE-REWRITE-SLICING.md` 刀2 / 刀3 |
-| 阶段 0 探针已验证 `regex 1.11` 可编译；当前 `logcore/Cargo.toml` 尚无 regex 依赖 | 切片笔记 §4.6；`logcore/Cargo.toml` |
+| 阶段 0 探针已验证 `regex 1.11` 可编译；当前 `logcore/Cargo.toml` 尚无 regex 依赖 | 切片笔记 §9.2；`logcore/Cargo.toml` |
 
 ## 3. 五条初筛策略对号
 

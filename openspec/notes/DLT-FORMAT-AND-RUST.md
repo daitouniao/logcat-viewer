@@ -23,8 +23,8 @@ DLT 以**格式**身份进入 Rust core 的源获取契约：core 在 plan 阶�
 | 原 `DLT-INTEGRATION.md`（2026-11-06 重构 / 2026-11-12 复核） | 格式事实、字段映射、已关闭决策、风险许可 | 主体并入本文 |
 | 原 `DLT-INTEGRATION.md` §3.3 / §3.5（C# 期落地改动：`ParseLine` 分支、`HeaderBytes` 接受 `/`、`LogListView` 静态列集改运行时） | — | **整条删除**（维护者 2026-11-12 口径）：判定与索引均归 Rust，列集由 `columns[]` 下发，C# 侧不再有 DLT 分支 |
 | `RUST-CORE-EVALUATION.md` C3（解码归属三选项） | 选项框架 | 改写为 §5.1（旧倾向「丙」被 D1 取代） |
-| `RUST-CORE-REWRITE-SLICING.md` §6.4「DLT 解码不进内核」 | — | **作废**：与 D1「log 文件操作完全归 Rust」冲突；其 §15.4 A 活性锁雷保留并转入 §5.6 |
-| `2026-11-08-SOURCE-ACQUIRE-CONTRACT.md` §2.5 / A2 / A4 / A8 / S9 | 契约面、判定顺序、列集下发 | 并入 §4，且以在途 change `source-acquire-contract` 的 design 定稿为准 |
+| `RUST-CORE-REWRITE-SLICING.md` 的「DLT 解码不进内核」 | — | **作废**：与 D1「log 文件操作完全归 Rust」冲突；其活性锁雷保留并转入 §5.6（Rust 侧已用 `share_mode(0)` 收口，见该笔记 §6.3） |
+| `2026-11-15-SOURCE-ACQUIRE-CONTRACT.md`（已归档）§2.5 / A2 / A4 / A8 / S9 | 契约面、判定顺序、列集下发 | 并入 §4，且以已归档 change `source-acquire-contract` 的 design 定稿与主规范 `logcore/source-acquire` 为准 |
 | `BACKLOG-MCP-AND-FORMATS.md` B3 / D2 / D7 | MCP 侧切片位置 | 压到 §9 |
 
 ## 2 范围
@@ -80,7 +80,7 @@ dlt-viewer.exe -t -s -u -c <out.txt> <in.dlt>    # 必须在安装目录作工�
 
 ## 4 与源获取契约的对接面（core 宿主）
 
-> 依据：在途 change `source-acquire-contract` 的 design D5 / D14 与 spec delta（`logcore/source-acquire`）。本节只写 DLT 需要补的那一面。
+> 依据：已归档 change `source-acquire-contract`（`openspec/changes/archive/2026-11-15-source-acquire-contract/`）的 design D5 / D14；spec delta 已并入 `openspec/specs/logcore/source-acquire/`。本节只写 DLT 需要补的那一面。
 
 ### 4.1 三轴取值与判定位置
 
@@ -212,7 +212,7 @@ crates/cli    同一 core 的可执行壳  ->  对拍 oracle / 调试 / MCP 退�
 ### 5.5 临时文本生命周期（core 拥有）
 
 - DLT 解码产物是 core 内部的**派生产物**：落在宿主传入的 `tempDir` 下（契约 A12：配置只经快照传入）。
-- 命名：与采集/暂存同族但需可区分，建议 `logcat_dlt_<seq>`；`seq` 为 core 进程内全局原子计数，独占创建（已存在则递增重试），与在途 change design D7 的采集文件口径同形。
+- 命名：与采集/暂存同族但需可区分，建议 `logcat_dlt_<seq>`；`seq` 为 core 进程内全局原子计数，独占创建（已存在则递增重试），与已归档 change `source-acquire-contract` design D7 的采集文件口径同形。
 - 租约：DLT 产物属「关闭即删」类（`leaseKind = Ephemeral`），与采集的「保留供保存」相对。
 - 生命周期 = 源句柄生命周期：关闭 → 删产物；取消 → 清空 + 删产物；失败 → 删产物不残留。
 
@@ -239,12 +239,12 @@ plan(format=Dlt) ──► commit: .dlt ─►[decode]─► 规范文本(临时
 - 索引层对 DLT 不感知格式，只吃文本 → 索引、过滤、导出、分页全部复用，无 DLT 专属分支。
 - 崩溃 / ANR 打标绑在索引期（标在父行），DLT 文本同样会命中关键词 → 行为与 logcat 一致。
 - 列投影：索引产出既有 8 段列式索引（`offs` / `lens` / `moff` / `min` / `pid` / `tid` / `lvl` / `tagId`）；DLT 的 pid/tid 恒空、tag 取 APID/CTID，由**解析层**决定，不在索引层特判。
-- 侧记：Rust 笔记沿用的「9 列」表述含已随 `remove-join-merge` 删除的 `flags` 列，当前实际为 8 段。
+- 侧记：「9 列」是 `remove-join-merge` 删掉 `flags` 列之前的口径，当前为 8 段；Rust 笔记已同步改为「8 列」。
 
 ### 5.9 FFI 与 panic 边界
 
-- DLT 不新增 cabi 导出函数 → panic 防护口径不变：逐导出函数 `catch_unwind` 薄包装，panic 转错误码，绝不让 unwind 逃出边界（Rust 笔记 §13.3 已本机实测：裸 `extern "C"` 内 panic = 宿主进程直接死）。
-- DLT 属**长耗时输入处理**：与页查询并发时不得互相阻塞——解码在独立线程，页查询走已发布索引快照（Rust 笔记 §4.5 并发硬约束）。
+- DLT 不新增 cabi 导出函数 → panic 防护口径不变：逐导出函数 `catch_unwind` 薄包装，panic 转错误码，绝不让 unwind 逃出边界（Rust 笔记 §9.2 已本机实测：裸 `extern "C"` 内 panic = 宿主进程直接死）。
+- DLT 属**长耗时输入处理**：与页查询并发时不得互相阻塞——解码在独立线程，页查询走已发布索引快照（Rust 笔记 §3.4 并发硬约束）。
 - 取消：解码支持原子取消标志，粒度不小于一条记录；取消后删除产物。
 
 ## 6 已定决策与已关闭项
@@ -270,12 +270,12 @@ plan(format=Dlt) ──► commit: .dlt ─►[decode]─► 规范文本(临时
 
 | 旧决策 | 现状 | 依据 |
 | --- | --- | --- |
-| 「DLT 解码不进内核」（Rust 笔记 §6.4） | **作废**：与 D1「log 文件操作完全归 Rust」冲突；解码归属见 §5.1（待拍板） | Rust 笔记 D1 / §4.1 |
+| 「DLT 解码不进内核」（Rust 笔记已删除的旧结论） | **作废**：与 D1「log 文件操作完全归 Rust」冲突；解码归属见 §5.1（待拍板） | Rust 笔记 §2.1 D1；DLT 归属见其 §12 |
 | 「解码器落主 exe `Services/Dlt*/`」（原 K2 甲） | **作废**：C# 侧不再有 DLT 解码器 | 获取链笔记 A8 / 本文 §5.1 |
 | C# 期三处改动（`ParseLine` DLT 分支、`HeaderBytes` 接受 `/`、`LogListView` 静态列集改运行时） | **整条删除**：判定与索引归 Rust，列集由 `columns[]` 下发 | 维护者 2026-11-12 口径 / 契约 A4 |
 | 「原 `LooksLikeNewRecord` 补白名单」（原 K8） | **取消**：续行合并机制已随 `remove-join-merge` 整体删除，生产侧零调用点 | 归档 change `remove-join-merge` |
 | 「等 `sidecar-cache-index` 归档后再做」（原 K1 乙） | **已满足**（2026-11-06 归档） | 归档 change `sidecar-cache-index` |
-| 路由 / 格式判定的归属（原 K9「留 C# 前置还是 Rust plan」） | **已定**：判定归 core（契约 A1），DLT 魔数判定是 core 判定链的一环 | 在途 change `source-acquire-contract` |
+| 路由 / 格式判定的归属（原 K9「留 C# 前置还是 Rust plan」） | **已定**：判定归 core（契约 A1），DLT 魔数判定是 core 判定链的一环 | 已归档 change `source-acquire-contract` |
 
 ## 7 待决项
 
@@ -288,7 +288,7 @@ plan(format=Dlt) ──► commit: .dlt ─►[decode]─► 规范文本(临时
 | **K3** | DLT 是否入 sidecar 缓存 | 甲 不入（每次解码 + 建索引）<br>乙 入，缓存条目额外记源身份 | **甲** | 入缓存需给字节格式加字段 → 触及 C6「sidecar 格式冻结」禁区，须另立 change；且命中仍需解码，收益只覆盖索引一段 |
 | **K4** | DLT 产物的租约语义 | 甲 复用现取值集，DLT = `Ephemeral`<br>乙 增第三种取值 | **甲**（design D14 现取值集为 `Ephemeral` / `Retained`） | 描述符字段集 |
 | **K5** | Rust 侧暂存 / 产物目录的活性锁机制 | 甲 `windows-sys` `CreateFileW(share_mode = 0)` 复刻独占语义<br>乙 改用 Job Object / 命名互斥，不依赖共享语义 | **甲**（与 C# 现状同形，对拍口径最小） | DLT 产物与代理暂存同根时的误删风险（§5.6） |
-| **K6** | DLT 列 id 集与 logcat 首版 id 集同批定死 | 甲 随在途切片一并定死（契约 B3 已要求）<br>乙 DLT change 内再定 | **甲** | 宿主「列集切换」IT 用例的前置 |
+| **K6** | DLT 列 id 集与 logcat 首版 id 集同批定死 | 甲 随在途切片一并定死（契约 B3 已要求）<br>乙 DLT change 内再定 | **甲（2026-11-16 已定）**：随**下一个触及列契约的 change**（在途切片已归档）把 DLT 5 列 id（`row` / `time` / `level` / `tag` / `message`，§4.2 建议集）与 logcat id 集一并写死——纯命名，成本接近零；其余 K 项仍待 DLT change design 时拍 | 宿主「列集切换」IT 用例的前置 |
 | **K7** | `warnings[]` 元素形状 | 甲 `{ code, count }` 对象<br>乙 纯计数数组 | **甲** | 跨语言结构 + DLT 损坏计数的落点 |
 | **K8** | DLT 专属错误码 | 甲 新增 `DLT_DECODE_FAILED` + params<br>乙 复用 `UNSUPPORTED_FORMAT` | **甲** | 错误码表（design D15）扩展 |
 | **K9** | 时间语义字段的表达 | 甲 复用现 `timeSemantics` 取值，DLT = `Original`<br>乙 显式加「不换算时区」标志位 | **甲**（现取值集为 `Original` / `Relative`，DLT 用 `Original`） | 描述符字段集；DLT 与 logcat 的时间语义需可区分（logcat 亦为原值，需确认是否要另立取值） |
@@ -321,7 +321,7 @@ plan(format=Dlt) ──► commit: .dlt ─►[decode]─► 规范文本(临时
 
 ## 10 测试与验收切面
 
-> 口径对齐在途 change：UT 验基本逻辑、尽可能多覆盖（Rust 侧 cargo test）；IT 验「按契约调一次，拿得回正确数据」。
+> 口径对齐已归档的获取契约 change：UT 验基本逻辑、尽可能多覆盖（Rust 侧 cargo test）；IT 验「按契约调一次，拿得回正确数据」。
 
 ### 10.1 UT（cargo test，core 内）
 
@@ -353,16 +353,17 @@ plan(format=Dlt) ──► commit: .dlt ─►[decode]─► 规范文本(临时
 
 ## 11 下一步
 
-1. 拍板 §7 的 K1–K9（未表态项按「倾向」写进 spec 并标「待确认」）；K10–K12 按默认项。
-2. 走 `/opsx:propose` 建 change（名建议 `dlt-log-format`），范围 = §4 契约面 + §5 Rust 侧实现；与在途 `source-acquire-contract` 的先后按 S9 定（本文不动在途 change 的任何行为）。
+0. **排期已定（2026-11-16）**：Rust 重写本期（刀1–刀5）**零 DLT 工作**；唯一例外是 K6（列 id 随下个列契约 change 同批定死）。接缝现状（2026-11-18 核对）：`format` 轴、`columns[]` 机制已在 code 与 spec；`route = LocalDecode` 与 `warnings[]` 仍不存在（现有渠道只有 `LocalDirect` / `ProxySpool` / `DeviceStream`）；「魔数先于嗅探」与 14 的生产者随前置 change `reject-unsupported-format` 落地，只用于错误标签、不解码。DLT 整体作为独立 change 插队与否由维护者届时定。
+1. 拍板 §7 的 K1–K5、K7–K9（未表态项按「倾向」写进 spec 并标「待确认」；K6 已于 2026-11-16 定甲）；K10–K12 按默认项。
+2. 走 `/opsx:propose` 建 change（名建议 `dlt-log-format`），范围 = §4 契约面 + §5 Rust 侧实现；获取契约 `source-acquire-contract` 已归档、接缝已落进主规范，本文不改其行为。
 3. apply 在该 change 专属 worktree `wt/dlt-log-format` 实施；发版归下一 minor（需另轮明确指令）。
 
 ## 12 关联
 
-- `openspec/notes/RUST-CORE-REWRITE-SLICING.md`：Rust 七刀 / 三轨、crate 布局、FFI 契约、panic 边界、活性锁雷（§5.6 来源）。
+- `openspec/notes/RUST-CORE-REWRITE-SLICING.md`：Rust 七刀 / 三轨、crate 布局、FFI 契约、panic 边界、活性锁雷（本文 §5.6 的来源，见其 §6.3）。
 - `openspec/notes/RUST-CORE-EVALUATION.md`：语言决策与对拍契约（其 C3 被本文 §5.1 改写）。
-- `openspec/notes/2026-11-08-SOURCE-ACQUIRE-CONTRACT.md`：获取契约的完整定案（本文 §4 的上位来源）。
+- `openspec/notes/archive/2026-11-15-SOURCE-ACQUIRE-CONTRACT.md`：获取契约的完整定案（本文 §4 的上位来源，已归档）。
 - `openspec/notes/BACKLOG-MCP-AND-FORMATS.md`：MCP 卡（B3），DLT 的切片序位（§9）。
 - `openspec/notes/MCP-FUNCTIONALITY.md`、`openspec/notes/MCP-LOG-ANALYSIS-API.md`：MCP 侧两套未拍板口径。
-- 在途 change `source-acquire-contract`：`logcore/source-acquire` 的 spec delta 与 design 定稿（本文 §4 / §5.1 以其为准）。
+- 已归档 change `source-acquire-contract`：design 定稿；spec delta 已并入 `openspec/specs/logcore/source-acquire/`（本文 §4 / §5.1 以其为准）。
 - `docs/TESTING.md`（测试口径唯一权威源）、`docs/BUILDING.md`（Rust 构建步骤待随 Rust 切片补）。
