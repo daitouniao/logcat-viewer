@@ -8,6 +8,7 @@ pub mod descriptor;
 pub mod error;
 pub mod events;
 pub mod ffi;
+pub mod format;
 pub mod identity;
 pub mod locks;
 pub mod maintain;

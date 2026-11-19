@@ -14,7 +14,7 @@ use super::{
 };
 use crate::error::{
     CLOSED, DIRECT_OPEN_FAILED, FAILED, INVALID_ARG, INVALID_STATE, IO_ERROR, PROXY_DISCONNECT,
-    STOPPED,
+    STOPPED, UNSUPPORTED_FORMAT,
 };
 use crate::events::{Event, Stage};
 use crate::locks;
@@ -517,12 +517,138 @@ fn identity_null_for_proxy_spool() {
 // ── 3.1 代理 ──
 
 #[test]
-fn proxy_route_fallback_judgment_loop() {
-    let dir = temp_dir("proxy-fallback");
+fn plan_rejects_non_text_when_auto() {
+    let dir = temp_dir("plan-reject-auto");
     let file = dir.join("binary.log");
     fs::write(&file, vec![0x01u8; 256]).unwrap();
-    let pipe = unique_pipe("fallback");
-    let _server = TestProxyServer::start_with_dir(&pipe, &dir);
+    let req = file_request(
+        &file,
+        &dir,
+        &dir.join("cache"),
+        &unique_pipe("reject-auto"),
+        "",
+        &[],
+        500,
+        "Auto",
+    );
+    let err = match SourceHandle::plan(&req) {
+        Ok(_) => panic!("非文本应被拒绝"),
+        Err(e) => e,
+    };
+    assert_eq!(err.code, UNSUPPORTED_FORMAT);
+    assert_eq!(
+        err.params.get("format").and_then(|v| v.as_str()),
+        Some("Binary")
+    );
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn plan_rejects_non_text_in_off_mode() {
+    let dir = temp_dir("plan-reject-off");
+    let file = dir.join("binary.log");
+    fs::write(&file, vec![0x01u8; 256]).unwrap();
+    let req = file_request(
+        &file,
+        &dir,
+        &dir.join("cache"),
+        &unique_pipe("reject-off"),
+        "",
+        &[],
+        500,
+        "Off",
+    );
+    let err = match SourceHandle::plan(&req) {
+        Ok(_) => panic!("非文本应被拒绝"),
+        Err(e) => e,
+    };
+    assert_eq!(err.code, UNSUPPORTED_FORMAT);
+    assert_eq!(
+        err.params.get("format").and_then(|v| v.as_str()),
+        Some("Binary")
+    );
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn plan_rejects_dlt_magic_with_label() {
+    let dir = temp_dir("plan-reject-dlt");
+    let file = dir.join("sample.dlt");
+    let mut bytes = vec![0x44u8, 0x4C, 0x54, 0x01];
+    bytes.extend(vec![0x01u8; 252]);
+    fs::write(&file, bytes).unwrap();
+    let req = file_request(
+        &file,
+        &dir,
+        &dir.join("cache"),
+        &unique_pipe("reject-dlt"),
+        "",
+        &[],
+        500,
+        "Auto",
+    );
+    let err = match SourceHandle::plan(&req) {
+        Ok(_) => panic!("DLT 魔数应先于嗅探给出格式标签"),
+        Err(e) => e,
+    };
+    assert_eq!(err.code, UNSUPPORTED_FORMAT);
+    assert_eq!(err.params.get("format").and_then(|v| v.as_str()), Some("Dlt"));
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn plan_rejection_creates_no_cache_entry() {
+    let dir = temp_dir("plan-reject-cache");
+    let cache = dir.join("cache");
+    let file = dir.join("binary.log");
+    fs::write(&file, vec![0x01u8; 256]).unwrap();
+    let req = file_request(
+        &file,
+        &dir,
+        &cache,
+        &unique_pipe("reject-cache"),
+        "",
+        &[],
+        500,
+        "Auto",
+    );
+    assert!(SourceHandle::plan(&req).is_err());
+    assert!(!cache.exists(), "拒绝不得创建缓存目录");
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn plan_empty_file_stays_local_direct() {
+    let dir = temp_dir("plan-empty");
+    let file = dir.join("empty.log");
+    fs::write(&file, b"").unwrap();
+    let req = file_request(
+        &file,
+        &dir,
+        &dir.join("cache"),
+        &unique_pipe("empty"),
+        "",
+        &[],
+        500,
+        "Auto",
+    );
+    let h = SourceHandle::plan(&req).unwrap();
+    assert_eq!(h.plan_json()["route"], "LocalDirect");
+    h.close().unwrap();
+    drop(h);
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn plan_auto_falls_back_to_proxy_on_open_error() {
+    let dir = temp_dir("plan-fallback-open");
+    let serve = temp_dir("plan-fallback-serve");
+    let file = text_file(&dir, "held.log", &["11-14 12:00:01.123  1  2 I T: a"]);
+    // 代理按 basename 回退到 serve 目录的副本，避免与本机独占占用冲突
+    text_file(&serve, "held.log", &["11-14 12:00:01.123  1  2 I T: b"]);
+    let hold = exclusive_hold(&file);
+    let pipe = unique_pipe("fallback-open");
+    let _server = TestProxyServer::start_with_dir(&pipe, &serve);
     let req = file_request(
         &file,
         &dir,
@@ -534,8 +660,59 @@ fn proxy_route_fallback_judgment_loop() {
         "Auto",
     );
     let h = SourceHandle::plan(&req).unwrap();
-    assert_eq!(h.plan_json()["route"], "ProxySpool", "嗅探判非文本转代理");
-    assert_eq!(h.plan_json()["estimatedSize"].as_u64(), Some(256));
+    assert_eq!(h.plan_json()["route"], "ProxySpool", "直开失败回退代理");
+    h.close().unwrap();
+    drop(h);
+    drop(hold);
+    let _ = fs::remove_dir_all(&dir);
+    let _ = fs::remove_dir_all(&serve);
+}
+
+// ── 4.1 暂存副本判定 ──
+
+#[test]
+fn commit_rejects_non_text_spool() {
+    proxy::shutdown();
+    let dir = temp_dir("commit-reject-spool");
+    let cache = dir.join("cache");
+    let file = dir.join("binary.log");
+    fs::write(&file, vec![0x01u8; 4096]).unwrap();
+    let pipe = unique_pipe("commit-reject");
+    let _server = TestProxyServer::start_with_dir(&pipe, &dir);
+    let req = file_request(&file, &dir, &cache, &pipe, "", &[], 5000, "On");
+    let h = SourceHandle::plan(&req).unwrap();
+    assert_eq!(h.plan_json()["route"], "ProxySpool");
+    h.commit().unwrap();
+    wait_state(&h, State::Failed);
+    let events = h.poll_events().unwrap();
+    assert_eq!(stages(&events), ["Opening", "Spooling"], "拒绝先于索引阶段");
+    let err = events
+        .iter()
+        .find_map(|e| match e {
+            Event::Error(e) => Some(e),
+            _ => None,
+        })
+        .expect("非文本拒绝经错误事件上报");
+    assert_eq!(err.code, UNSUPPORTED_FORMAT);
+    assert_eq!(
+        err.params.get("format").and_then(|v| v.as_str()),
+        Some("Binary")
+    );
+    assert_eq!(h.descriptor_json().unwrap()["rowCount"], 0);
+    assert!(!cache.exists(), "拒绝不写缓存");
+    h.close().unwrap();
+    drop(h);
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn commit_text_spool_still_loads() {
+    let dir = temp_dir("commit-text-spool");
+    let file = text_file(&dir, "p.log", &["11-14 12:00:01.123  1  2 I T: p"]);
+    let (h, _pipe) = proxy_plan(&dir, &file);
+    h.commit().unwrap();
+    wait_state(&h, State::Loaded);
+    assert_eq!(h.descriptor_json().unwrap()["rowCount"], 1);
     h.close().unwrap();
     drop(h);
     let _ = fs::remove_dir_all(&dir);

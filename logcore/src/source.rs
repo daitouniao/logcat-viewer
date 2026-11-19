@@ -18,9 +18,10 @@ use serde_json::{json, Value};
 use crate::descriptor::{Descriptor, LoadMode, Route};
 use crate::error::{
     CoreError, CoreResult, CLOSED, DIRECT_OPEN_FAILED, FAILED, INTERNAL, INVALID_STATE, IO_ERROR,
-    NOT_FOUND, PROXY_DISCONNECT, STOPPED,
+    NOT_FOUND, PROXY_DISCONNECT, STOPPED, UNSUPPORTED_FORMAT,
 };
 use crate::events::{Event, EventQueue, Progress, Stage};
+use crate::format;
 use crate::identity::Identity;
 use crate::locks;
 use crate::parse::Indexer;
@@ -264,12 +265,19 @@ impl SourceHandle {
             match File::open(&open_path) {
                 Ok(mut f) => {
                     direct_ok = true;
-                    looks_text = probe::probe_open_file(
-                        &mut f,
-                        req.options.probe_window_bytes,
-                        req.options.probe_threshold,
-                    )
-                    .unwrap_or(false);
+                    match probe::read_window(&mut f, req.options.probe_window_bytes) {
+                        Ok(sample) => {
+                            if let Some(fmt) = format::detect_unsupported_format(&sample) {
+                                return Err(reject_unsupported(fmt));
+                            }
+                            if !probe::sample_is_text(&sample, req.options.probe_threshold) {
+                                return Err(reject_unsupported("Binary"));
+                            }
+                            looks_text = true;
+                        }
+                        // 读窗口失败不作为非文本证据：Auto 回退代理、Off 继续直读
+                        Err(_) => {}
+                    }
                 }
                 Err(e) => inner.direct_error = Some(direct_error(&display, &e)),
             }
@@ -730,6 +738,10 @@ fn direct_error(display: &str, e: &std::io::Error) -> CoreError {
         .with("osError", Value::from(e.raw_os_error().unwrap_or(0)))
 }
 
+fn reject_unsupported(format: &'static str) -> CoreError {
+    CoreError::new(UNSUPPORTED_FORMAT).with("format", Value::from(format))
+}
+
 /// 仅超长绝对路径补长路径前缀（D14）：常规长度下一律按显示路径原样打开。
 fn open_path_for(display: &str) -> String {
     if display.chars().count() >= 260 {
@@ -922,6 +934,24 @@ fn load_proxy(inner: &Arc<Mutex<Inner>>, shared: &Arc<Shared>) -> CoreResult<()>
     lease.release();
     result?;
     check_cancel(shared)?;
+
+    let (probe_window, probe_threshold) = {
+        let g = inner.lock().unwrap();
+        (
+            g.request.options.probe_window_bytes,
+            g.request.options.probe_threshold,
+        )
+    };
+    if let Ok(mut f) = File::open(&dest) {
+        if let Ok(sample) = probe::read_window(&mut f, probe_window) {
+            if let Some(fmt) = format::detect_unsupported_format(&sample) {
+                return Err(reject_unsupported(fmt));
+            }
+            if !probe::sample_is_text(&sample, probe_threshold) {
+                return Err(reject_unsupported("Binary"));
+            }
+        }
+    }
 
     enter_stage(shared, Stage::Indexing, Some(total));
     let data = fs::read(&dest)

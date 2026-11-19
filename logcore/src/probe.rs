@@ -40,8 +40,8 @@ pub fn sample_is_text(sample: &[u8], threshold: f64) -> bool {
     ratio <= threshold
 }
 
-/// 从已打开的文件读窗口并判定。
-pub fn probe_open_file(file: &mut File, window: usize, threshold: f64) -> std::io::Result<bool> {
+/// 从文件头部读取至多 `window` 字节（读满窗口或到 EOF 为止）。
+pub fn read_window(file: &mut File, window: usize) -> std::io::Result<Vec<u8>> {
     let mut buf = vec![0u8; window.max(1)];
     let mut filled = 0usize;
     while filled < buf.len() {
@@ -51,7 +51,13 @@ pub fn probe_open_file(file: &mut File, window: usize, threshold: f64) -> std::i
         }
     }
     buf.truncate(filled);
-    Ok(sample_is_text(&buf, threshold))
+    Ok(buf)
+}
+
+/// 从已打开的文件读窗口并判定。
+pub fn probe_open_file(file: &mut File, window: usize, threshold: f64) -> std::io::Result<bool> {
+    let sample = read_window(file, window)?;
+    Ok(sample_is_text(&sample, threshold))
 }
 
 #[cfg(test)]
@@ -136,6 +142,15 @@ mod tests {
         assert!(!sample_is_text(&le, 0.10));
         // 普通 UTF-8 中文不受影响
         assert!(sample_is_text("中文日志\n".as_bytes(), 0.10));
+    }
+
+    #[test]
+    fn read_window_truncates_at_eof() {
+        let path = temp_file("read-window", b"hello\nworld\n");
+        let mut f = std::fs::File::open(&path).unwrap();
+        assert_eq!(read_window(&mut f, 8192).unwrap(), b"hello\nworld\n");
+        let mut f = std::fs::File::open(&path).unwrap();
+        assert_eq!(read_window(&mut f, 5).unwrap(), b"hello");
     }
 
     #[test]

@@ -2,7 +2,8 @@
 
 use crate::request::Mode;
 
-/// 九格真值表：开启恒走代理；自动在直接打开失败或嗅探判非文本时走代理；关闭恒不走。
+/// 九格真值表：开启恒走代理；自动在直接打开失败（含读窗口 I/O 失败）时走代理
+/// ——嗅探判非文本的输入在进入路由前已被拒绝；关闭恒不走。
 pub fn should_use_proxy(mode: Mode, direct_open_succeeded: bool, looks_like_text: bool) -> bool {
     match mode {
         Mode::On => true,
