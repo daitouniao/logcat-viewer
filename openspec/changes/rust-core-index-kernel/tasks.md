@@ -83,7 +83,8 @@
 
 - [x] 8.1 串行跑全量 Rust 测试并记录条数，`dotnet test` 全过（含 FFI 集成）；验证：两组数字写入任务备注，无新增失败
   - 实测：Rust `cargo test --workspace -- --test-threads=1` = core 207 + cabi 13 = **220 passed / 0 failed**。`dotnet test` = **896 passed / 6 failed / 902 total**；6 条失败与 0.2 基线逐条相同（5 条 `SingleInstanceTests`/`SingleInstanceNameTests`：本机 `logcat.exe` 运行占用 `Local\logcat-viewer-single-instance` 互斥量；1 条 `SourceAcquireFailureIT.Direct_sniff_failure_falls_back_to_proxy_without_events`：`reject-unsupported-format` 归档后 Auto 模式非文本改拒绝，该 IT 未更新，master 同红），**无新增失败**；36 条 FFI 集成测试全过。同批按 §3.4 更新 `docs/TESTING.md` §6：Rust UT 条数 176 → 220（`--workspace` 口径）、用例入口命令与测试代理路径；覆盖率标注「workspace 拆分后未重采」。
-- [ ] 8.2 将 `wt/rust-core-index-kernel` 合入 `master`；验证：`git log --oneline master` 含该分支提交，任务全部勾选
+- [x] 8.2 将 `wt/rust-core-index-kernel` 合入 `master`；验证：`git log --oneline master` 含该分支提交，任务全部勾选
+  - 实测：`git merge --ff-only wt/rust-core-index-kernel` 快进 `b86e913..e319f0f`（46 文件），`master` 历史含该分支提交；31/31 任务全部勾选。
 
 ## Workflow follow-up
 
