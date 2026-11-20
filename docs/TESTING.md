@@ -645,21 +645,21 @@ Rust core 的测试分两层，**口径与上表的 C# 数字互不相加**：
 
 | 层 | 入口 | 说明 |
 | --- | --- | --- |
-| UT | `cargo test --manifest-path logcore/Cargo.toml -- --test-threads=1` | crate 内 `#[cfg(test)]` 模块：路由九格、嗅探边界、sidecar 键与命中/降级、缓存维护、描述符、事件不变量、推入/排空/关闭、状态矩阵、FFI 导出 |
+| UT | `cargo test --workspace -- --test-threads=1` | crate 内 `#[cfg(test)]` 模块：路由九格、嗅探边界、sidecar 键与命中/降级、缓存维护、描述符、事件不变量、推入/排空/关闭、状态矩阵、FFI 导出 |
 | IT | `dotnet test` 中的 `SourceAcquire*IT` | xUnit 经 C ABI 打真实 core：本地直读、sidecar、FakeProxy / `logcore-test-proxy.exe` spool、失败路径、取消、多源、启动维护、吞吐 |
 
 **必须串行**：代理实例注册表与 `shutdown` 是进程全局状态，默认并行跑会出现互踩的伪失败
 （实测默认并行 6 条代理用例失败，`--test-threads=1` 后全过）。报告 Rust 结果时写明
-「串行口径 N 条」。本机实测：Rust UT **176/176**（串行，2026-11-15）；
+「串行口径 N 条」。本机实测：Rust UT **220/220**（串行，2026-11-20；`--workspace` 口径：core 207 + cabi 13）；
 C# 侧绑定 UT + 经 FFI 的 IT 合计 **50/50**。
 
-**前置**：C# IT 要求先 `cargo build --manifest-path logcore/Cargo.toml`（产出 `logcore/target/debug/logcore.dll`
+**前置**：C# IT 要求先 `cargo build`（产出 `logcore/target/debug/logcore.dll`
 与 `logcore-test-proxy.exe`，探测顺序见 [`BUILDING.md`](BUILDING.md)）。缺 dll 时 IT 会以
 `LogcoreUnavailableException` 明确失败，而不是静默跳过。
 
 **覆盖率**：Rust 覆盖率是独立口径（`cargo llvm-cov`），不并入 C# 的 94.26% 统计。
-本机实测（2026-11-15，串行）：行 **88.64%**（4,527 / 5,107）、区域 89.08%、函数 87.23%。
-`src/bin/test_proxy.rs`（测试代理入口，0%）计入分母，剔除后库本体行覆盖 **89.22%**；
+本机实测（2026-11-15，串行；workspace 拆分后未重采）：行 **88.64%**（4,527 / 5,107）、区域 89.08%、函数 87.23%。
+`crates/cabi/src/bin/test_proxy.rs`（测试代理入口，0%）计入分母，剔除后库本体行覆盖 **89.22%**；
 库内最低是 `winserver.rs` 64.10%（监听线程的异常分支多由代理子进程侧触发，进程内测不到）。
 采集命令：`cargo llvm-cov -- --test-threads=1`（需先 `cargo install cargo-llvm-cov` 并
 `rustup component add llvm-tools-preview`）。插桩构建把测试代理建在 cargo 的 target 目录，

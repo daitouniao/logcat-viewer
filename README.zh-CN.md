@@ -157,7 +157,7 @@ Windows 桌面端 Android 日志（logcat）工具组。基于 WinForms，一个
 - 使用 ADB 功能需要 `adb` 在 `PATH` 中（实时采集、截图、文件互传、APK 安装等；
   程序会自动尝试启动 ADB server）。**不涉及设备的功能（打开 / 过滤日志文件）
   不需要 adb。**
-- 从源码构建才需要 .NET 10 SDK（`net10.0-windows`，WinForms）；Rust core 需要 Rust 工具链（`cargo build --manifest-path logcore/Cargo.toml`）
+- 从源码构建才需要 .NET 10 SDK（`net10.0-windows`，WinForms）；Rust core 需要 Rust 工具链（`cargo build`）
 
 ### 构建与运行
 
@@ -186,7 +186,7 @@ dotnet publish logcat-android-tools\logcat.AndTools.csproj -c Release -o publish
 
 ```powershell
 # Rust core 集成测试需要先构建原生库
-cargo build --manifest-path logcore/Cargo.toml
+cargo build
 
 # 跑全量测试
 dotnet test tests/logcat.Tests/logcat.Tests.csproj

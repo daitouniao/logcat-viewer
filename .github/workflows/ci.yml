@@ -30,9 +30,10 @@ jobs:
 
       # 36 条 logcore 集成测试会经 FFI 调真实 core，缺 logcore/target/debug/logcore.dll
       # 时在测试类构造函数里整批失败（LogcoreTestSupport.EnsureLibrary）。
-      # windows-latest 自带 Rust 工具链，Cargo.lock 已入库。
+      # 仓库根是 Cargo workspace（crates/core、crates/cabi、crates/cli）；target 目录由
+      # 根 .cargo/config.toml 固定到 logcore/target，产物路径不变。Cargo.lock 已入库。
       - name: Build logcore
-        run: cargo build --manifest-path logcore/Cargo.toml
+        run: cargo build
 
       # 先单独 build，把"编译失败"和"测试失败"分成两步，
       # 否则两者都只表现为 exit code 1，日志里看不出是哪一种。

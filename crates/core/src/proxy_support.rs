@@ -26,7 +26,7 @@ pub fn test_proxy_exe() -> String {
     }
     let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_string());
     let status = std::process::Command::new(&cargo)
-        .args(["build", "--quiet", "--bin", "logcore-test-proxy"])
+        .args(["build", "--quiet", "-p", "logcore", "--bin", "logcore-test-proxy"])
         .current_dir(env!("CARGO_MANIFEST_DIR"))
         .status();
     assert!(

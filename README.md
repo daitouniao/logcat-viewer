@@ -153,7 +153,7 @@ Not sure? Take the self-contained one — it is the larger download but zero set
   transfer, APK install). The app starts the ADB server itself if it isn't running. Everything
   else (opening and filtering log files) works without it.
 
-**To build from source:** .NET 10 SDK (`net10.0-windows`, WinForms); the Rust core needs a Rust toolchain (`cargo build --manifest-path logcore/Cargo.toml`).
+**To build from source:** .NET 10 SDK (`net10.0-windows`, WinForms); the Rust core needs a Rust toolchain (`cargo build`).
 
 ## Build and run
 
@@ -184,7 +184,7 @@ device/system-integration layers are intentionally excluded from the coverage sc
 
 ```powershell
 # the Rust core integration tests need the native library first
-cargo build --manifest-path logcore/Cargo.toml
+cargo build
 
 # run the suite
 dotnet test tests/logcat.Tests/logcat.Tests.csproj

@@ -11,12 +11,12 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 
 use serde_json::Value;
 
-use crate::error::{CoreError, CoreResult, INTERNAL, INVALID_STATE, OK};
-use crate::events::events_json;
-use crate::maintain;
-use crate::proxy;
-use crate::source::SourceHandle;
-use crate::state::State;
+use logcore_core::error::{CoreError, CoreResult, INTERNAL, INVALID_STATE, OK};
+use logcore_core::events::events_json;
+use logcore_core::maintain;
+use logcore_core::proxy;
+use logcore_core::source::SourceHandle;
+use logcore_core::state::State;
 
 thread_local! {
     static LAST_ERROR: RefCell<Option<CoreError>> = const { RefCell::new(None) };
@@ -298,8 +298,8 @@ pub extern "C" fn logcore_test_panic() -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::error::CLOSED;
-    use crate::testutil::{file_request, temp_dir, text_file, wait_until};
+    use logcore_core::error::CLOSED;
+    use logcore_core::testutil::{file_request, temp_dir, text_file, wait_until};
     use std::ffi::CString;
 
     fn take(out: *mut c_char) -> Value {
@@ -512,7 +512,7 @@ mod tests {
     #[test]
     fn state_free_during_stopping_invalid() {
         let dir = temp_dir("ffi-free-stopping");
-        let req = crate::testutil::device_request(&dir);
+        let req = logcore_core::testutil::device_request(&dir);
         let (code, handle, _) = plan(&req);
         assert_eq!(code, OK);
         assert_eq!(logcore_commit(handle), OK);
@@ -565,7 +565,7 @@ mod tests {
     #[test]
     fn feed_copies_lines_before_return() {
         let dir = temp_dir("ffi-feed-copy");
-        let req = crate::testutil::device_request(&dir);
+        let req = logcore_core::testutil::device_request(&dir);
         let (code, handle, _) = plan(&req);
         assert_eq!(code, OK);
         assert_eq!(logcore_commit(handle), OK);

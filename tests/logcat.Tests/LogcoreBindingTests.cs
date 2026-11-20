@@ -230,7 +230,7 @@ public sealed class BindingFeedLimitConstantTests
     public void Binding_limit_equals_core_constant()
     {
         var root = LogcoreTestSupport.RepoRoot();
-        var source = File.ReadAllText(Path.Combine(root, "logcore", "src", "source.rs"));
+        var source = File.ReadAllText(Path.Combine(root, "crates", "core", "src", "source.rs"));
         var marker = "pub const MAX_FEED_LINES: usize = ";
         var at = source.IndexOf(marker, StringComparison.Ordinal);
         Assert.True(at >= 0, "core 未声明 MAX_FEED_LINES");

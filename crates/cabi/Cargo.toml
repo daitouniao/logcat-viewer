@@ -1,0 +1,21 @@
+[package]
+name = "logcore"
+version.workspace = true
+edition = "2021"
+description = "logcat source-acquire core C ABI (cdylib)"
+publish = false
+
+[lib]
+name = "logcore"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+logcore_core = { path = "../core" }
+serde_json = "1"
+
+[dev-dependencies]
+logcore_core = { path = "../core", features = ["test-support"] }
+
+[[bin]]
+name = "logcore-test-proxy"
+path = "src/bin/test_proxy.rs"

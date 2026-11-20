@@ -79,6 +79,22 @@ fn wait_rows(h: &SourceHandle, n: u64) {
     );
 }
 
+/// 后台落盘完成后 `.lcs` 才出现；依赖缓存命中的用例须先等它。
+fn wait_lcs(cache: &Path) {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let written = fs::read_dir(cache).ok().is_some_and(|rd| {
+            rd.flatten()
+                .any(|e| e.path().extension().and_then(|s| s.to_str()) == Some("lcs"))
+        });
+        if written {
+            return;
+        }
+        assert!(Instant::now() < deadline, "sidecar 后台落盘未完成");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+}
+
 fn stages(events: &[Event]) -> Vec<&'static str> {
     events
         .iter()
@@ -451,7 +467,7 @@ fn identity_computed_at_plan() {
 }
 
 #[test]
-fn identity_rechecked_at_commit_updates_once() {
+fn identity_change_after_plan_degrades() {
     let dir = temp_dir("identity-recheck");
     let file = text_file(&dir, "r.log", &["11-14 12:00:01.123  1  2 I T: first"]);
     let cache = dir.join("cache");
@@ -469,6 +485,7 @@ fn identity_rechecked_at_commit_updates_once() {
     let warm = SourceHandle::plan(&req).unwrap();
     warm.commit().unwrap();
     wait_state(&warm, State::Loaded);
+    wait_lcs(&cache);
     warm.close().unwrap();
     drop(warm);
 
@@ -1141,13 +1158,7 @@ fn sidecar_hit_skips_parse() {
     let first = SourceHandle::plan(&req).unwrap();
     first.commit().unwrap();
     wait_state(&first, State::Loaded);
-    assert!(
-        fs::read_dir(&cache)
-            .unwrap()
-            .flatten()
-            .any(|e| e.path().extension().and_then(|s| s.to_str()) == Some("lcs")),
-        "首次装载写回缓存"
-    );
+    wait_lcs(&cache);
     first.close().unwrap();
     drop(first);
 
@@ -1166,6 +1177,424 @@ fn sidecar_hit_skips_parse() {
     assert_eq!(second.descriptor_json().unwrap()["rowCount"], 2);
     second.close().unwrap();
     drop(second);
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn done_before_sidecar_flush() {
+    let dir = temp_dir("done-flush");
+    let cache = dir.join("cache");
+    let file = text_file(&dir, "d.log", &["11-14 12:00:01.123  1  2 I T: d"]);
+    let req = file_request(
+        &file,
+        &dir,
+        &cache,
+        &unique_pipe("done-flush"),
+        "",
+        &[],
+        500,
+        "Auto",
+    );
+    super::set_flush_delay_ms(800);
+    let h = SourceHandle::plan(&req).unwrap();
+    h.commit().unwrap();
+    wait_state(&h, State::Loaded);
+    let entry = cache.join(crate::sidecar::derive_name(&file.to_string_lossy()));
+    let absent = !entry.exists();
+    let events = h.poll_events().unwrap();
+    super::set_flush_delay_ms(0);
+    assert_eq!(events.last().unwrap().kind(), "done", "完成事件先发");
+    assert!(absent, "进入 Loaded 时落盘尚未开始");
+
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !entry.exists() {
+        assert!(Instant::now() < deadline, "后台落盘未完成");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    h.close().unwrap();
+    drop(h);
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn sidecar_write_failure_silent() {
+    let dir = temp_dir("flush-fail");
+    let cache = dir.join("cache");
+    fs::write(&cache, b"occupied").unwrap();
+    let file = text_file(&dir, "f.log", &["11-14 12:00:01.123  1  2 I T: f"]);
+    let req = file_request(
+        &file,
+        &dir,
+        &cache,
+        &unique_pipe("flush-fail"),
+        "",
+        &[],
+        500,
+        "Auto",
+    );
+    let h = SourceHandle::plan(&req).unwrap();
+    h.commit().unwrap();
+    wait_state(&h, State::Loaded);
+    std::thread::sleep(Duration::from_millis(200));
+    assert_eq!(h.state(), State::Loaded, "写失败不影响装载");
+    let events = h.poll_events().unwrap();
+    assert_eq!(events.last().unwrap().kind(), "done");
+    assert!(
+        !events.iter().any(|e| e.kind() == "error"),
+        "写失败不得产生错误事件"
+    );
+    assert!(cache.is_file(), "缓存路径保持原状");
+    h.close().unwrap();
+    drop(h);
+    fs::remove_file(&cache).unwrap();
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn plan_header_hit_skips_decode() {
+    let dir = temp_dir("plan-header");
+    let cache = dir.join("cache");
+    let file = text_file(&dir, "p.log", &["11-14 12:00:01.123  1  2 I T: p"]);
+    let req = file_request(
+        &file,
+        &dir,
+        &cache,
+        &unique_pipe("plan-header"),
+        "",
+        &[],
+        500,
+        "Auto",
+    );
+    let warm = SourceHandle::plan(&req).unwrap();
+    warm.commit().unwrap();
+    wait_state(&warm, State::Loaded);
+    wait_lcs(&cache);
+    warm.close().unwrap();
+    drop(warm);
+
+    let entry = cache.join(crate::sidecar::derive_name(&file.to_string_lossy()));
+    let mut bytes = fs::read(&entry).unwrap();
+    for b in bytes[crate::sidecar::HEADER_SIZE..].iter_mut() {
+        *b = 0xff;
+    }
+    fs::write(&entry, &bytes).unwrap();
+
+    let h = SourceHandle::plan(&req).unwrap();
+    h.hold_loader();
+    h.commit().unwrap();
+    assert_eq!(
+        h.descriptor_json().unwrap()["loadMode"],
+        "OneShot",
+        "头部完好即判命中（不读列数据）"
+    );
+    h.release_loader();
+    wait_state(&h, State::Loaded);
+    assert_eq!(h.descriptor_json().unwrap()["rowCount"], 1, "列数据损坏降级重解析");
+    h.close().unwrap();
+    drop(h);
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn corrupt_payload_degrades_to_full_parse() {
+    let dir = temp_dir("corrupt-degrade");
+    let cache = dir.join("cache");
+    let file = text_file(
+        &dir,
+        "c.log",
+        &[
+            "11-14 12:00:01.123  1  2 I T: one",
+            "11-14 12:00:02.123  1  2 I T: two",
+        ],
+    );
+    let req = file_request(
+        &file,
+        &dir,
+        &cache,
+        &unique_pipe("corrupt-degrade"),
+        "",
+        &[],
+        500,
+        "Auto",
+    );
+    let warm = SourceHandle::plan(&req).unwrap();
+    warm.commit().unwrap();
+    wait_state(&warm, State::Loaded);
+    wait_lcs(&cache);
+    warm.close().unwrap();
+    drop(warm);
+
+    let entry = cache.join(crate::sidecar::derive_name(&file.to_string_lossy()));
+    let mut bytes = fs::read(&entry).unwrap();
+    for b in bytes[crate::sidecar::HEADER_SIZE..].iter_mut() {
+        *b = 0xff;
+    }
+    fs::write(&entry, &bytes).unwrap();
+
+    let h = SourceHandle::plan(&req).unwrap();
+    h.hold_loader();
+    h.commit().unwrap();
+    assert_eq!(h.descriptor_json().unwrap()["loadMode"], "OneShot");
+    h.release_loader();
+    wait_state(&h, State::Loaded);
+    let desc = h.descriptor_json().unwrap();
+    assert_eq!(desc["loadMode"], "Progressive", "解码失败更新为分块渐进（一次）");
+    assert_eq!(desc["rowCount"], 2, "结果完整");
+    let events = h.poll_events().unwrap();
+    assert!(stages(&events).contains(&"Indexing"), "降级走完整解析");
+    assert!(
+        !events.iter().any(|e| e.kind() == "error"),
+        "降级不得产生错误事件"
+    );
+    assert_eq!(events.last().unwrap().kind(), "done");
+    h.close().unwrap();
+    drop(h);
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn long_format_sample_columns() {
+    let dir = temp_dir("long-sample");
+    let cache = dir.join("cache");
+    let sample = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("testdata")
+        .join("long_sample.txt");
+    let data = fs::read(&sample).unwrap();
+    let file = dir.join("long.log");
+    fs::write(&file, &data).unwrap();
+
+    let req = file_request(
+        &file,
+        &dir,
+        &cache,
+        &unique_pipe("long"),
+        "",
+        &[],
+        500,
+        "Auto",
+    );
+    let h = SourceHandle::plan(&req).unwrap();
+    h.commit().unwrap();
+    wait_state(&h, State::Loaded);
+    assert_eq!(h.descriptor_json().unwrap()["rowCount"], 3, "行数不变");
+    h.close().unwrap();
+    drop(h);
+
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let entry = loop {
+        let found = fs::read_dir(&cache).ok().and_then(|rd| {
+            rd.flatten()
+                .map(|e| e.path())
+                .find(|p| p.extension().and_then(|s| s.to_str()) == Some("lcs"))
+        });
+        if let Some(path) = found {
+            break path;
+        }
+        assert!(Instant::now() < deadline, "缓存条目未落盘");
+        std::thread::sleep(Duration::from_millis(5));
+    };
+
+    let payload = crate::sidecar::decode(&fs::read(&entry).unwrap(), None).unwrap();
+    assert_eq!(payload.row_count(), 3);
+    assert_eq!(payload.minutes, vec![0, 0, 0]);
+    assert_eq!(payload.pids, vec![101, 303, 505]);
+    assert_eq!(payload.tids, vec![202, 404, -1]);
+    assert_eq!(payload.lvls, vec![3, 4, 5]);
+    assert_eq!(payload.tags, vec!["Alpha", "Beta", "Gamma"]);
+    assert_eq!(payload.tag_ids, vec![0, 1, 2]);
+    let texts: Vec<&str> = (0..3)
+        .map(|i| {
+            let start = payload.offs[i] as usize + payload.moff[i] as usize;
+            let end = payload.offs[i] as usize + payload.lens[i] as usize;
+            std::str::from_utf8(&data[start..end]).unwrap()
+        })
+        .collect();
+    assert_eq!(texts, vec!["first line", "second, line", "no-space"]);
+
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn crash_sample_rows_and_dictionaries() {
+    let dir = temp_dir("crash-sample");
+    let cache = dir.join("cache");
+    let sample = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("testdata")
+        .join("crash_sample.txt");
+    let data = fs::read(&sample).unwrap();
+    let file = dir.join("crash.log");
+    fs::write(&file, &data).unwrap();
+
+    let req = file_request(
+        &file,
+        &dir,
+        &cache,
+        &unique_pipe("crash"),
+        "",
+        &[],
+        500,
+        "Auto",
+    );
+    let h = SourceHandle::plan(&req).unwrap();
+    h.commit().unwrap();
+    wait_state(&h, State::Loaded);
+    assert_eq!(h.descriptor_json().unwrap()["rowCount"], 9, "空行不进索引");
+    h.close().unwrap();
+    drop(h);
+
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let entry = loop {
+        let found = fs::read_dir(&cache).ok().and_then(|rd| {
+            rd.flatten()
+                .map(|e| e.path())
+                .find(|p| p.extension().and_then(|s| s.to_str()) == Some("lcs"))
+        });
+        if let Some(path) = found {
+            break path;
+        }
+        assert!(Instant::now() < deadline, "缓存条目未落盘");
+        std::thread::sleep(Duration::from_millis(5));
+    };
+
+    let payload = crate::sidecar::decode(&fs::read(&entry).unwrap(), None).unwrap();
+    assert_eq!(payload.row_count(), 9);
+
+    // 崩溃事件按行序：Java / Native / ANR / Tombstone / 独立 signal 行
+    let rows: Vec<i32> = payload.crashes.iter().map(|c| c.row).collect();
+    assert_eq!(rows, vec![1, 4, 5, 6, 8]);
+    let kinds: Vec<u8> = payload.crashes.iter().map(|c| c.kind).collect();
+    assert_eq!(kinds, vec![0, 1, 2, 3, 1]);
+    let meta: Vec<(i32, i32, i32, i32)> = payload
+        .crashes
+        .iter()
+        .map(|c| (c.exc_id, c.pkg_id, c.pid, c.tid))
+        .collect();
+    assert_eq!(
+        meta,
+        vec![
+            (0, 0, 100, 200),
+            (1, -1, 300, 400),
+            (-1, 1, 500, 600),
+            (2, -1, -1, -1),
+            (2, -1, -1, -1),
+        ]
+    );
+    assert_eq!(
+        payload.exc_types,
+        vec!["java.lang.RuntimeException", "SIGSEGV", "SIGABRT"]
+    );
+    assert_eq!(payload.pkgs, vec!["com.example.app", "com.example.anr"]);
+
+    let _ = fs::remove_dir_all(&dir);
+}
+
+fn load_sample_payload(
+    file: &Path,
+    dir: &Path,
+    cache: &Path,
+    tag: &str,
+    chunks: Option<(usize, usize)>,
+) -> (crate::sidecar::Payload, usize) {
+    let req = file_request(file, dir, cache, &unique_pipe(tag), "", &[], 500, "Auto");
+    let h = SourceHandle::plan(&req).unwrap();
+    if let Some((first, steady)) = chunks {
+        h.set_chunk_sizes(first, steady);
+    }
+    h.commit().unwrap();
+    wait_state(&h, State::Loaded);
+    let segment_count = h.segment_count();
+    h.close().unwrap();
+    drop(h);
+
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let entry = loop {
+        let found = fs::read_dir(cache).ok().and_then(|rd| {
+            rd.flatten()
+                .map(|e| e.path())
+                .find(|p| p.extension().and_then(|s| s.to_str()) == Some("lcs"))
+        });
+        if let Some(path) = found {
+            break path;
+        }
+        assert!(Instant::now() < deadline, "缓存条目未落盘");
+        std::thread::sleep(Duration::from_millis(5));
+    };
+    let payload = crate::sidecar::decode(&fs::read(&entry).unwrap(), None).unwrap();
+    (payload, segment_count)
+}
+
+#[test]
+fn chunked_equals_whole() {
+    let dir = temp_dir("chunked-eq");
+    let sample = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("testdata")
+        .join("crash_sample.txt");
+    let file = dir.join("c.log");
+    fs::write(&file, fs::read(&sample).unwrap()).unwrap();
+
+    let whole = load_sample_payload(
+        &file,
+        &dir,
+        &dir.join("cache-whole"),
+        "chunk-whole",
+        None,
+    );
+    let chunked = load_sample_payload(
+        &file,
+        &dir,
+        &dir.join("cache-chunked"),
+        "chunk-tiny",
+        Some((16, 16)),
+    );
+
+    assert!(chunked.1 > 1, "小分块应产生多段（实际 {}）", chunked.1);
+    assert_eq!(chunked.0, whole.0, "8 列 / 字典顺序 / 崩溃行号全等");
+
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn generated_sample_chunk_boundaries() {
+    let dir = temp_dir("sample-gen");
+    let gen = crate::sample_gen::write_all(&dir).unwrap();
+
+    let big = fs::read(&gen.big).unwrap();
+    assert!(
+        big.len() >= crate::sample_gen::BIG_BYTES,
+        "大样本不足 40 MiB（{}）",
+        big.len()
+    );
+    let whole = crate::parse::parse_bytes(&big);
+    let (chunked, segments) = crate::segment::parse_chunked(&big, 4096, 4096);
+    assert_eq!(chunked, whole, "40 MiB 样本：分块 ≡ 整份");
+    assert_eq!(
+        chunked.crashes.len(),
+        gen.big_expected_crashes,
+        "崩溃事件数与生成器预期不符"
+    );
+    let starts: Vec<usize> = segments.iter().skip(1).map(|s| s.start_row).collect();
+    let crossing = chunked.crashes.iter().any(|c| {
+        let r = c.row.max(0) as usize;
+        starts.iter().any(|&b| b > r && b <= r + 3)
+    });
+    assert!(crossing, "样本未覆盖块边界崩溃");
+    assert!(segments.len() > 1, "大样本应切成多段");
+
+    for (path, tag) in [
+        (&gen.threadtime, "threadtime"),
+        (&gen.long, "long"),
+        (&gen.brief, "brief"),
+    ] {
+        let data = fs::read(path).unwrap();
+        assert!(
+            data.len() >= crate::sample_gen::FORMAT_BYTES,
+            "{tag} 样本尺寸不足"
+        );
+        let (chunked, segments) = crate::segment::parse_chunked(&data, 8192, 8192);
+        assert!(chunked.row_count() > 0, "{tag} 无有效行");
+        assert!(segments.len() > 1, "{tag} 应切成多段");
+    }
+
     let _ = fs::remove_dir_all(&dir);
 }
 
@@ -1868,6 +2297,7 @@ fn stage_hit_path_skips_indexing() {
     let first = SourceHandle::plan(&req).unwrap();
     first.commit().unwrap();
     wait_state(&first, State::Loaded);
+    wait_lcs(&cache);
     first.close().unwrap();
     drop(first);
     let second = SourceHandle::plan(&req).unwrap();

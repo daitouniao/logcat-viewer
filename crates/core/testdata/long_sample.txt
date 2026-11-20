@@ -1,0 +1,3 @@
+[ 11-14 12:00:01.123  101: 202 I/Alpha ] first line
+[ 2026-11-14 12:00:02.456  303: 404 W/Beta ] second, line
+[11-14 12:00:03,7  505: E/Gamma ]no-space

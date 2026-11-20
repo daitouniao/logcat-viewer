@@ -26,7 +26,7 @@ internal static class LogcoreTestSupport
         if (!File.Exists(dll))
         {
             throw new InvalidOperationException(
-                $"缺少 {dll}；集成测试前先执行 cargo build --manifest-path logcore/Cargo.toml（见 docs/BUILDING.md）。");
+                $"缺少 {dll}；集成测试前先执行 cargo build（见 docs/BUILDING.md）。");
         }
         Logcore.UseLibrary(dll);
     }

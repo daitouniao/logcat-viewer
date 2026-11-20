@@ -3,6 +3,15 @@
 version = 4
 
 [[package]]
+name = "arc-swap"
+version = "1.9.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "84a22b5d51209f6de83d37a0b33d320acb8da88823e42a94c075140708f032a5"
+dependencies = [
+ "rustversion",
+]
+
+[[package]]
 name = "itoa"
 version = "1.0.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -10,8 +19,25 @@ checksum = "3bd1574e617a9a6c1f8f8181bd7e841e1f20e4277607ef28945765188d6284d4"
 
 [[package]]
 name = "logcore"
-version = "0.1.0"
+version = "0.1.9-pre1"
 dependencies = [
+ "logcore_core",
+ "serde_json",
+]
+
+[[package]]
+name = "logcore_cli"
+version = "0.1.9-pre1"
+dependencies = [
+ "logcore_core",
+ "serde_json",
+]
+
+[[package]]
+name = "logcore_core"
+version = "0.1.9-pre1"
+dependencies = [
+ "arc-swap",
  "serde",
  "serde_json",
  "windows-sys",
@@ -40,6 +66,12 @@ checksum = "1fbf4db142a473a8d80c26bbf18454ed458bf8d26c8219c331daecfdbd079001"
 dependencies = [
  "proc-macro2",
 ]
+
+[[package]]
+name = "rustversion"
+version = "1.0.23"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cf54715a573b99ac80df0bc206da022bcd442c974952c7b9720069370852e21f"
 
 [[package]]
 name = "serde"

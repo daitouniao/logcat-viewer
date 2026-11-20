@@ -8,6 +8,8 @@ use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering};
+#[cfg(any(test, feature = "test-support"))]
+use std::sync::atomic::AtomicUsize;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread::JoinHandle;
@@ -29,7 +31,8 @@ use crate::probe;
 use crate::proxy::{self, ProxyLease};
 use crate::request::{self, Kind, Mode, Request};
 use crate::route;
-use crate::sidecar::{CacheStore, Payload};
+use crate::segment::{chunk_ranges, feed_range, LiveIndex, Segment, Store};
+use crate::sidecar::{CacheStore, Header, Payload};
 use crate::state::{self, Op, State};
 
 pub const MAX_FEED_LINES: usize = 65536;
@@ -52,16 +55,22 @@ struct Shared {
     stop_cv: Condvar,
     /// 「入排空快照」与「消化批次计数」互斥，保证排空进度结束时 value == total。
     drain_sync: Mutex<()>,
-    #[cfg(test)]
+    /// 段化列存的当前发布版本：装载按块追加，读侧取快照。
+    live: LiveIndex,
+    #[cfg(any(test, feature = "test-support"))]
     fail_writes: AtomicBool,
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     slow_consume: AtomicBool,
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     slow_parse: AtomicBool,
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     loader_gate: Mutex<bool>,
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     loader_cv: Condvar,
+    #[cfg(any(test, feature = "test-support"))]
+    chunk_first: AtomicUsize,
+    #[cfg(any(test, feature = "test-support"))]
+    chunk_steady: AtomicUsize,
 }
 
 impl Shared {
@@ -81,16 +90,21 @@ impl Shared {
             stop_outcome: Mutex::new(crate::error::OK),
             stop_cv: Condvar::new(),
             drain_sync: Mutex::new(()),
-            #[cfg(test)]
+            live: LiveIndex::new(),
+            #[cfg(any(test, feature = "test-support"))]
             fail_writes: AtomicBool::new(false),
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-support"))]
             slow_consume: AtomicBool::new(false),
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-support"))]
             slow_parse: AtomicBool::new(false),
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-support"))]
             loader_gate: Mutex::new(true),
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-support"))]
             loader_cv: Condvar::new(),
+            #[cfg(any(test, feature = "test-support"))]
+            chunk_first: AtomicUsize::new(0),
+            #[cfg(any(test, feature = "test-support"))]
+            chunk_steady: AtomicUsize::new(0),
         }
     }
 
@@ -127,19 +141,19 @@ impl Shared {
     }
 
     /// 测试闸门：拦住装载线程进入首阶段，便于断言「commit 受理本身不发事件」。
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     fn hold_loader(&self) {
         *self.loader_gate.lock().unwrap() = false;
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     fn release_loader(&self) {
         *self.loader_gate.lock().unwrap() = true;
         self.loader_cv.notify_all();
     }
 
     fn wait_loader_gate(&self) {
-        #[cfg(test)]
+        #[cfg(any(test, feature = "test-support"))]
         {
             let mut open = self.loader_gate.lock().unwrap();
             while !*open && !self.cancelled.load(Ordering::SeqCst) {
@@ -148,19 +162,45 @@ impl Shared {
         }
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     fn set_fail_writes(&self, on: bool) {
         self.fail_writes.store(on, Ordering::SeqCst);
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     fn set_slow_consume(&self, on: bool) {
         self.slow_consume.store(on, Ordering::SeqCst);
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     fn set_slow_parse(&self, on: bool) {
         self.slow_parse.store(on, Ordering::SeqCst);
+    }
+
+    /// 测试钩子：强制首块 / 稳态块字节数；未设置时用默认值。
+    #[cfg(any(test, feature = "test-support"))]
+    fn set_chunk_sizes(&self, first: usize, steady: usize) {
+        self.chunk_first.store(first, Ordering::SeqCst);
+        self.chunk_steady.store(steady, Ordering::SeqCst);
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    fn chunk_override(&self) -> Option<(usize, usize)> {
+        let first = self.chunk_first.load(Ordering::SeqCst);
+        let steady = self.chunk_steady.load(Ordering::SeqCst);
+        (first > 0 && steady > 0).then_some((first, steady))
+    }
+
+    /// 实际分块参数：测试可覆盖，否则用设计默认（首块 4 MiB、稳态 32 MiB）。
+    fn chunk_sizes(&self) -> (usize, usize) {
+        #[cfg(any(test, feature = "test-support"))]
+        if let Some(sizes) = self.chunk_override() {
+            return sizes;
+        }
+        (
+            crate::segment::FIRST_CHUNK_BYTES,
+            crate::segment::STEADY_CHUNK_BYTES,
+        )
     }
 }
 
@@ -172,10 +212,11 @@ struct Inner {
     direct_error: Option<CoreError>,
     lease: Option<ProxyLease>,
     cache: Option<Arc<CacheStore>>,
-    cache_hit: Option<Payload>,
+    cache_hit: Option<Header>,
     cache_marked: bool,
     descriptor: Option<Descriptor>,
-    payload: Option<Payload>,
+    payload: Option<Arc<Payload>>,
+    pending_save: Option<PendingSave>,
     spool_dir: Option<PathBuf>,
     spool_marker: Option<File>,
     capture_path: Option<PathBuf>,
@@ -184,6 +225,15 @@ struct Inner {
     consumer: Option<JoinHandle<()>>,
     loader: Option<JoinHandle<()>>,
     plan_valid: bool,
+}
+
+/// 装载完成后交后台线程的 sidecar 落盘任务（Done 事件先发，失败静默）。
+struct PendingSave {
+    store: Arc<CacheStore>,
+    display: String,
+    before: Identity,
+    after: Identity,
+    payload: Arc<Payload>,
 }
 
 /// 一个活动源句柄。`shared` 供装载/消化线程与轮询路径共享；
@@ -318,7 +368,7 @@ impl SourceHandle {
                     cfg.entry_limit_bytes,
                     cfg.dir_limit_bytes,
                 ));
-                inner.cache_hit = store.probe(&display, &identity);
+                inner.cache_hit = store.probe_header(&display, &identity);
                 inner.cache_marked = inner.cache_hit.is_some();
                 inner.cache = Some(store);
             }
@@ -634,7 +684,7 @@ impl SourceHandle {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 impl SourceHandle {
     pub fn hold_loader(&self) {
         self.shared.hold_loader();
@@ -658,6 +708,14 @@ impl SourceHandle {
 
     pub fn events_len(&self) -> usize {
         self.shared.events.len()
+    }
+
+    pub fn set_chunk_sizes(&self, first: usize, steady: usize) {
+        self.shared.set_chunk_sizes(first, steady);
+    }
+
+    pub fn segment_count(&self) -> usize {
+        self.shared.live.segment_count()
     }
 }
 
@@ -699,6 +757,7 @@ fn new_inner(req: Request) -> Inner {
         cache_marked: false,
         descriptor: None,
         payload: None,
+        pending_save: None,
         spool_dir: None,
         spool_marker: None,
         capture_path: None,
@@ -766,41 +825,29 @@ fn parse_with_progress(
     progress: &Progress,
     cancelled: &dyn Fn() -> bool,
     pause: &dyn Fn(),
-) -> CoreResult<Payload> {
-    let mut indexer = Indexer::new();
-    let mut pos = 0usize;
+    chunk_sizes: (usize, usize),
+    publish: &dyn Fn(Vec<Arc<Segment>>),
+) -> CoreResult<(Payload, Vec<Arc<Segment>>)> {
+    let mut store = Store::new();
     let mut processed = 0usize;
-    let mut first = true;
-    while pos < data.len() {
+    for (start, end) in chunk_ranges(data, chunk_sizes.0, chunk_sizes.1) {
         if cancelled() {
             return Err(CoreError::new(CLOSED));
         }
-        let nl = data[pos..].iter().position(|b| *b == b'\n').map(|i| pos + i);
-        let line_end = nl.unwrap_or(data.len());
-        let mut raw = &data[pos..line_end];
-        if raw.last() == Some(&b'\r') {
-            raw = &raw[..raw.len() - 1];
-        }
-        let mut line_off = pos;
-        let mut line = raw;
-        if first && line.starts_with(&[0xEF, 0xBB, 0xBF]) {
-            line_off += 3;
-            line = &line[3..];
-        }
-        first = false;
-        indexer.add_line(line, line_off as u64);
-        pos = match nl {
-            Some(n) => n + 1,
-            None => data.len(),
-        };
-        if pos - processed >= (1 << 20) {
-            processed = pos;
+        feed_range(&mut store, data, start, end);
+        store.freeze();
+        publish(store.frozen().to_vec());
+        if end - processed >= (1 << 20) {
+            processed = end;
             pause();
-            progress.advance(pos as u64);
+            progress.advance(end as u64);
         }
     }
+    if cancelled() {
+        return Err(CoreError::new(CLOSED));
+    }
     progress.advance(data.len() as u64);
-    Ok(indexer.into_payload())
+    Ok(store.into_parts())
 }
 
 // ── 装载线程 ──
@@ -818,6 +865,7 @@ fn run_loader(inner: Arc<Mutex<Inner>>, shared: Arc<Shared>) {
         Ok(()) => {
             shared.state.store(State::Loaded as u8, Ordering::SeqCst);
             shared.events.push(Event::Done);
+            spawn_pending_save(&inner);
         }
         Err(e) if e.code == CLOSED => {
             cleanup_resources(&mut inner.lock().unwrap());
@@ -873,38 +921,73 @@ fn load_local(inner: &Arc<Mutex<Inner>>, shared: &Arc<Shared>) -> CoreResult<()>
     }
     let hit = if changed { None } else { cache_hit };
 
-    let (payload, doc_size) = match hit {
-        Some(payload) => {
+    let decoded = match hit {
+        Some(_header) => {
             // 缓存不含文本，命中仍须打开源文件取文本
             File::open(&open_path).map_err(|e| direct_error(&display, &e))?;
-            (payload, identity.size)
-        }
-        None => {
-            enter_stage(shared, Stage::Indexing, Some(identity.size));
-            let data = read_all(&open_path, &display)?;
-            check_cancel(shared)?;
-            let payload = parse_with_progress(
-                &data,
-                &shared.progress,
-                &check_cancel_hook(shared),
-                &pause_hook(shared),
-            )?;
-            if let (Some(store), Ok(after)) = (&cache, Identity::capture(Path::new(&open_path))) {
-                if store.save(&display, Some(&identity), &after, &payload) {
-                    let mut g = inner.lock().unwrap();
-                    if !g.cache_marked {
-                        store.mark_in_use(&display);
-                        g.cache_marked = true;
-                    }
+            let loaded = cache.as_ref().and_then(|store| store.load(&display, &identity));
+            if loaded.is_none() {
+                // 头部完好但列数据损坏：静默降级完整解析，并把装载模式更新为分块渐进（仅此一次）
+                let mut g = inner.lock().unwrap();
+                if let Some(desc) = g.descriptor.as_mut() {
+                    desc.load_mode = LoadMode::Progressive;
                 }
             }
-            (payload, data.len() as u64)
+            loaded
         }
+        None => None,
+    };
+    let (payload, doc_size, pending) = match decoded {
+        Some(payload) => (Arc::new(payload), identity.size, None),
+        None => parse_source(inner, shared, &display, &open_path, &identity, &cache)?,
     };
 
     check_cancel(shared)?;
     store_result(inner, shared, payload, doc_size);
+    inner.lock().unwrap().pending_save = pending;
     Ok(())
+}
+
+/// 完整解析并为本进程后续装载准备后台落盘任务。
+fn parse_source(
+    inner: &Arc<Mutex<Inner>>,
+    shared: &Arc<Shared>,
+    display: &str,
+    open_path: &str,
+    identity: &Identity,
+    cache: &Option<Arc<CacheStore>>,
+) -> CoreResult<(Arc<Payload>, u64, Option<PendingSave>)> {
+    enter_stage(shared, Stage::Indexing, Some(identity.size));
+    let data = read_all(open_path, display)?;
+    check_cancel(shared)?;
+    let (payload, segments) = parse_with_progress(
+        &data,
+        &shared.progress,
+        &check_cancel_hook(shared),
+        &pause_hook(shared),
+        shared.chunk_sizes(),
+        &|segs| shared.live.publish(segs),
+    )?;
+    shared.live.publish(segments);
+    let payload = Arc::new(payload);
+    let mut pending = None;
+    if let (Some(store), Ok(after)) = (cache, Identity::capture(Path::new(open_path))) {
+        {
+            let mut g = inner.lock().unwrap();
+            if !g.cache_marked {
+                store.mark_in_use(display);
+                g.cache_marked = true;
+            }
+        }
+        pending = Some(PendingSave {
+            store: store.clone(),
+            display: display.to_string(),
+            before: identity.clone(),
+            after,
+            payload: Arc::clone(&payload),
+        });
+    }
+    Ok((payload, data.len() as u64, pending))
 }
 
 fn load_proxy(inner: &Arc<Mutex<Inner>>, shared: &Arc<Shared>) -> CoreResult<()> {
@@ -956,18 +1039,21 @@ fn load_proxy(inner: &Arc<Mutex<Inner>>, shared: &Arc<Shared>) -> CoreResult<()>
     enter_stage(shared, Stage::Indexing, Some(total));
     let data = fs::read(&dest)
         .map_err(|e| io_error(dest.to_string_lossy().to_string(), &e))?;
-    let payload = parse_with_progress(
+    let (payload, segments) = parse_with_progress(
         &data,
         &shared.progress,
         &check_cancel_hook(shared),
         &pause_hook(shared),
+        shared.chunk_sizes(),
+        &|segs| shared.live.publish(segs),
     )?;
+    shared.live.publish(segments);
     check_cancel(shared)?;
-    store_result(inner, shared, payload, data.len() as u64);
+    store_result(inner, shared, Arc::new(payload), data.len() as u64);
     Ok(())
 }
 
-fn store_result(inner: &Arc<Mutex<Inner>>, shared: &Shared, payload: Payload, doc_size: u64) {
+fn store_result(inner: &Arc<Mutex<Inner>>, shared: &Shared, payload: Arc<Payload>, doc_size: u64) {
     let rows = payload.row_count() as u64;
     shared.rows.store(rows, Ordering::SeqCst);
     shared.doc_size.store(doc_size, Ordering::SeqCst);
@@ -977,6 +1063,39 @@ fn store_result(inner: &Arc<Mutex<Inner>>, shared: &Shared, payload: Payload, do
         desc.doc_size = doc_size;
     }
     g.payload = Some(payload);
+}
+
+/// 装载成功后把 sidecar 落盘交后台线程：Done 事件已发，退出不等待，失败静默。
+fn spawn_pending_save(inner: &Arc<Mutex<Inner>>) {
+    let job = inner.lock().unwrap().pending_save.take();
+    let Some(job) = job else {
+        return;
+    };
+    std::thread::spawn(move || {
+        #[cfg(test)]
+        {
+            let ms = FLUSH_DELAY_MS.load(Ordering::SeqCst);
+            if ms > 0 {
+                std::thread::sleep(std::time::Duration::from_millis(ms));
+            }
+        }
+        let PendingSave {
+            store,
+            display,
+            before,
+            after,
+            payload,
+        } = job;
+        let _ = store.save(&display, Some(&before), &after, &payload);
+    });
+}
+
+#[cfg(test)]
+static FLUSH_DELAY_MS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+#[cfg(test)]
+pub(crate) fn set_flush_delay_ms(ms: u64) {
+    FLUSH_DELAY_MS.store(ms, Ordering::SeqCst);
 }
 
 // ── 消化线程 ──

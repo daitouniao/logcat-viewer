@@ -6,7 +6,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use logcore::winserver::{spawn_listener, ServeOptions};
+use logcore_core::winserver::{spawn_listener, ServeOptions};
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();

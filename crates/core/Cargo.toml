@@ -1,15 +1,18 @@
 [package]
-name = "logcore"
-version = "0.1.0"
+name = "logcore_core"
+version.workspace = true
 edition = "2021"
-description = "logcat source-acquire core (plan/commit/feed/events/sidecar)"
+description = "logcat source-acquire core: parse, index, sidecar and orchestration"
 publish = false
 
 [lib]
-name = "logcore"
-crate-type = ["cdylib", "rlib"]
+name = "logcore_core"
+
+[features]
+test-support = []
 
 [dependencies]
+arc-swap = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
@@ -22,7 +25,3 @@ windows-sys = { version = "0.60", features = [
     "Win32_System_Threading",
     "Win32_Security",
 ] }
-
-[[bin]]
-name = "logcore-test-proxy"
-path = "src/bin/test_proxy.rs"

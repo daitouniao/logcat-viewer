@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 use std::time::SystemTime;
 
@@ -18,6 +19,7 @@ const CRASH_ENTRY_SIZE: usize = 21;
 const MAX_TABLE_COUNT: i32 = 1 << 24;
 const MAX_STRING_BYTES: i32 = 1 << 20;
 const TEMP_INFIX: &str = ".tmp-";
+static TEMP_SEQ: AtomicU64 = AtomicU64::new(0);
 pub const EXTENSION: &str = ".lcs";
 const MAX_PREFIX_LEN: usize = 24;
 
@@ -91,56 +93,80 @@ fn header_size(p: &Payload) -> i64 {
 
 pub fn encode(identity: &Identity, payload: &Payload, version: i32) -> Vec<u8> {
     let mut out = Vec::new();
+    write_to(&mut out, identity, payload, version).expect("内存写入不失败");
+    out
+}
+
+/// 流式写成 v1 字节：头部一次算齐，随后逐字典与逐列写出；
+/// 结果与 [`encode`] 逐字节相同。
+pub fn write_to<W: Write>(
+    w: &mut W,
+    identity: &Identity,
+    payload: &Payload,
+    version: i32,
+) -> std::io::Result<()> {
     let seg = payload.segment_lengths();
     let total = header_size(payload) + seg.iter().sum::<i64>();
-    out.extend_from_slice(&MAGIC);
-    out.extend_from_slice(&version.to_le_bytes());
-    out.extend_from_slice(&(payload.row_count() as i32).to_le_bytes());
-    out.extend_from_slice(&WIDTHS);
+    w.write_all(&MAGIC)?;
+    w.write_all(&version.to_le_bytes())?;
+    w.write_all(&(payload.row_count() as i32).to_le_bytes())?;
+    w.write_all(&WIDTHS)?;
     for len in seg {
-        out.extend_from_slice(&len.to_le_bytes());
+        w.write_all(&len.to_le_bytes())?;
     }
-    out.extend_from_slice(&total.to_le_bytes());
-    out.extend_from_slice(&(identity.size as i64).to_le_bytes());
-    out.extend_from_slice(&(identity.mtime_ticks as i64).to_le_bytes());
-    out.extend_from_slice(&identity.head_hash.to_le_bytes());
-    out.extend_from_slice(&identity.tail_hash.to_le_bytes());
+    w.write_all(&total.to_le_bytes())?;
+    w.write_all(&(identity.size as i64).to_le_bytes())?;
+    w.write_all(&(identity.mtime_ticks as i64).to_le_bytes())?;
+    w.write_all(&identity.head_hash.to_le_bytes())?;
+    w.write_all(&identity.tail_hash.to_le_bytes())?;
     for dict in [&payload.tags, &payload.exc_types, &payload.pkgs] {
-        out.extend_from_slice(&(dict.len() as i32).to_le_bytes());
+        w.write_all(&(dict.len() as i32).to_le_bytes())?;
         for s in dict {
             let bytes = s.as_bytes();
-            out.extend_from_slice(&(bytes.len() as i32).to_le_bytes());
-            out.extend_from_slice(bytes);
+            w.write_all(&(bytes.len() as i32).to_le_bytes())?;
+            w.write_all(bytes)?;
         }
     }
-    out.extend_from_slice(&(payload.crashes.len() as i32).to_le_bytes());
+    w.write_all(&(payload.crashes.len() as i32).to_le_bytes())?;
     for c in &payload.crashes {
         for v in [c.row, c.exc_id, c.pkg_id, c.pid, c.tid] {
-            out.extend_from_slice(&v.to_le_bytes());
+            w.write_all(&v.to_le_bytes())?;
         }
-        out.push(c.kind);
+        w.write_all(&[c.kind])?;
     }
-    for v in &payload.offs {
-        out.extend_from_slice(&v.to_le_bytes());
+    write_i64s(w, &payload.offs)?;
+    write_i32s(w, &payload.lens)?;
+    write_i32s(w, &payload.moff)?;
+    w.write_all(&payload.minutes)?;
+    write_i32s(w, &payload.pids)?;
+    write_i32s(w, &payload.tids)?;
+    w.write_all(&payload.lvls)?;
+    write_i32s(w, &payload.tag_ids)?;
+    Ok(())
+}
+
+const WRITE_CHUNK: usize = 8192;
+
+fn write_i64s<W: Write>(w: &mut W, values: &[i64]) -> std::io::Result<()> {
+    let mut buf = [0u8; WRITE_CHUNK * 8];
+    for chunk in values.chunks(WRITE_CHUNK) {
+        for (i, v) in chunk.iter().enumerate() {
+            buf[i * 8..i * 8 + 8].copy_from_slice(&v.to_le_bytes());
+        }
+        w.write_all(&buf[..chunk.len() * 8])?;
     }
-    for v in &payload.lens {
-        out.extend_from_slice(&v.to_le_bytes());
+    Ok(())
+}
+
+fn write_i32s<W: Write>(w: &mut W, values: &[i32]) -> std::io::Result<()> {
+    let mut buf = [0u8; WRITE_CHUNK * 4];
+    for chunk in values.chunks(WRITE_CHUNK) {
+        for (i, v) in chunk.iter().enumerate() {
+            buf[i * 4..i * 4 + 4].copy_from_slice(&v.to_le_bytes());
+        }
+        w.write_all(&buf[..chunk.len() * 4])?;
     }
-    for v in &payload.moff {
-        out.extend_from_slice(&v.to_le_bytes());
-    }
-    out.extend_from_slice(&payload.minutes);
-    for v in &payload.pids {
-        out.extend_from_slice(&v.to_le_bytes());
-    }
-    for v in &payload.tids {
-        out.extend_from_slice(&v.to_le_bytes());
-    }
-    out.extend_from_slice(&payload.lvls);
-    for v in &payload.tag_ids {
-        out.extend_from_slice(&v.to_le_bytes());
-    }
-    out
+    Ok(())
 }
 
 struct Cursor<'a> {
@@ -171,9 +197,18 @@ impl<'a> Cursor<'a> {
     }
 }
 
-/// 读出并校验；`expected = None` 时只做结构校验（维护入口用）。
-pub fn decode(bytes: &[u8], expected: Option<&Identity>) -> Result<Payload, String> {
-    let mut c = Cursor { data: bytes, pos: 0 };
+/// 定长头部前缀：magic + version + rows + widths + 8 段长 + total + 身份四要素。
+pub const HEADER_SIZE: usize = 4 + 4 + 4 + SEGMENT_COUNT + SEGMENT_COUNT * 8 + 8 + 32;
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Header {
+    pub rows: i32,
+    pub total: i64,
+    pub identity: Identity,
+}
+
+/// 解析定长头部（124 字节已读入），返回 (rows, 列数据总长, total, 身份)。
+fn parse_fixed_header(c: &mut Cursor) -> Result<(i32, i64, i64, Identity), String> {
     if c.take(4) != Some(&MAGIC[..]) {
         return Err("magic 不符".into());
     }
@@ -203,62 +238,113 @@ pub fn decode(bytes: &[u8], expected: Option<&Identity>) -> Result<Payload, Stri
     let mtime = c.i64().ok_or("头部截断")?;
     let head_hash = c.u64().ok_or("头部截断")?;
     let tail_hash = c.u64().ok_or("头部截断")?;
+    Ok((
+        rows,
+        data_length,
+        total,
+        Identity {
+            size: size as u64,
+            mtime_ticks: mtime as u64,
+            head_hash,
+            tail_hash,
+        },
+    ))
+}
 
-    let tags = read_dict(&mut c)?;
-    let exc_types = read_dict(&mut c)?;
-    let pkgs = read_dict(&mut c)?;
+/// 只读定长头部做命中判定：魔数 / 版本 / 行数 / 段长 / 总长 / 文件长度 / 身份。
+/// 通过不代表列数据完好——解码在装载开始进行，失败再降级。
+pub fn probe_header(bytes: &[u8], file_len: u64, expected: &Identity) -> Option<Header> {
+    if bytes.len() < HEADER_SIZE {
+        return None;
+    }
+    let mut c = Cursor { data: bytes, pos: 0 };
+    let (rows, data_len, total, identity) = parse_fixed_header(&mut c).ok()?;
+    if total < HEADER_SIZE as i64 + data_len || total as u64 != file_len {
+        return None;
+    }
+    if &identity != expected {
+        return None;
+    }
+    Some(Header {
+        rows,
+        total,
+        identity,
+    })
+}
 
-    let crash_count = c.i32().ok_or("头部截断")?;
-    if crash_count < 0 || crash_count > MAX_TABLE_COUNT || crash_count > rows {
+/// 读出并校验；`expected = None` 时只做结构校验（维护入口用）。
+pub fn decode(bytes: &[u8], expected: Option<&Identity>) -> Result<Payload, String> {
+    decode_reader(&mut &bytes[..], expected)
+}
+
+/// 从文件流式解码：只读头部与字典/崩溃表，再依段长逐列读入，不整份读取。
+pub fn decode_file(path: &Path, expected: Option<&Identity>) -> Result<Payload, String> {
+    let f = fs::File::open(path).map_err(|e| e.to_string())?;
+    decode_reader(&mut std::io::BufReader::new(f), expected)
+}
+
+fn decode_reader<R: Read>(r: &mut R, expected: Option<&Identity>) -> Result<Payload, String> {
+    let mut head = [0u8; HEADER_SIZE];
+    r.read_exact(&mut head).map_err(|_| "头部截断".to_string())?;
+    let mut c = Cursor {
+        data: &head,
+        pos: 0,
+    };
+    let (rows_i32, data_length, total, identity) = parse_fixed_header(&mut c)?;
+
+    let tags = read_dict_r(r)?;
+    let exc_types = read_dict_r(r)?;
+    let pkgs = read_dict_r(r)?;
+
+    let crash_count = read_i32_r(r).map_err(|_| "头部截断".to_string())?;
+    if crash_count < 0 || crash_count > MAX_TABLE_COUNT || crash_count > rows_i32 {
         return Err("崩溃事件数不符".into());
     }
     let mut crashes = Vec::with_capacity(crash_count as usize);
     for _ in 0..crash_count {
         crashes.push(CrashEntry {
-            row: c.i32().ok_or("头部截断")?,
-            exc_id: c.i32().ok_or("头部截断")?,
-            pkg_id: c.i32().ok_or("头部截断")?,
-            pid: c.i32().ok_or("头部截断")?,
-            tid: c.i32().ok_or("头部截断")?,
-            kind: c.u8().ok_or("头部截断")?,
+            row: read_i32_r(r)?,
+            exc_id: read_i32_r(r)?,
+            pkg_id: read_i32_r(r)?,
+            pid: read_i32_r(r)?,
+            tid: read_i32_r(r)?,
+            kind: read_u8_r(r)?,
         });
     }
 
-    let header = c.pos as i64;
-    if total != header + data_length {
+    let header_len = HEADER_SIZE as i64
+        + dict_size(&tags)
+        + dict_size(&exc_types)
+        + dict_size(&pkgs)
+        + 4
+        + (CRASH_ENTRY_SIZE as i64) * crash_count as i64;
+    if total != header_len + data_length {
         return Err("总长与头部声明不符".into());
     }
-
-    let identity = Identity {
-        size: size as u64,
-        mtime_ticks: mtime as u64,
-        head_hash,
-        tail_hash,
-    };
     if let Some(expected) = expected {
         if &identity != expected {
             return Err("源文件身份已变化".into());
         }
     }
 
-    let rows = rows as usize;
+    let rows = rows_i32 as usize;
     let mut payload = Payload {
-        offs: read_vec_i64(&mut c, rows)?,
-        lens: read_vec_i32(&mut c, rows)?,
-        moff: read_vec_i32(&mut c, rows)?,
-        minutes: c.take(rows).ok_or("数据截断")?.to_vec(),
-        pids: read_vec_i32(&mut c, rows)?,
-        tids: read_vec_i32(&mut c, rows)?,
-        lvls: c.take(rows).ok_or("数据截断")?.to_vec(),
-        tag_ids: read_vec_i32(&mut c, rows)?,
+        offs: read_i64s_r(r, rows)?,
+        lens: read_i32s_r(r, rows)?,
+        moff: read_i32s_r(r, rows)?,
+        minutes: read_u8s_r(r, rows)?,
+        pids: read_i32s_r(r, rows)?,
+        tids: read_i32s_r(r, rows)?,
+        lvls: read_u8s_r(r, rows)?,
+        tag_ids: read_i32s_r(r, rows)?,
         tags,
         exc_types,
         pkgs,
         crashes,
     };
-    // 字典 id 越界属结构损坏
+    // 字典 id 越界属结构损坏；-1 是「无 tag」的合法编码（与 C# 基线一致）
     for id in payload.tag_ids.iter() {
-        if *id < 0 || *id as usize >= payload.tags.len() {
+        if *id < -1 || (*id >= 0 && *id as usize >= payload.tags.len()) {
             return Err("tag id 越界".into());
         }
     }
@@ -266,35 +352,56 @@ pub fn decode(bytes: &[u8], expected: Option<&Identity>) -> Result<Payload, Stri
     Ok(payload)
 }
 
-fn read_vec_i64(c: &mut Cursor, n: usize) -> Result<Vec<i64>, String> {
-    let mut out = Vec::with_capacity(n);
-    for _ in 0..n {
-        out.push(c.i64().ok_or("数据截断")?);
-    }
-    Ok(out)
+fn read_i32_r<R: Read>(r: &mut R) -> Result<i32, String> {
+    let mut b = [0u8; 4];
+    r.read_exact(&mut b).map_err(|_| "数据截断".to_string())?;
+    Ok(i32::from_le_bytes(b))
 }
 
-fn read_vec_i32(c: &mut Cursor, n: usize) -> Result<Vec<i32>, String> {
-    let mut out = Vec::with_capacity(n);
-    for _ in 0..n {
-        out.push(c.i32().ok_or("数据截断")?);
-    }
-    Ok(out)
+fn read_u8_r<R: Read>(r: &mut R) -> Result<u8, String> {
+    let mut b = [0u8; 1];
+    r.read_exact(&mut b).map_err(|_| "数据截断".to_string())?;
+    Ok(b[0])
 }
 
-fn read_dict(c: &mut Cursor) -> Result<Vec<String>, String> {
-    let count = c.i32().ok_or("头部截断")?;
+fn read_i64s_r<R: Read>(r: &mut R, n: usize) -> Result<Vec<i64>, String> {
+    let mut buf = vec![0u8; n * 8];
+    r.read_exact(&mut buf).map_err(|_| "数据截断".to_string())?;
+    Ok(buf
+        .chunks_exact(8)
+        .map(|b| i64::from_le_bytes(b.try_into().unwrap()))
+        .collect())
+}
+
+fn read_i32s_r<R: Read>(r: &mut R, n: usize) -> Result<Vec<i32>, String> {
+    let mut buf = vec![0u8; n * 4];
+    r.read_exact(&mut buf).map_err(|_| "数据截断".to_string())?;
+    Ok(buf
+        .chunks_exact(4)
+        .map(|b| i32::from_le_bytes(b.try_into().unwrap()))
+        .collect())
+}
+
+fn read_u8s_r<R: Read>(r: &mut R, n: usize) -> Result<Vec<u8>, String> {
+    let mut buf = vec![0u8; n];
+    r.read_exact(&mut buf).map_err(|_| "数据截断".to_string())?;
+    Ok(buf)
+}
+
+fn read_dict_r<R: Read>(r: &mut R) -> Result<Vec<String>, String> {
+    let count = read_i32_r(r).map_err(|_| "头部截断".to_string())?;
     if count < 0 || count > MAX_TABLE_COUNT {
         return Err("字典条目数不符".into());
     }
     let mut out = Vec::with_capacity(count as usize);
     for _ in 0..count {
-        let len = c.i32().ok_or("头部截断")?;
+        let len = read_i32_r(r).map_err(|_| "头部截断".to_string())?;
         if len < 0 || len > MAX_STRING_BYTES {
             return Err("字典条目长度不符".into());
         }
-        let bytes = c.take(len as usize).ok_or("数据截断")?;
-        out.push(String::from_utf8(bytes.to_vec()).map_err(|_| "字典非 UTF-8".to_string())?);
+        let mut bytes = vec![0u8; len as usize];
+        r.read_exact(&mut bytes).map_err(|_| "数据截断".to_string())?;
+        out.push(String::from_utf8(bytes).map_err(|_| "字典非 UTF-8".to_string())?);
     }
     Ok(out)
 }
@@ -364,13 +471,21 @@ impl CacheStore {
         self.dir.join(derive_name(source_path))
     }
 
-    /// plan 阶段只读探测：不建目录、不写条目、不触碰时间；命中即登记在用。
-    pub fn probe(&self, source_path: &str, identity: &Identity) -> Option<Payload> {
+    /// 装载开始解码条目（流式）；损坏返回 None（调用方降级完整解析）。
+    pub fn load(&self, source_path: &str, identity: &Identity) -> Option<Payload> {
+        decode_file(&self.entry_path(source_path), Some(identity)).ok()
+    }
+
+    /// plan 头部探测：只读定长头部（不读列数据），通过即登记在用。
+    pub fn probe_header(&self, source_path: &str, identity: &Identity) -> Option<Header> {
         let entry = self.entry_path(source_path);
-        let bytes = fs::read(&entry).ok()?;
-        let payload = decode(&bytes, Some(identity)).ok()?;
+        let file_len = fs::metadata(&entry).ok()?.len();
+        let mut f = fs::File::open(&entry).ok()?;
+        let mut buf = vec![0u8; HEADER_SIZE];
+        f.read_exact(&mut buf).ok()?;
+        let header = probe_header(&buf, file_len, identity)?;
         self.mark_in_use(source_path);
-        Some(payload)
+        Some(header)
     }
 
     pub fn mark_in_use(&self, source_path: &str) {
@@ -429,16 +544,12 @@ impl CacheStore {
 
         self.evict_for_space(estimated, &entry);
 
-        let temp = entry.with_file_name(format!(
-            "{}{}{}",
-            entry.file_name().unwrap().to_string_lossy(),
-            TEMP_INFIX,
-            std::process::id()
-        ));
-        let bytes = encode(after, payload, FORMAT_VERSION);
+        let temp = temp_path_for(&entry);
         let written = (|| -> std::io::Result<()> {
-            let mut f = fs::File::create(&temp)?;
-            f.write_all(&bytes)?;
+            let mut w = std::io::BufWriter::new(fs::File::create(&temp)?);
+            write_to(&mut w, after, payload, FORMAT_VERSION)?;
+            w.flush()?;
+            let f = w.into_inner().map_err(|e| e.into_error())?;
             f.sync_all()?;
             Ok(())
         })();
@@ -508,6 +619,17 @@ fn last_used(meta: &fs::Metadata) -> SystemTime {
 
 fn touch(entry: &Path) {
     let _ = fs::OpenOptions::new().write(true).open(entry);
+}
+
+/// 临时文件名：条目名 + 进程内唯一后缀（原子计数），避免同进程并发写相撞。
+fn temp_path_for(entry: &Path) -> PathBuf {
+    let seq = TEMP_SEQ.fetch_add(1, Ordering::Relaxed);
+    entry.with_file_name(format!(
+        "{}{}{}",
+        entry.file_name().unwrap().to_string_lossy(),
+        TEMP_INFIX,
+        seq
+    ))
 }
 
 /// 测试用：某缓存目录内的在用条目数（验证登记与注销配对）。
@@ -623,6 +745,155 @@ pub mod tests {
     }
 
     #[test]
+    fn header_probe_accepts_valid() {
+        let bytes = encode(&sample_identity(), &sample_payload(), FORMAT_VERSION);
+        let h = probe_header(&bytes[..HEADER_SIZE], bytes.len() as u64, &sample_identity())
+            .expect("合法头部应通过");
+        assert_eq!(h.rows, 3);
+        assert_eq!(h.total, bytes.len() as i64);
+    }
+
+    #[test]
+    fn header_probe_rejects_bad_magic() {
+        let mut bytes = encode(&sample_identity(), &sample_payload(), FORMAT_VERSION);
+        bytes[0] = b'X';
+        assert!(probe_header(&bytes[..HEADER_SIZE], bytes.len() as u64, &sample_identity()).is_none());
+    }
+
+    #[test]
+    fn header_probe_rejects_version() {
+        let mut bytes = encode(&sample_identity(), &sample_payload(), FORMAT_VERSION);
+        bytes[4..8].copy_from_slice(&(FORMAT_VERSION + 1).to_le_bytes());
+        assert!(probe_header(&bytes[..HEADER_SIZE], bytes.len() as u64, &sample_identity()).is_none());
+    }
+
+    #[test]
+    fn header_probe_rejects_negative_rows() {
+        let mut bytes = encode(&sample_identity(), &sample_payload(), FORMAT_VERSION);
+        bytes[8..12].copy_from_slice(&(-1i32).to_le_bytes());
+        assert!(probe_header(&bytes[..HEADER_SIZE], bytes.len() as u64, &sample_identity()).is_none());
+    }
+
+    #[test]
+    fn header_probe_rejects_seg_len_mismatch() {
+        let mut bytes = encode(&sample_identity(), &sample_payload(), FORMAT_VERSION);
+        // 段长区起点 = magic 4 + version 4 + rows 4 + widths 8
+        bytes[20..28].copy_from_slice(&0i64.to_le_bytes());
+        assert!(probe_header(&bytes[..HEADER_SIZE], bytes.len() as u64, &sample_identity()).is_none());
+    }
+
+    #[test]
+    fn header_probe_rejects_total_mismatch() {
+        let bytes = encode(&sample_identity(), &sample_payload(), FORMAT_VERSION);
+        assert!(
+            probe_header(&bytes[..HEADER_SIZE], bytes.len() as u64 + 1, &sample_identity()).is_none(),
+            "文件长度与 total 不符"
+        );
+    }
+
+    #[test]
+    fn header_probe_rejects_identity_mismatch() {
+        let bytes = encode(&sample_identity(), &sample_payload(), FORMAT_VERSION);
+        let mut other = sample_identity();
+        other.size += 1;
+        assert!(probe_header(&bytes[..HEADER_SIZE], bytes.len() as u64, &other).is_none());
+    }
+
+    #[test]
+    fn header_probe_reads_prefix_only() {
+        let dir = temp_dir("header-prefix");
+        fs::create_dir_all(&dir).unwrap();
+        let store = CacheStore::new(dir.clone(), 1 << 30, 4 << 30);
+        let src = "C:\\logs\\prefix.log".to_string();
+        let mut bytes = encode(&sample_identity(), &sample_payload(), FORMAT_VERSION);
+        for b in bytes[HEADER_SIZE..].iter_mut() {
+            *b = 0xff; // 列数据全损坏：plan 仍命中、不入解析
+        }
+        fs::write(store.entry_path(&src), &bytes).unwrap();
+        let h = store.probe_header(&src, &sample_identity()).expect("头部完好即命中");
+        assert_eq!(h.rows, 3);
+        assert_eq!(in_use_len(&dir), 1);
+        store.unmark_in_use(&src);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn decode_rejects_bad_magic() {
+        let mut bytes = encode(&sample_identity(), &sample_payload(), FORMAT_VERSION);
+        bytes[0] = b'X';
+        assert!(decode(&bytes, Some(&sample_identity())).is_err());
+    }
+
+    #[test]
+    fn decode_rejects_seg_len_mismatch() {
+        let mut bytes = encode(&sample_identity(), &sample_payload(), FORMAT_VERSION);
+        bytes[20..28].copy_from_slice(&1i64.to_le_bytes());
+        assert!(decode(&bytes, Some(&sample_identity())).is_err());
+    }
+
+    #[test]
+    fn decode_rejects_total_mismatch() {
+        let mut bytes = encode(&sample_identity(), &sample_payload(), FORMAT_VERSION);
+        // total 起点 = magic 4 + version 4 + rows 4 + widths 8 + 8 段长 64
+        let old = i64::from_le_bytes(bytes[84..92].try_into().unwrap());
+        bytes[84..92].copy_from_slice(&(old + 1).to_le_bytes());
+        assert!(decode(&bytes, Some(&sample_identity())).is_err());
+    }
+
+    #[test]
+    fn decode_rejects_dict_id_oob() {
+        let mut payload = sample_payload();
+        payload.tag_ids[0] = 99;
+        let bytes = encode(&sample_identity(), &payload, FORMAT_VERSION);
+        assert!(decode(&bytes, Some(&sample_identity())).is_err());
+    }
+
+    #[test]
+    fn encode_stream_roundtrip() {
+        let dir = temp_dir("stream");
+        let path = dir.join("entry.lcs");
+        {
+            let mut w = std::io::BufWriter::new(fs::File::create(&path).unwrap());
+            write_to(&mut w, &sample_identity(), &sample_payload(), FORMAT_VERSION).unwrap();
+            w.flush().unwrap();
+        }
+        let bytes = fs::read(&path).unwrap();
+        assert_eq!(
+            bytes,
+            encode(&sample_identity(), &sample_payload(), FORMAT_VERSION),
+            "流式写与整份编码逐字节一致"
+        );
+        assert_eq!(
+            decode(&bytes, Some(&sample_identity())).unwrap(),
+            sample_payload()
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn high_version_entry_not_overwritten() {
+        let dir = temp_dir("high-version");
+        fs::create_dir_all(&dir).unwrap();
+        let store = CacheStore::new(dir.clone(), 1 << 30, 4 << 30);
+        let src = "C:\\logs\\hv.log".to_string();
+        let entry = store.entry_path(&src);
+        let mut bytes = encode(&sample_identity(), &sample_payload(), FORMAT_VERSION);
+        bytes[4..8].copy_from_slice(&(FORMAT_VERSION + 1).to_le_bytes());
+        fs::write(&entry, &bytes).unwrap();
+        assert!(
+            !store.save(
+                &src,
+                Some(&sample_identity()),
+                &sample_identity(),
+                &sample_payload()
+            ),
+            "高版本条目必须拒绝写入"
+        );
+        assert_eq!(fs::read(&entry).unwrap(), bytes, "高版本条目必须原样保留");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn sidecar_version_mismatch_misses() {
         let bytes = encode(&sample_identity(), &sample_payload(), FORMAT_VERSION + 1);
         assert!(decode(&bytes, Some(&sample_identity())).is_err());
@@ -638,12 +909,12 @@ pub mod tests {
         let src = source.to_string_lossy().to_string();
         let entry = store.entry_path(&src);
         fs::write(&entry, b"garbage").unwrap();
-        assert!(store.probe(&src, &sample_identity()).is_none());
+        assert!(store.probe_header(&src, &sample_identity()).is_none());
         // 结构损坏但 magic 正确、段长被截断
         let mut bytes = encode(&sample_identity(), &sample_payload(), FORMAT_VERSION);
         bytes.truncate(bytes.len() - 3);
         fs::write(&entry, &bytes).unwrap();
-        assert!(store.probe(&src, &sample_identity()).is_none());
+        assert!(store.probe_header(&src, &sample_identity()).is_none());
     }
 
     #[test]
@@ -653,14 +924,14 @@ pub mod tests {
         let id = sample_identity();
         let src = "C:\\logs\\identity.log".to_string();
         assert!(store.save(&src, Some(&id), &id, &sample_payload()));
-        assert!(store.probe(&src, &id).is_some());
+        assert!(store.probe_header(&src, &id).is_some());
         let mut changed = id.clone();
         changed.size += 1;
-        assert!(store.probe(&src, &changed).is_none());
+        assert!(store.probe_header(&src, &changed).is_none());
         let mut changed = id.clone();
         changed.tail_hash ^= 1;
         assert!(
-            store.probe(&src, &changed).is_none(),
+            store.probe_header(&src, &changed).is_none(),
             "尾指纹不一致必须未命中（证明读取了尾部指纹）"
         );
     }
@@ -671,7 +942,7 @@ pub mod tests {
         let cache = dir.join("cache");
         let store = CacheStore::new(cache.clone(), 1 << 30, 4 << 30);
         let src = "C:\\logs\\nothing.log".to_string();
-        assert!(store.probe(&src, &sample_identity()).is_none());
+        assert!(store.probe_header(&src, &sample_identity()).is_none());
         assert!(!cache.exists(), "plan 探测不得创建目录");
     }
 
@@ -685,7 +956,7 @@ pub mod tests {
         let src = source.to_string_lossy().to_string();
         let before = Identity::capture(&source).unwrap();
         assert!(store.save(&src, Some(&before), &before, &sample_payload()));
-        assert!(store.probe(&src, &before).is_some());
+        assert!(store.probe_header(&src, &before).is_some());
 
         let last = bytes.len() - 1;
         bytes[last] = b'z';
@@ -693,12 +964,12 @@ pub mod tests {
         let after = Identity::capture(&source).unwrap();
         assert_eq!(before.head_hash, after.head_hash, "首段未变");
         assert_ne!(before.tail_hash, after.tail_hash, "尾部指纹必须变化");
-        assert!(store.probe(&src, &after).is_none(), "尾部变化必须未命中");
+        assert!(store.probe_header(&src, &after).is_none(), "尾部变化必须未命中");
 
         let mut forced = before.clone();
         forced.tail_hash = after.tail_hash;
         assert!(
-            store.probe(&src, &forced).is_none(),
+            store.probe_header(&src, &forced).is_none(),
             "仅尾指纹变化也必须未命中（证明探测读取了尾部）"
         );
     }
@@ -720,7 +991,7 @@ pub mod tests {
         assert!(leftovers.is_empty(), "不得留下写入残留");
         // 覆盖写仍保持有效
         assert!(store.save(&src, Some(&id), &id, &sample_payload()));
-        assert!(store.probe(&src, &id).is_some());
+        assert!(store.probe_header(&src, &id).is_some());
     }
 
     #[test]
@@ -775,15 +1046,15 @@ pub mod tests {
         };
         assert!(store.save(&src, Some(&plan_id), &plan_id, &sample_payload()));
         // plan 命中
-        assert!(store.probe(&src, &plan_id).is_some());
+        assert!(store.probe_header(&src, &plan_id).is_some());
         // 文件在 plan 后被改：commit 复核身份不同 → 未命中
         let recheck = Identity {
             size: 101,
             ..plan_id.clone()
         };
-        assert!(store.probe(&src, &recheck).is_none());
+        assert!(store.probe_header(&src, &recheck).is_none());
         assert!(store.save(&src, Some(&recheck), &recheck, &sample_payload()));
-        assert!(store.probe(&src, &recheck).is_some());
+        assert!(store.probe_header(&src, &recheck).is_some());
     }
 
     #[test]

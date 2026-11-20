@@ -1,0 +1,10 @@
+11-14 12:00:01.000  1  2 I App: plain line
+11-14 12:00:02.000  100  200 E AndroidRuntime: FATAL EXCEPTION: main
+11-14 12:00:02.001  100  200 E AndroidRuntime: Process: com.example.app, PID: 100
+11-14 12:00:02.002  100  200 E AndroidRuntime: java.lang.RuntimeException: boom
+11-14 12:00:03.000  300  400 F libc: signal 11 (SIGSEGV), code 1
+11-14 12:00:04.000  500  600 E ActivityManager: ANR in com.example.anr (com.example.anr/.Main)
+
+*** *** *** *** *** *** *** *** *** *** *** *** *** *** *** ***
+Build fingerprint: 'android/test'
+signal 6 (SIGABRT), code -6

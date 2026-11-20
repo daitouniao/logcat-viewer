@@ -2,9 +2,7 @@
 //!
 //! 行口径：空行与横幅行不进索引，其余物理行各成一条记录；无法识别的行保留为
 //! 「元数据未知」记录（pid/tid = -1、level = 0、分钟 = 255、无 tag），不丢行。
-//! 崩溃事件提取不在本切片（D20 的读取面亦未开放），`Payload::crashes` 保持为空。
-
-use std::collections::HashMap;
+//! 崩溃打标与段化装配在 [`crate::segment`]，本模块只负责行解析。
 
 use crate::sidecar::Payload;
 
@@ -78,6 +76,127 @@ fn digits_until(line: &[u8], mut i: usize) -> usize {
     i
 }
 
+fn timestamp_fields_valid(month: i32, day: i32, hour: i32, minute: i32, second: i32) -> bool {
+    (1..=12).contains(&month)
+        && (1..=31).contains(&day)
+        && (0..=23).contains(&hour)
+        && (0..=59).contains(&minute)
+        && (0..=60).contains(&second)
+}
+
+fn two_digits(line: &[u8], i: usize) -> Option<(u32, usize)> {
+    let a = *line.get(i)?;
+    let b = *line.get(i + 1)?;
+    if !a.is_ascii_digit() || !b.is_ascii_digit() {
+        return None;
+    }
+    Some((((a - b'0') as u32) * 10 + (b - b'0') as u32, i + 2))
+}
+
+/// 方括号 long 格式：`[ [yyyy-]mm-dd HH:MM:SS[.,]fraction pid: tid L/Tag ] msg`，
+/// 语法与 C# `ReLong` 对齐：pid 与 tid 均可缺、`]` 后允许无空格、tag 可含空格。
+fn parse_long(line: &[u8]) -> Option<LineMeta> {
+    let n = line.len();
+    let mut i = 1;
+    while i < n && line[i].is_ascii_whitespace() {
+        i += 1;
+    }
+
+    // 可选年
+    if i + 4 < n
+        && line[i..i + 4].iter().all(u8::is_ascii_digit)
+        && line[i + 4] == b'-'
+    {
+        i += 5;
+    }
+
+    let (month, p) = two_digits(line, i)?;
+    if *line.get(p)? != b'-' {
+        return None;
+    }
+    let (day, p) = two_digits(line, p + 1)?;
+    if *line.get(p)? != b' ' {
+        return None;
+    }
+    let (hour, p) = two_digits(line, p + 1)?;
+    if *line.get(p)? != b':' {
+        return None;
+    }
+    let (minute, p) = two_digits(line, p + 1)?;
+    if *line.get(p)? != b':' {
+        return None;
+    }
+    let (second, p) = two_digits(line, p + 1)?;
+    if !timestamp_fields_valid(
+        month as i32,
+        day as i32,
+        hour as i32,
+        minute as i32,
+        second as i32,
+    ) {
+        return None;
+    }
+    let sep = *line.get(p)?;
+    if sep != b'.' && sep != b',' {
+        return None;
+    }
+    let frac_end = digits_until(line, p + 1);
+    if frac_end == p + 1 || frac_end - (p + 1) > 9 {
+        return None;
+    }
+    let mut j = frac_end;
+    if !line.get(j)?.is_ascii_whitespace() {
+        return None;
+    }
+    while j < n && line[j].is_ascii_whitespace() {
+        j += 1;
+    }
+
+    let mut pid = -1;
+    let k = digits_until(line, j);
+    if k > j && line.get(k) == Some(&b':') {
+        pid = parse_uint(&line[j..k]).unwrap_or(-1);
+        j = k + 1;
+        while j < n && line[j].is_ascii_whitespace() {
+            j += 1;
+        }
+    }
+    let mut tid = -1;
+    let k = digits_until(line, j);
+    if k > j {
+        tid = parse_uint(&line[j..k]).unwrap_or(-1);
+        j = k;
+    }
+    while j < n && line[j].is_ascii_whitespace() {
+        j += 1;
+    }
+
+    let level = line.get(j).map(|b| level_code(*b)).unwrap_or(0);
+    if level == 0 || line.get(j + 1) != Some(&b'/') {
+        return None;
+    }
+    j += 2;
+    let close = j + line[j..].iter().position(|b| *b == b']')?;
+    let mut tag_end = close;
+    while tag_end > j && line[tag_end - 1].is_ascii_whitespace() {
+        tag_end -= 1;
+    }
+    let tag = utf8_trim(&line[j..tag_end]);
+    let mut msg_offset = close + 1;
+    if msg_offset < n && line[msg_offset].is_ascii_whitespace() {
+        msg_offset += 1;
+    }
+
+    Some(LineMeta {
+        minute: minute as u8,
+        pid,
+        tid,
+        level,
+        tag,
+        msg_offset,
+    })
+}
+
 /// 横幅 / ROM 自报头：至少 5 个连续 `-`，其后为空白或行尾。
 pub fn is_banner(line: &[u8]) -> bool {
     let mut d = 0;
@@ -96,6 +215,12 @@ pub fn parse_line(line: &[u8]) -> LineMeta {
     if n == 0 {
         return LineMeta::unknown();
     }
+    if line[0] == b'[' {
+        if let Some(meta) = parse_long(line) {
+            return meta;
+        }
+        return LineMeta::unknown();
+    }
 
     let mut meta = LineMeta::unknown();
     let mut p = 0usize;
@@ -109,10 +234,19 @@ pub fn parse_line(line: &[u8]) -> LineMeta {
     {
         let f = digits_until(line, 15);
         if f > 15 {
-            meta.minute = parse_uint(&line[9..11])
-                .filter(|m| (0..=59).contains(m))
-                .map(|m| m as u8)
-                .unwrap_or(MINUTE_NONE);
+            let (Some(month), Some(day), Some(hour), Some(minute), Some(second)) = (
+                parse_uint(&line[0..2]),
+                parse_uint(&line[3..5]),
+                parse_uint(&line[6..8]),
+                parse_uint(&line[9..11]),
+                parse_uint(&line[12..14]),
+            ) else {
+                return LineMeta::unknown();
+            };
+            if !timestamp_fields_valid(month, day, hour, minute, second) {
+                return LineMeta::unknown();
+            }
+            meta.minute = minute as u8;
             p = f;
         }
     } else if n >= 21
@@ -125,10 +259,19 @@ pub fn parse_line(line: &[u8]) -> LineMeta {
     {
         let f = digits_until(line, 20);
         if f > 20 {
-            meta.minute = parse_uint(&line[14..16])
-                .filter(|m| (0..=59).contains(m))
-                .map(|m| m as u8)
-                .unwrap_or(MINUTE_NONE);
+            let (Some(month), Some(day), Some(hour), Some(minute), Some(second)) = (
+                parse_uint(&line[5..7]),
+                parse_uint(&line[8..10]),
+                parse_uint(&line[11..13]),
+                parse_uint(&line[14..16]),
+                parse_uint(&line[17..19]),
+            ) else {
+                return LineMeta::unknown();
+            };
+            if !timestamp_fields_valid(month, day, hour, minute, second) {
+                return LineMeta::unknown();
+            }
+            meta.minute = minute as u8;
             p = f;
         }
     }
@@ -264,11 +407,10 @@ fn utf8_trim(bytes: &[u8]) -> Option<String> {
     }
 }
 
-/// 一条源的索引：逐行追加的列段 + tag 字典（与 sidecar 载荷同构）。
+/// 单段索引器：对 [`crate::segment::Store`] 的兼容壳（整份解析与流式行计数共用）。
 #[derive(Default)]
 pub struct Indexer {
-    payload: Payload,
-    tag_ids: HashMap<String, i32>,
+    store: crate::segment::Store,
 }
 
 impl Indexer {
@@ -278,45 +420,15 @@ impl Indexer {
 
     /// 追加一行；空行 / 横幅返回 false（不成记录）。`offset` 为该行在文档中的起始字节。
     pub fn add_line(&mut self, line: &[u8], offset: u64) -> bool {
-        let len = line.len();
-        if len == 0 || is_banner(line) {
-            return false;
-        }
-        let meta = parse_line(line);
-        let moff = meta.msg_offset.min(len) as i32;
-        self.payload.offs.push(offset as i64);
-        self.payload.lens.push(len as i32);
-        self.payload.moff.push(moff);
-        self.payload.minutes.push(meta.minute);
-        self.payload.pids.push(meta.pid);
-        self.payload.tids.push(meta.tid);
-        self.payload.lvls.push(meta.level);
-        let tag_id = match meta.tag {
-            None => -1,
-            Some(tag) => match self.tag_ids.get(&tag) {
-                Some(id) => *id,
-                None => {
-                    let id = self.payload.tags.len() as i32;
-                    self.payload.tags.push(tag.clone());
-                    self.tag_ids.insert(tag, id);
-                    id
-                }
-            },
-        };
-        self.payload.tag_ids.push(tag_id);
-        true
+        self.store.push_line(line, offset)
     }
 
     pub fn row_count(&self) -> u64 {
-        self.payload.offs.len() as u64
-    }
-
-    pub fn payload(&self) -> &Payload {
-        &self.payload
+        self.store.rows() as u64
     }
 
     pub fn into_payload(self) -> Payload {
-        self.payload
+        self.store.into_payload()
     }
 }
 
@@ -386,6 +498,162 @@ mod tests {
 
         let m = parse_line(b"    continuation line");
         assert_eq!(m, LineMeta::unknown());
+    }
+
+    #[test]
+    fn parse_long_format_variants() {
+        // 可选年 + pid: tid
+        let line = b"[ 2026-11-14 12:00:01.123  1234: 5678 I/MyTag ] hello world";
+        let m = parse_line(line);
+        assert_eq!(m.minute, 0);
+        assert_eq!(m.pid, 1234);
+        assert_eq!(m.tid, 5678);
+        assert_eq!(m.level, 3);
+        assert_eq!(m.tag.as_deref(), Some("MyTag"));
+        assert_eq!(&line[m.msg_offset..], b"hello world");
+
+        // 逗号小数 + 分钟透出
+        let line = b"[ 11-14 12:34:56,5  42: 43 D/netd ] boom";
+        let m = parse_line(line);
+        assert_eq!(m.minute, 34);
+        assert_eq!(m.pid, 42);
+        assert_eq!(m.tid, 43);
+        assert_eq!(m.level, 2);
+        assert_eq!(m.tag.as_deref(), Some("netd"));
+        assert_eq!(&line[m.msg_offset..], b"boom");
+
+        // 无 tid：tid 记 -1
+        let line = b"[ 11-14 12:00:01.123  1234: I/Tag ] msg";
+        let m = parse_line(line);
+        assert_eq!(m.pid, 1234);
+        assert_eq!(m.tid, -1);
+        assert_eq!(m.level, 3);
+        assert_eq!(m.tag.as_deref(), Some("Tag"));
+        assert_eq!(&line[m.msg_offset..], b"msg");
+
+        // `]` 后无空格：消息偏移紧贴 `]`
+        let line = b"[ 11-14 12:00:01.123  1: 2 W/X ]tight";
+        let m = parse_line(line);
+        assert_eq!(m.level, 4);
+        assert_eq!(m.tag.as_deref(), Some("X"));
+        assert_eq!(&line[m.msg_offset..], b"tight");
+    }
+
+    #[test]
+    fn parse_long_format_variants_after_bracket_no_space() {
+        // `[` 后无空格
+        let line = b"[11-14 12:00:01.123  7: 8 E/T ] msg";
+        let m = parse_line(line);
+        assert_eq!(m.minute, 0);
+        assert_eq!(m.pid, 7);
+        assert_eq!(m.tid, 8);
+        assert_eq!(m.level, 5);
+        assert_eq!(m.tag.as_deref(), Some("T"));
+        assert_eq!(&line[m.msg_offset..], b"msg");
+    }
+
+    #[test]
+    fn timestamp_field_range_rejects() {
+        let out_of_range: &[&[u8]] = &[
+            b"13-14 12:00:01.123  1  2 I T: month",
+            b"11-00 12:00:01.123  1  2 I T: day",
+            b"11-14 24:00:01.123  1  2 I T: hour",
+            b"11-14 12:60:01.123  1  2 I T: minute",
+            b"11-14 12:00:61.123  1  2 I T: second",
+            b"2026-13-14 12:00:01.123  1  2 I T: yyyy-month",
+            b"[ 11-14 24:00:01.123  1: 2 I/T ] long-hour",
+            b"[ 00-14 12:00:01.123  1: 2 I/T ] long-month",
+        ];
+        for line in out_of_range {
+            assert_eq!(
+                parse_line(line),
+                LineMeta::unknown(),
+                "越界行应整行未知：{}",
+                String::from_utf8_lossy(line)
+            );
+        }
+
+        // 行不丢：越界行仍成一条未知元数据记录
+        let payload = parse_bytes(b"13-14 12:00:01.123  1  2 I T: bad\n");
+        assert_eq!(payload.row_count(), 1);
+        assert_eq!(payload.minutes, vec![MINUTE_NONE]);
+        assert_eq!(payload.pids, vec![-1]);
+        assert_eq!(payload.tag_ids, vec![-1]);
+    }
+
+    #[test]
+    fn timestamp_range_valid_calendar_invalid_keep() {
+        // 02-31：范围合法但日历非法，保持解析
+        let m = parse_line(b"02-31 12:00:01.123  1  2 I T: x");
+        assert_eq!(m.minute, 0);
+        assert_eq!(m.pid, 1);
+        assert_eq!(m.tid, 2);
+        assert_eq!(m.level, 3);
+        assert_eq!(m.tag.as_deref(), Some("T"));
+
+        // 秒 60（闰秒）保持解析，分钟按原始值归属
+        let m = parse_line(b"11-14 12:34:60.123  1  2 I T: x");
+        assert_eq!(m.minute, 34);
+        assert_eq!(m.pid, 1);
+
+        // 年 0000 不设下界
+        let m = parse_line(b"0000-01-01 00:00:00.000  1  2 I T: x");
+        assert_eq!(m.minute, 0);
+        assert_eq!(m.pid, 1);
+
+        // long 形态同样接受闰秒
+        let m = parse_line(b"[ 11-14 12:00:60.123  1: 2 I/T ] x");
+        assert_eq!(m.minute, 0);
+        assert_eq!(m.pid, 1);
+        assert_eq!(m.tid, 2);
+        assert_eq!(m.level, 3);
+        assert_eq!(m.tag.as_deref(), Some("T"));
+    }
+
+    #[test]
+    fn crash_binds_to_parent_row() {
+        let data = b"11-14 12:00:01.000  1  2 I X: hello\n\
+11-14 12:00:02.000  100  200 E AndroidRuntime: FATAL EXCEPTION: main\n\
+11-14 12:00:02.001  100  200 E AndroidRuntime: Process: com.example.app, PID: 100\n\
+11-14 12:00:02.002  100  200 E AndroidRuntime: java.lang.IllegalStateException: boom\n";
+        let payload = parse_bytes(data);
+        assert_eq!(payload.row_count(), 4);
+        assert_eq!(payload.crashes.len(), 1);
+        let c = &payload.crashes[0];
+        assert_eq!(c.row, 1);
+        assert_eq!(c.kind, crate::crash::KIND_JAVA);
+        assert_eq!(c.pid, 100);
+        assert_eq!(c.tid, 200);
+        assert_eq!(c.exc_id, 0);
+        assert_eq!(c.pkg_id, 0);
+        assert_eq!(
+            payload.exc_types,
+            vec!["java.lang.IllegalStateException".to_string()]
+        );
+        assert_eq!(payload.pkgs, vec!["com.example.app".to_string()]);
+    }
+
+    #[test]
+    fn crash_extract_independent_of_timestamp() {
+        // 崩溃头行时间戳月越界 → 整行元数据未知，但崩溃打标仍成立（绑定该行、pid/tid 记 -1）
+        let data = b"13-14 12:00:02.000  100  200 E AndroidRuntime: FATAL EXCEPTION: main\n\
+11-14 12:00:02.001  100  200 E AndroidRuntime: Process: com.example.app, PID: 100\n\
+11-14 12:00:02.002  100  200 E AndroidRuntime: java.lang.IllegalStateException: boom\n";
+        let payload = parse_bytes(data);
+        assert_eq!(payload.row_count(), 3);
+        assert_eq!(payload.minutes[0], MINUTE_NONE);
+        assert_eq!(payload.pids[0], -1);
+        assert_eq!(payload.crashes.len(), 1);
+        let c = &payload.crashes[0];
+        assert_eq!(c.row, 0);
+        assert_eq!(c.kind, crate::crash::KIND_JAVA);
+        assert_eq!(c.pid, -1);
+        assert_eq!(c.tid, -1);
+        assert_eq!(
+            payload.exc_types,
+            vec!["java.lang.IllegalStateException".to_string()]
+        );
+        assert_eq!(payload.pkgs, vec!["com.example.app".to_string()]);
     }
 
     #[test]
