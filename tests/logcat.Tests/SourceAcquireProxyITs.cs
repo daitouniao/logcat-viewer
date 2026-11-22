@@ -230,20 +230,16 @@ public sealed class SourceAcquireFailureIT : LogcoreIntegrationTest
     }
 
     [Fact]
-    public void Direct_sniff_failure_falls_back_to_proxy_without_events()
+    public void Direct_non_text_is_rejected_without_proxy()
     {
         var dir = Dir("logs");
         var binary = Path.Combine(dir, "binary.log");
         File.WriteAllBytes(binary, Enumerable.Repeat((byte)0, 4096).ToArray());
-        using var fake = FakeProxy.StartAsync(LogcoreTestSupport.NewPipe("fallback")).GetAwaiter().GetResult();
-        var source = PlanFile(binary, fake.PipeName, mode: "Auto");
-        Assert.Equal("ProxySpool", source.PlanInfo.Route);
-        Assert.Empty(source.PollEvents());
-        source.Commit();
-        var events = LogcoreTestSupport.DrainUntil(source, es => es.Any(e => e.Type == "done"));
-        Assert.DoesNotContain(events, e => e.Type == "error");
-        source.Close();
-        source.Free();
+        using var fake = FakeProxy.StartAsync(LogcoreTestSupport.NewPipe("reject")).GetAwaiter().GetResult();
+        var error = Assert.Throws<LogcoreException>(() => PlanFile(binary, fake.PipeName, mode: "Auto"));
+        Assert.Equal(LogcoreErrorCodes.UnsupportedFormat, error.Code);
+        Assert.Equal("Binary", error.Params["format"].GetString());
+        Assert.Equal(0, fake.ConnectionCount);
     }
 
     [Fact]

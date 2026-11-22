@@ -1,6 +1,6 @@
 # 单元测试与覆盖率实操指南
 
-> 最后更新：2026-11-14
+> 最后更新：2026-11-22
 > 本文是「怎么把测试跑起来、覆盖率怎么出」的**唯一操作入口**。
 > 有效性审计（变异测试）见 [`UT-AUDIT.md`](UT-AUDIT.md)。
 > **CI 语言环境陷阱**（本地全绿、推送就红）见 §3.4。
@@ -14,6 +14,11 @@
 | 分支覆盖率 | 88.64% (1,460 / 1,647)——同上，同一批采集                     |
 | 方法覆盖率 | 92.77% (295 / 318，判据「方法内 ≥1 行命中」)——同上，同一批采集 |
 | 统计口径   | 仅 Services + Models（UI 与设备/系统集成层已排除，见 §4）；主体已迁 `logcat-uicore/` |
+
+> 2026-11-22 **修复过期 IT**：`SourceAcquireFailureIT.Direct_sniff_failure_falls_back_to_proxy_without_events`
+> 断言的是 reject-unsupported-format 之前的旧契约（Auto 嗅探非文本转代理），已按现契约改写为
+> `Direct_non_text_is_rejected_without_proxy`——同步返回 `UNSUPPORTED_FORMAT`、`format=Binary`、
+> 不连代理。用例数不变（**915**），全量实测 **915/915**，无跳过。
 
 > 2026-11-21 **rust-core-paging-read**：902 → **915**（+13：`LogcoreBindingTests` 新增
 > `BindingPageLimitConstantTests` 1 条——`MAX_PAGE_ROWS` 与 core 常量对拍；新增
