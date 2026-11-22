@@ -3,7 +3,7 @@
 ## 1. 准备与基线
 
 - [x] 1.1 在独立 worktree 中实施：分支 `wt/rust-core-result-set`（路径以 `git worktree list` 定位，任务内不写本机绝对路径）；确认 worktree 内 `cargo test --workspace -- --test-threads=1` 可运行且基线全绿，记录条数与 `docs/TESTING.md` 现有 Rust 记录一致；确认 `cargo llvm-cov` 可调用（供 5.2，缺则按 `docs/TESTING.md` §6 安装）
-- [ ] 1.2 记录 C# 侧基线：`cargo build` 后运行 `dotnet test tests/logcat.Tests/logcat.Tests.csproj`，确认与当前记录无新增失败（本 change 不改 C#，此基线用于回归对比）
+- [x] 1.2 记录 C# 侧基线：`cargo build` 后运行 `dotnet test tests/logcat.Tests/logcat.Tests.csproj`，确认与当前记录无新增失败（本 change 不改 C#，此基线用于回归对比）
 
 ## 2. 结果集模型
 
@@ -25,7 +25,7 @@
 
 - [x] 5.1 在 worktree 跑全量：`cargo test --workspace -- --test-threads=1` + `dotnet test tests/logcat.Tests/logcat.Tests.csproj` + `bash scripts/run-tests-en-us.sh`（Release + en-US，与 CI 同口径）；确认受影响用例全过、全量无新增失败并记录条数
 - [x] 5.2 在 worktree 跑 `cargo llvm-cov -- --test-threads=1`，按实测同批更新 `docs/TESTING.md` 的 Rust 用例数与覆盖率（行/区域/函数及分母，保留 cabi 测试代理剔除口径）；核对 README 测试数字联动口径（C# 侧未变则不动）
-- [ ] 5.3 将 `wt/rust-core-result-set` 合入目标分支 `master`（`git merge`），在 master 上重跑 5.1 的全部命令并确认结果一致
+- [x] 5.3 将 `wt/rust-core-result-set` 合入目标分支 `master`（`git merge`），在 master 上重跑 5.1 的全部命令并确认结果一致
 
 ## Workflow follow-up
 
