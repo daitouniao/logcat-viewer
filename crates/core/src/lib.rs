@@ -17,6 +17,7 @@ pub mod parse;
 pub mod probe;
 pub mod proxy;
 pub mod request;
+pub mod result;
 pub mod route;
 pub mod segment;
 pub mod sidecar;

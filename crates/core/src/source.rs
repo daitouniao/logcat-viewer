@@ -31,6 +31,7 @@ use crate::page;
 use crate::probe;
 use crate::proxy::{self, ProxyLease};
 use crate::request::{self, Kind, Mode, Request};
+use crate::result::ResultSet;
 use crate::route;
 use crate::segment::{chunk_ranges, feed_range, LiveIndex, Segment, Store};
 use crate::sidecar::{CacheStore, Header, Payload};
@@ -724,9 +725,11 @@ impl SourceHandle {
                 .ok_or_else(|| CoreError::new(INVALID_STATE))?;
             (payload, file, g.request.path.clone().unwrap_or_default())
         };
+        debug_assert!(payload.row_count() <= u32::MAX as usize, "文档行数超出 u32");
+        let result = ResultSet::identity(payload.row_count() as u32);
         let mut entries = Vec::new();
-        for row in page::page_rows(&payload, start, count) {
-            let i = row.ord as usize;
+        for row in page::page_rows_for(&result, &payload, start, count) {
+            let i = row.doc_row as usize;
             let off = payload.offs[i].max(0) as u64;
             let len = payload.lens[i].max(0) as usize;
             let mut text = vec![0u8; len];
@@ -734,7 +737,7 @@ impl SourceHandle {
                 .map_err(|e| io_error(display.clone(), &e))?;
             entries.push(row.with_text(text));
         }
-        Ok(page::encode_page(&entries))
+        Ok(page::encode_page(&entries, start as u32))
     }
 }
 
