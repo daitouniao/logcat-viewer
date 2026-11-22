@@ -168,7 +168,7 @@ public sealed class SourceAcquireSidecarIT : LogcoreIntegrationTest
         Assert.Equal("Progressive", first.GetDescriptor().LoadMode);
         first.Close();
         first.Free();
-        Assert.True(Directory.Exists(cache));
+        LogcoreTestSupport.WaitForSidecarEntries(cache, 1);
         var entries = Directory.GetFiles(cache);
         Assert.NotEmpty(entries);
 
@@ -181,6 +181,9 @@ public sealed class SourceAcquireSidecarIT : LogcoreIntegrationTest
         second.Close();
         second.Free();
         Assert.NotEmpty(Directory.GetFiles(cache));
+        var entry = Directory.GetFiles(cache)
+            .Single(f => f.EndsWith(".lcs", StringComparison.OrdinalIgnoreCase));
+        var stampBefore = File.GetLastWriteTimeUtc(entry);
 
         File.AppendAllText(path, "11-14 12:00:03.000  1  2 I T: extra\n");
         var third = PlanFile(path, LogcoreTestSupport.NewPipe("side-3"), sidecarDir: cache);
@@ -191,10 +194,13 @@ public sealed class SourceAcquireSidecarIT : LogcoreIntegrationTest
         Assert.Equal((ulong)21, changed.RowCount);
         third.Close();
         third.Free();
+        // 身份变化原地重写同一条目；等后台落盘收尾再动缓存，避免撞上半成品。
+        LogcoreTestSupport.WaitForSidecarRewrite(cache, entry, stampBefore);
 
-        foreach (var entry in Directory.GetFiles(cache))
+        foreach (var file in Directory.GetFiles(cache)
+                     .Where(f => f.EndsWith(".lcs", StringComparison.OrdinalIgnoreCase)))
         {
-            File.WriteAllBytes(entry, new byte[] { 1, 2, 3 });
+            File.WriteAllBytes(file, new byte[] { 1, 2, 3 });
         }
         var corrupted = PlanFile(path, LogcoreTestSupport.NewPipe("side-4"), sidecarDir: cache);
         corrupted.Commit();
@@ -215,8 +221,10 @@ public sealed class SourceAcquireSidecarIT : LogcoreIntegrationTest
         LogcoreTestSupport.DrainUntil(first, es => es.Any(e => e.Type == "done"));
         first.Close();
         first.Free();
+        LogcoreTestSupport.WaitForSidecarEntries(cache, 1);
 
-        var entry = Directory.GetFiles(cache).Single();
+        var entry = Directory.GetFiles(cache)
+            .Single(f => f.EndsWith(".lcs", StringComparison.OrdinalIgnoreCase));
         var bytes = File.ReadAllBytes(entry);
         BitConverter.GetBytes(999).CopyTo(bytes, 4);
         File.WriteAllBytes(entry, bytes);

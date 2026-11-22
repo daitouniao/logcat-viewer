@@ -75,6 +75,30 @@ internal static class LogcoreTestSupport
         return all;
     }
 
+    /// <summary>
+    /// 等 sidecar 后台落盘收尾：Done 事件先于落盘（临时文件 + 原子改名），
+    /// 以「最终 .lcs 条目数达到期望」为准，临时文件（.lcs.tmp-N）不计。
+    /// </summary>
+    internal static void WaitForSidecarEntries(string dir, int count, TimeSpan? timeout = null)
+    {
+        WaitUntil(
+            () => Directory.Exists(dir)
+                && Directory.GetFiles(dir).Count(f => f.EndsWith(".lcs", StringComparison.OrdinalIgnoreCase)) == count,
+            timeout,
+            $"等待 sidecar 落盘超时（期望 {count} 条 .lcs）");
+    }
+
+    /// <summary>等指定条目被后台原地重写收尾：写时间前进且目录内无 .tmp- 残留。</summary>
+    internal static void WaitForSidecarRewrite(string dir, string entry, DateTime before, TimeSpan? timeout = null)
+    {
+        WaitUntil(
+            () => File.Exists(entry)
+                && File.GetLastWriteTimeUtc(entry) > before
+                && !Directory.GetFiles(dir).Any(f => Path.GetFileName(f).Contains(".tmp-")),
+            timeout,
+            "等待 sidecar 重写落盘超时");
+    }
+
     internal static void SafeDelete(string dir)
     {
         try
