@@ -1,10 +1,11 @@
-//! 页行装配（D2/D3/D5）：从整份 `Payload` 快照取结果集序号区间内的行。
+//! 页行装配（D2/D3/D5）：结果集序号（`ord`）映射到文档行号（`doc_row`）后取数。
 //!
 //! 页读取以装载完成后的整份 `Arc<Payload>` 为唯一读面，不读段列表；
-//! 行号即结果集序号（本代结果集恒为文档全部行）。
+//! 行记录中的行号一律是文档行号，结果集序号只作页内坐标。
 
 use std::collections::HashMap;
 
+use crate::result::ResultSet;
 use crate::sidecar::{CrashEntry, Payload};
 
 pub const MAGIC: [u8; 4] = *b"LPAG";
@@ -17,7 +18,7 @@ const NO_REF: u32 = u32::MAX;
 /// 页行中间结构：列值 + 展开后的字典字符串（`None` 表示空）。
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PageRow {
-    pub ord: u32,
+    pub doc_row: u32,
     pub level: u8,
     pub pid: i32,
     pub tid: i32,
@@ -28,19 +29,34 @@ pub struct PageRow {
     pub pkg: Option<String>,
 }
 
-/// 从整份快照收集 `[start, start + count)` 的页行；越界截短，`start` 越界返回空。
-pub fn page_rows(payload: &Payload, start: usize, count: usize) -> Vec<PageRow> {
-    let rows = payload.row_count();
-    if start >= rows || count == 0 {
+/// 低层原语：取结果集 `[ord_start, ord_start + count)` 的连续一段。
+/// 越界截短；`ord_start` 越界或 `count == 0` 返回空。
+pub fn page_rows_for(
+    result: &ResultSet,
+    payload: &Payload,
+    ord_start: usize,
+    count: usize,
+) -> Vec<PageRow> {
+    let len = result.len();
+    if ord_start >= len || count == 0 {
         return Vec::new();
     }
-    let end = start.saturating_add(count).min(rows);
-    let crash_by_row = crash_rows_in(payload, start, end);
-    (start..end)
-        .map(|i| {
-            let crash = crash_by_row.get(&(i as i32)).copied();
+    let end = ord_start.saturating_add(count).min(len);
+    let doc_rows: Vec<u32> = (ord_start..end).map(|ord| result.doc_row(ord)).collect();
+    rows_for_doc_rows(&doc_rows, payload)
+}
+
+/// 内核：按文档行号装配行内容；`doc_rows` 必须升序且小于文档行数。
+fn rows_for_doc_rows(doc_rows: &[u32], payload: &Payload) -> Vec<PageRow> {
+    debug_assert!(doc_rows.windows(2).all(|w| w[0] < w[1]), "doc_rows 必须升序");
+    let crash_by_row = crash_rows_for(doc_rows, payload);
+    doc_rows
+        .iter()
+        .map(|&doc_row| {
+            let i = doc_row as usize;
+            let crash = crash_by_row.get(&(doc_row as i32)).copied();
             PageRow {
-                ord: i as u32,
+                doc_row,
                 level: payload.lvls[i],
                 pid: payload.pids[i],
                 tid: payload.tids[i],
@@ -54,11 +70,11 @@ pub fn page_rows(payload: &Payload, start: usize, count: usize) -> Vec<PageRow> 
         .collect()
 }
 
-fn crash_rows_in(payload: &Payload, start: usize, end: usize) -> HashMap<i32, &CrashEntry> {
+fn crash_rows_for<'a>(doc_rows: &[u32], payload: &'a Payload) -> HashMap<i32, &'a CrashEntry> {
     payload
         .crashes
         .iter()
-        .filter(|c| c.row >= 0 && (c.row as usize) >= start && (c.row as usize) < end)
+        .filter(|c| c.row >= 0 && doc_rows.binary_search(&(c.row as u32)).is_ok())
         .map(|c| (c.row, c))
         .collect()
 }
@@ -94,7 +110,8 @@ impl PageRow {
 }
 
 /// 编码布局 v1（小端）；空页只含 36 字节头部。
-pub fn encode_page(entries: &[PageEntry]) -> Vec<u8> {
+/// 页头第 4 字段写本页首行 `ord`；空页写 0，维持既有字节行为。
+pub fn encode_page(entries: &[PageEntry], ord_start: u32) -> Vec<u8> {
     let mut tags = StringTable::default();
     let mut excs = StringTable::default();
     let mut pkgs = StringTable::default();
@@ -121,10 +138,7 @@ pub fn encode_page(entries: &[PageEntry]) -> Vec<u8> {
     put_u32(&mut out, u32::from_le_bytes(MAGIC));
     put_u32(&mut out, VERSION);
     put_u32(&mut out, entries.len() as u32);
-    put_u32(
-        &mut out,
-        entries.first().map(|e| e.row.ord).unwrap_or(0),
-    );
+    put_u32(&mut out, if entries.is_empty() { 0 } else { ord_start });
     put_u32(&mut out, tags.count());
     put_u32(&mut out, excs.count());
     put_u32(&mut out, pkgs.count());
@@ -132,7 +146,7 @@ pub fn encode_page(entries: &[PageEntry]) -> Vec<u8> {
 
     let mut text_off = 0u64;
     for (entry, (tag_ref, exc_ref, pkg_ref)) in entries.iter().zip(&refs) {
-        put_u32(&mut out, entry.row.ord);
+        put_u32(&mut out, entry.row.doc_row);
         out.push(entry.row.level);
         out.push(u8::from(entry.row.crash_kind.is_some()));
         out.push(entry.row.crash_kind.unwrap_or(0));
@@ -221,14 +235,37 @@ mod tests {
         data
     }
 
+    fn crash_sample() -> &'static [u8] {
+        b"11-14 12:00:00.000  100  200 E AndroidRuntime: FATAL EXCEPTION: main\n\
+11-14 12:00:00.001  100  200 E AndroidRuntime: Process: com.example.app, PID: 100\n\
+11-14 12:00:00.002  100  200 E AndroidRuntime: java.lang.RuntimeException: boom\n\
+11-14 12:00:00.003  100  200 I T: normal 1\n\
+11-14 12:00:00.004  100  200 E AndroidRuntime: FATAL EXCEPTION: second\n\
+11-14 12:00:00.005  100  200 E AndroidRuntime: Process: com.example.other, PID: 100\n\
+11-14 12:00:00.006  100  200 E AndroidRuntime: not an exception\n\
+11-14 12:00:00.007  100  200 I T: normal 2\n"
+    }
+
+    fn bind(payload: &Payload, rows: Vec<PageRow>, data: &[u8]) -> Vec<PageEntry> {
+        rows.into_iter()
+            .map(|row| {
+                let i = row.doc_row as usize;
+                let off = payload.offs[i].max(0) as usize;
+                let len = payload.lens[i].max(0) as usize;
+                row.with_text(data[off..off + len].to_vec())
+            })
+            .collect()
+    }
+
     #[test]
-    fn page_rows_from_whole_snapshot_contiguous() {
+    fn page_rows_for_identity_contiguous() {
         let payload = parse_bytes(&sample());
-        let rows = page_rows(&payload, 2, 4);
+        let set = ResultSet::identity(payload.row_count() as u32);
+        let rows = page_rows_for(&set, &payload, 2, 4);
         assert_eq!(rows.len(), 4);
         for (k, row) in rows.iter().enumerate() {
             let i = 2 + k;
-            assert_eq!(row.ord, i as u32, "序号连续");
+            assert_eq!(row.doc_row, i as u32, "文档行号连续");
             assert_eq!(row.level, 3, "I 级别");
             assert_eq!((row.pid, row.tid), (10, 20));
             assert_eq!(row.tag.as_deref(), Some(format!("Tag{}", i % 2).as_str()));
@@ -238,23 +275,25 @@ mod tests {
     }
 
     #[test]
-    fn page_start_beyond_rows_empty() {
+    fn page_rows_for_start_beyond_empty() {
         let payload = parse_bytes(&sample());
-        assert!(page_rows(&payload, payload.row_count(), 10).is_empty());
-        assert!(page_rows(&payload, payload.row_count() + 5, 10).is_empty());
+        let set = ResultSet::identity(payload.row_count() as u32);
+        assert!(page_rows_for(&set, &payload, payload.row_count(), 10).is_empty());
+        assert!(page_rows_for(&set, &payload, payload.row_count() + 5, 10).is_empty());
     }
 
     #[test]
-    fn page_tail_short_page() {
+    fn page_rows_for_tail_short_page() {
         let payload = parse_bytes(&sample());
-        let rows = page_rows(&payload, payload.row_count() - 1, 16);
+        let set = ResultSet::identity(payload.row_count() as u32);
+        let rows = page_rows_for(&set, &payload, payload.row_count() - 1, 16);
         assert_eq!(rows.len(), 1);
-        assert_eq!(rows[0].ord as usize, payload.row_count() - 1);
+        assert_eq!(rows[0].doc_row as usize, payload.row_count() - 1);
     }
 
     #[test]
     fn page_binary_header_fixed() {
-        let buf = encode_page(&[]);
+        let buf = encode_page(&[], 0);
         let expected: [u8; HEADER_BYTES] = [
             b'L', b'P', b'A', b'G', // magic
             1, 0, 0, 0, // version
@@ -272,7 +311,7 @@ mod tests {
     fn page_binary_row_record_fixed() {
         let entry = PageEntry {
             row: PageRow {
-                ord: 7,
+                doc_row: 7,
                 level: 5,
                 pid: 100,
                 tid: 200,
@@ -286,11 +325,11 @@ mod tests {
             time_start: 2,
             time_len: 14,
         };
-        let buf = encode_page(&[entry]);
+        let buf = encode_page(&[entry], 0);
         assert_eq!(&buf[..4], b"LPAG");
         assert_eq!(buf.len(), HEADER_BYTES + ROW_RECORD_BYTES + (4 + 1) + 3);
         let expected: [u8; ROW_RECORD_BYTES] = [
-            7, 0, 0, 0, // ord
+            7, 0, 0, 0, // docRow
             5, // level
             1, // flags：崩溃行
             0, // crashKind：Java
@@ -313,10 +352,25 @@ mod tests {
     }
 
     #[test]
+    fn page_binary_header_start_ord() {
+        let data = sample();
+        let payload = parse_bytes(&data);
+        let set = ResultSet::from_rows(vec![2, 5], 10);
+        let rows = page_rows_for(&set, &payload, 0, 2);
+        let entries = bind(&payload, rows, &data);
+        let buf = encode_page(&entries, 1);
+        assert_eq!(u32::from_le_bytes(buf[12..16].try_into().unwrap()), 1, "页头写首行 ord");
+        let first = u32::from_le_bytes(buf[HEADER_BYTES..HEADER_BYTES + 4].try_into().unwrap());
+        let second_at = HEADER_BYTES + ROW_RECORD_BYTES;
+        let second = u32::from_le_bytes(buf[second_at..second_at + 4].try_into().unwrap());
+        assert_eq!((first, second), (2, 5), "行记录写 docRow");
+    }
+
+    #[test]
     fn page_binary_string_tables_dedup() {
-        let make = |ord: u32, tag: &str| PageEntry {
+        let make = |doc_row: u32, tag: &str| PageEntry {
             row: PageRow {
-                ord,
+                doc_row,
                 level: 3,
                 pid: 1,
                 tid: 1,
@@ -330,7 +384,7 @@ mod tests {
             time_start: 0,
             time_len: 0,
         };
-        let buf = encode_page(&[make(0, "T"), make(1, "T"), make(2, "U")]);
+        let buf = encode_page(&[make(0, "T"), make(1, "T"), make(2, "U")], 0);
         let tag_count = u32::from_le_bytes(buf[16..20].try_into().unwrap());
         assert_eq!(tag_count, 2, "页内去重");
         let refs: Vec<u32> = (0..3)
@@ -346,9 +400,9 @@ mod tests {
 
     #[test]
     fn page_binary_text_blob_concatenated() {
-        let make = |ord: u32, text: &[u8]| PageEntry {
+        let make = |doc_row: u32, text: &[u8]| PageEntry {
             row: PageRow {
-                ord,
+                doc_row,
                 level: 3,
                 pid: 1,
                 tid: 1,
@@ -362,7 +416,7 @@ mod tests {
             time_start: 0,
             time_len: 0,
         };
-        let buf = encode_page(&[make(0, b"abc"), make(1, b"de")]);
+        let buf = encode_page(&[make(0, b"abc"), make(1, b"de")], 0);
         let text_bytes = u64::from_le_bytes(buf[28..36].try_into().unwrap());
         assert_eq!(text_bytes, 5);
         let first_off = u64::from_le_bytes(
@@ -378,17 +432,10 @@ mod tests {
     }
 
     #[test]
-    fn page_crash_fields_from_whole_snapshot() {
-        let data = b"11-14 12:00:00.000  100  200 E AndroidRuntime: FATAL EXCEPTION: main\n\
-11-14 12:00:00.001  100  200 E AndroidRuntime: Process: com.example.app, PID: 100\n\
-11-14 12:00:00.002  100  200 E AndroidRuntime: java.lang.RuntimeException: boom\n\
-11-14 12:00:00.003  100  200 I T: normal 1\n\
-11-14 12:00:00.004  100  200 E AndroidRuntime: FATAL EXCEPTION: second\n\
-11-14 12:00:00.005  100  200 E AndroidRuntime: Process: com.example.other, PID: 100\n\
-11-14 12:00:00.006  100  200 E AndroidRuntime: not an exception\n\
-11-14 12:00:00.007  100  200 I T: normal 2\n";
-        let payload = parse_bytes(data);
-        let rows = page_rows(&payload, 0, 8);
+    fn page_rows_for_identity_crash_fields() {
+        let payload = parse_bytes(crash_sample());
+        let set = ResultSet::identity(payload.row_count() as u32);
+        let rows = page_rows_for(&set, &payload, 0, 8);
         assert_eq!(rows.len(), 8);
 
         assert_eq!(rows[0].crash_kind, Some(crate::crash::KIND_JAVA));
@@ -403,5 +450,53 @@ mod tests {
             assert_eq!(rows[i].crash_kind, None, "非崩溃头不带崩溃字段（行 {i}）");
             assert_eq!((&rows[i].exc, &rows[i].pkg), (&None, &None));
         }
+    }
+
+    #[test]
+    fn page_rows_for_result_uses_doc_row_for_text() {
+        let data = sample();
+        let payload = parse_bytes(&data);
+        let set = ResultSet::from_rows(vec![0, 2, 5], 10);
+        let rows = page_rows_for(&set, &payload, 0, 3);
+        assert_eq!(
+            rows.iter().map(|r| r.doc_row).collect::<Vec<_>>(),
+            vec![0, 2, 5]
+        );
+        let entries = bind(&payload, rows, &data);
+        for entry in &entries {
+            let i = entry.row.doc_row as usize;
+            let text = String::from_utf8_lossy(&entry.text);
+            assert!(text.ends_with(&format!("line {i}")), "原文按 docRow 取：{text}");
+            assert_eq!(
+                entry.row.tag.as_deref(),
+                Some(format!("Tag{}", i % 2).as_str())
+            );
+            let moff = payload.moff[i].max(0) as usize;
+            assert_eq!(entry.row.moff, moff as u32);
+            assert!(entry.text[moff..].starts_with(b"line "), "moff 按 docRow 取");
+            assert_eq!((entry.time_start, entry.time_len), (0, 18));
+        }
+    }
+
+    #[test]
+    fn page_rows_for_result_crash_fields_follow_doc_row() {
+        let payload = parse_bytes(crash_sample());
+        let set = ResultSet::from_rows(vec![0, 4, 7], 8);
+        let rows = page_rows_for(&set, &payload, 0, 3);
+        assert_eq!(
+            rows.iter().map(|r| r.doc_row).collect::<Vec<_>>(),
+            vec![0, 4, 7]
+        );
+
+        assert_eq!(rows[0].crash_kind, Some(crate::crash::KIND_JAVA));
+        assert_eq!(rows[0].exc.as_deref(), Some("java.lang.RuntimeException"));
+        assert_eq!(rows[0].pkg.as_deref(), Some("com.example.app"));
+
+        assert_eq!(rows[1].crash_kind, Some(crate::crash::KIND_JAVA));
+        assert_eq!(rows[1].exc, None);
+        assert_eq!(rows[1].pkg.as_deref(), Some("com.example.other"));
+
+        assert_eq!(rows[2].crash_kind, None);
+        assert_eq!((&rows[2].exc, &rows[2].pkg), (&None, &None));
     }
 }
