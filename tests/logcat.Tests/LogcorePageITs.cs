@@ -227,6 +227,9 @@ public sealed class LogcorePagePathsIT : LogcoreIntegrationTest
         var expected = PageFixture.Snapshot(first);
         first.Close();
         first.Free();
+        // 缓存落盘是后台线程（Done 事件已发即返回，不等待），必须等工件落盘后再开第二次会话，
+        // 否则 CI（2 核慢盘）上第二次 open 探不到缓存降级 Progressive，本地则常因先落盘而侥幸通过。
+        LogcoreTestSupport.WaitForSidecarEntries(cache, 1);
 
         var second = PlanFile(path, LogcoreTestSupport.NewPipe("path-cache-2"), sidecarDir: cache);
         second.Commit();
