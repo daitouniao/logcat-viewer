@@ -12,6 +12,7 @@ pub mod format;
 pub mod identity;
 pub mod locks;
 pub mod maintain;
+pub mod page;
 pub mod parse;
 pub mod probe;
 pub mod proxy;

@@ -26,6 +26,8 @@ pub enum Op {
     GetDescriptor,
     Cancel,
     FreeHandle,
+    RowCount,
+    Page,
 }
 
 impl Op {
@@ -40,6 +42,8 @@ impl Op {
             Op::GetDescriptor => "get_descriptor",
             Op::Cancel => "cancel",
             Op::FreeHandle => "free_handle",
+            Op::RowCount => "row_count",
+            Op::Page => "page",
         }
     }
 }
@@ -55,6 +59,8 @@ pub fn check(state: State, op: Op) -> CoreResult<()> {
         (FreeHandle, _) => INVALID_STATE,
         // 其余操作在 Closed 上的返回码
         (_, Closed) => CLOSED,
+        (RowCount, Loaded) | (Page, Loaded) => return Ok(()),
+        (RowCount, _) | (Page, _) => INVALID_STATE,
         (Commit, PlanReady) => return Ok(()),
         (Commit, _) => INVALID_STATE,
         (Feed, Running) => return Ok(()),
@@ -121,7 +127,7 @@ mod tests {
     #[test]
     fn state_matrix_matches_d23() {
         // 逐格表（D23 矩阵的完整副本，防止实现随手放宽）
-        let table: [(Op, [Option<i32>; 8]); 9] = [
+        let table: [(Op, [Option<i32>; 8]); 11] = [
             (
                 Op::Commit,
                 [None, Some(5), Some(5), Some(5), Some(5), Some(5), Some(5), Some(4)],
@@ -157,6 +163,14 @@ mod tests {
             (
                 Op::FreeHandle,
                 [Some(5), Some(5), Some(5), Some(5), Some(5), Some(5), Some(5), None],
+            ),
+            (
+                Op::RowCount,
+                [Some(5), Some(5), None, Some(5), Some(5), Some(5), Some(5), Some(4)],
+            ),
+            (
+                Op::Page,
+                [Some(5), Some(5), None, Some(5), Some(5), Some(5), Some(5), Some(4)],
             ),
         ];
         for (op, row) in table {

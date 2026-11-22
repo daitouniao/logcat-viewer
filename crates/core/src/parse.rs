@@ -4,6 +4,9 @@
 //! 「元数据未知」记录（pid/tid = -1、level = 0、分钟 = 255、无 tag），不丢行。
 //! 崩溃打标与段化装配在 [`crate::segment`]，本模块只负责行解析。
 
+use std::sync::Arc;
+
+use crate::segment::Segment;
 use crate::sidecar::Payload;
 
 pub const MINUTE_NONE: u8 = 255;
@@ -334,6 +337,77 @@ pub fn parse_line(line: &[u8]) -> LineMeta {
     meta
 }
 
+/// 行首时间戳区间 `(start, len)`（字节偏移）：只由行首语法决定，与 pid/tid/级别/tag
+/// 是否识别无关。无年 / 带年 threadtime 取到小数秒末位；方括号 long 跳过 `[ ` 前缀后
+/// 同样止于小数秒末位（无小数秒时止于秒末位，`.` 与 `,` 均可作小数分隔）。
+/// 行首不是可识别时间戳时返回 `(0, 0)`。
+pub fn time_range(line: &[u8]) -> (u32, u32) {
+    let Some((start, end)) = timestamp_span(line) else {
+        return (0, 0);
+    };
+    (start as u32, (end - start) as u32)
+}
+
+fn timestamp_span(line: &[u8]) -> Option<(usize, usize)> {
+    let n = line.len();
+    let mut i = match line.first() {
+        Some(b'[') => {
+            let mut j = 1;
+            while j < n && line[j].is_ascii_whitespace() {
+                j += 1;
+            }
+            j
+        }
+        _ => 0,
+    };
+    let start = i;
+    if i + 4 < n && line[i..i + 4].iter().all(u8::is_ascii_digit) && line[i + 4] == b'-' {
+        i += 5;
+    }
+    let (month, p) = two_digits(line, i)?;
+    if *line.get(p)? != b'-' {
+        return None;
+    }
+    let (day, p) = two_digits(line, p + 1)?;
+    if *line.get(p)? != b' ' {
+        return None;
+    }
+    let (hour, p) = two_digits(line, p + 1)?;
+    if *line.get(p)? != b':' {
+        return None;
+    }
+    let (minute, p) = two_digits(line, p + 1)?;
+    if *line.get(p)? != b':' {
+        return None;
+    }
+    let (second, p) = two_digits(line, p + 1)?;
+    if !timestamp_fields_valid(
+        month as i32,
+        day as i32,
+        hour as i32,
+        minute as i32,
+        second as i32,
+    ) {
+        return None;
+    }
+    let end = match line.get(p) {
+        Some(b'.') | Some(b',') => {
+            let f = digits_until(line, p + 1);
+            if f == p + 1 || f - (p + 1) > 9 {
+                return None;
+            }
+            if matches!(line.get(f), Some(b) if !b.is_ascii_whitespace()) {
+                return None;
+            }
+            f
+        }
+        Some(b) if b.is_ascii_whitespace() => p,
+        None => p,
+        _ => return None,
+    };
+    Some((start, end))
+}
+
 /// `Tag(pid): msg` / `Tag: msg` / `Tag` → (tag, pid, msg 起始偏移)。
 fn parse_slash_form(line: &[u8], start: usize) -> Option<(Option<String>, Option<i32>, usize)> {
     let n = line.len();
@@ -425,6 +499,16 @@ impl Indexer {
 
     pub fn row_count(&self) -> u64 {
         self.store.rows() as u64
+    }
+
+    /// 冻结当前段；转发 [`crate::segment::Store::freeze`]。
+    pub fn freeze(&mut self) {
+        self.store.freeze();
+    }
+
+    /// 已冻结的段（行序）；转发 [`crate::segment::Store::frozen`]。
+    pub fn frozen(&self) -> &[Arc<Segment>] {
+        self.store.frozen()
     }
 
     pub fn into_payload(self) -> Payload {
@@ -679,5 +763,120 @@ mod tests {
         assert_eq!(payload.row_count(), 1);
         assert_eq!(payload.offs[0], 3);
         assert_eq!(payload.lens[0], 33);
+    }
+
+    #[test]
+    fn time_range_threadtime() {
+        let line = b"11-14 12:00:01.123  1234  5678 I MyTag: hello";
+        assert_eq!(time_range(line), (0, 18));
+        assert_eq!(&line[..18], b"11-14 12:00:01.123");
+    }
+
+    #[test]
+    fn time_range_year_threadtime() {
+        let line = b"2026-11-14 12:00:01.123456  1  2 I Tag: msg";
+        assert_eq!(time_range(line), (0, 26));
+        assert_eq!(&line[..26], b"2026-11-14 12:00:01.123456");
+    }
+
+    #[test]
+    fn time_range_long_prefix() {
+        let line = b"[ 11-14 12:00:01.123  101: 202 I/Alpha ] first";
+        assert_eq!(time_range(line), (2, 18));
+        assert_eq!(&line[2..20], b"11-14 12:00:01.123");
+
+        // 方括号 long 无小数秒：止于秒末位
+        let line = b"[ 11-14 12:00:01  101: 202 I/Alpha ] first";
+        assert_eq!(time_range(line), (2, 14));
+    }
+
+    #[test]
+    fn time_range_missing_timestamp_empty() {
+        assert_eq!(time_range(b"E/Tag( 123): msg"), (0, 0));
+        assert_eq!(time_range(b"    continuation line"), (0, 0));
+        assert_eq!(time_range(b""), (0, 0));
+        // 月越界：形似时间戳但字段非法，则不给区间
+        assert_eq!(time_range(b"13-14 12:00:01.123  1  2 I T: x"), (0, 0));
+    }
+
+    #[test]
+    fn time_range_malformed_shapes_empty() {
+        for line in [
+            &b"11-1412:00:01.123  1  2 I T: x"[..],
+            b"11-14-12:00:01.123  1  2 I T: x",
+            b"11-14 1200:01.123  1  2 I T: x",
+            b"11-14 12-00:01.123  1  2 I T: x",
+            b"11-14 12:00-01.123  1  2 I T: x",
+            b"11-14 12:00:0x.123  1  2 I T: x",
+            b"11-14 12:00:01.1234567890  1  2 I T: x",
+            b"11-14 12:00:01. 1  2 I T: x",
+            b"11-14 12:00:01.123x 1  2 I T: x",
+        ] {
+            assert_eq!(
+                time_range(line),
+                (0, 0),
+                "畸形时间戳不给区间：{}",
+                String::from_utf8_lossy(line)
+            );
+        }
+    }
+
+    #[test]
+    fn time_range_independent_of_metadata() {
+        // 合法时间戳、其后没有任何可识别的 pid/tid/级别/tag
+        let line = b"11-14 12:00:01.123";
+        assert_eq!(time_range(line), (0, 18));
+        let meta = parse_line(line);
+        assert_eq!(meta.pid, -1);
+        assert_eq!(meta.tid, -1);
+        assert_eq!(meta.level, 0);
+        assert_eq!(meta.tag, None);
+        assert_eq!(meta.msg_offset, 0, "元数据未知时消息取整行");
+    }
+
+    #[test]
+    fn time_range_sample_files() {
+        for line in include_str!("../testdata/long_sample.txt")
+            .lines()
+            .filter(|line| !line.is_empty())
+        {
+            let (start, len) = time_range(line.as_bytes());
+            assert!(len > 0, "long 样本行应有时间戳：{line}");
+            let text = &line.as_bytes()[start as usize..(start + len) as usize];
+            assert!(
+                text.first().is_some_and(u8::is_ascii_digit) && text.contains(&b':'),
+                "切片应形如时间文本：{line}"
+            );
+        }
+        for line in include_str!("../testdata/crash_sample.txt")
+            .lines()
+            .filter(|line| line.as_bytes().first().is_some_and(u8::is_ascii_digit))
+        {
+            let (_, len) = time_range(line.as_bytes());
+            assert!(len > 0, "threadtime 样本行应有时间戳：{line}");
+        }
+        // 1~9 位小数秒，点与逗号两种分隔
+        for digits in 1..=9usize {
+            for sep in ['.', ','] {
+                let line = format!("11-14 12:00:01{sep}{}  1  2 I Tag: msg", "1".repeat(digits));
+                assert_eq!(
+                    time_range(line.as_bytes()),
+                    (0, 15 + digits as u32),
+                    "{digits} 位小数秒（{sep}）"
+                );
+            }
+        }
+        // 带年份 + 1~9 位小数秒
+        for digits in 1..=9usize {
+            let line = format!(
+                "2026-11-14 12:00:01.{}  1  2 I Tag: msg",
+                "2".repeat(digits)
+            );
+            assert_eq!(
+                time_range(line.as_bytes()),
+                (0, 20 + digits as u32),
+                "带年份 {digits} 位小数秒"
+            );
+        }
     }
 }

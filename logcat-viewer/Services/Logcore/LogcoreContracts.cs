@@ -25,6 +25,9 @@ public static class LogcoreErrorCodes
     /// <summary>绑定层发布的单批推入行数上限（与 core 的 MAX_FEED_LINES 一致）。</summary>
     public const int MaxFeedLines = 65536;
 
+    /// <summary>单页行数上限（与 core 的 MAX_PAGE_ROWS 一致）。</summary>
+    public const int MaxPageRows = 4096;
+
     public static string Name(int code) => code switch
     {
         Ok => "OK",
@@ -155,6 +158,23 @@ public sealed class LogcoreDescriptor
         id.GetProperty("mtimeMs").GetUInt64(),
         id.GetProperty("headHash").GetString()!,
         id.GetProperty("tailHash").GetString()!);
+}
+
+/// <summary>页内崩溃摘要（布局 v1）：仅崩溃头行携带。</summary>
+public sealed record LogcoreCrashInfo(byte Kind, string? ExceptionType, string? Package);
+
+/// <summary>页行（design D2/D3）：原文与按字节区间切片后的时间 / 消息。</summary>
+public sealed class LogcorePageRow
+{
+    public uint Ord { get; init; }
+    public byte Level { get; init; }
+    public int Pid { get; init; }
+    public int Tid { get; init; }
+    public string? Tag { get; init; }
+    public byte[] Raw { get; init; } = Array.Empty<byte>();
+    public string Time { get; init; } = "";
+    public string Message { get; init; } = "";
+    public LogcoreCrashInfo? Crash { get; init; }
 }
 
 /// <summary>进度快照（design D16）：stage 五值、total 未知为 null。</summary>

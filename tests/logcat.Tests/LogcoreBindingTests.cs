@@ -239,3 +239,19 @@ public sealed class BindingFeedLimitConstantTests
         Assert.Equal(int.Parse(digits), LogcoreErrorCodes.MaxFeedLines);
     }
 }
+
+public sealed class BindingPageLimitConstantTests
+{
+    [Fact]
+    public void Binding_limit_equals_core_constant()
+    {
+        var root = LogcoreTestSupport.RepoRoot();
+        var source = File.ReadAllText(Path.Combine(root, "crates", "core", "src", "page.rs"));
+        var marker = "pub const MAX_PAGE_ROWS: usize = ";
+        var at = source.IndexOf(marker, StringComparison.Ordinal);
+        Assert.True(at >= 0, "core 未声明 MAX_PAGE_ROWS");
+        var rest = source[(at + marker.Length)..];
+        var digits = new string(rest.TakeWhile(char.IsDigit).ToArray());
+        Assert.Equal(int.Parse(digits), LogcoreErrorCodes.MaxPageRows);
+    }
+}

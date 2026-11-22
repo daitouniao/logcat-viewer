@@ -127,6 +127,9 @@ internal static class LogcoreNative
     internal delegate int HandleFn(IntPtr handle);
     internal delegate int FeedFn(IntPtr handle, IntPtr lines, UIntPtr count);
     internal delegate int JsonOutFn(IntPtr handle, out IntPtr json);
+    internal delegate int RowCountFn(IntPtr handle, out ulong rows);
+    internal delegate int PageFn(IntPtr handle, long start, long count, out IntPtr buffer, out UIntPtr length);
+    internal delegate void FreePageFn(IntPtr buffer, UIntPtr length);
     internal delegate int StartupMaintainFn(IntPtr request, out IntPtr json);
     internal delegate int ShutdownFn();
     internal delegate void FreeStringFn(IntPtr text);
@@ -146,6 +149,9 @@ internal static class LogcoreNative
         public JsonOutFn PollEvents { get; }
         public JsonOutFn GetProgress { get; }
         public JsonOutFn GetDescriptor { get; }
+        public RowCountFn RowCount { get; }
+        public PageFn Page { get; }
+        public FreePageFn FreePage { get; }
         public StartupMaintainFn StartupMaintain { get; }
         public ShutdownFn Shutdown { get; }
         public HandleFn FreeHandle { get; }
@@ -165,6 +171,9 @@ internal static class LogcoreNative
             PollEvents = Bind<JsonOutFn>("logcore_poll_events");
             GetProgress = Bind<JsonOutFn>("logcore_get_progress");
             GetDescriptor = Bind<JsonOutFn>("logcore_get_descriptor");
+            RowCount = Bind<RowCountFn>("logcore_row_count");
+            Page = Bind<PageFn>("logcore_page");
+            FreePage = Bind<FreePageFn>("logcore_free_page");
             StartupMaintain = Bind<StartupMaintainFn>("logcore_startup_maintain");
             Shutdown = Bind<ShutdownFn>("logcore_shutdown");
             FreeHandle = Bind<HandleFn>("logcore_free_handle");

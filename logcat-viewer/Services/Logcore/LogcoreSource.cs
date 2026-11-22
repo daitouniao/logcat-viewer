@@ -1,4 +1,6 @@
+using System.Buffers.Binary;
 using System.Runtime.InteropServices;
+using System.Text;
 using System.Text.Json;
 
 namespace logcat.Services.Logcore;
@@ -136,6 +138,110 @@ public sealed class LogcoreSource : IDisposable
         ThrowIfError(_native, code);
         using var doc = JsonDocument.Parse(json);
         return LogcoreDescriptor.Parse(doc.RootElement);
+    }
+
+    /// <summary>结果集行数：仅装载完成可用。</summary>
+    public ulong RowCount()
+    {
+        var code = _native.RowCount(Handle, out var rows);
+        ThrowIfError(_native, code);
+        return rows;
+    }
+
+    /// <summary>取页：解析布局 v1 为托管数组；原生缓冲无论成败都立即释放。</summary>
+    public IReadOnlyList<LogcorePageRow> GetPage(long start, int count)
+    {
+        var code = _native.Page(Handle, start, count, out var buffer, out var length);
+        try
+        {
+            ThrowIfError(_native, code);
+            return ParsePage(buffer, length);
+        }
+        finally
+        {
+            if (buffer != IntPtr.Zero)
+            {
+                _native.FreePage(buffer, length);
+            }
+        }
+    }
+
+    const int PageHeaderBytes = 36;
+    const int PageRowBytes = 52;
+    const uint NoRef = uint.MaxValue;
+
+    static IReadOnlyList<LogcorePageRow> ParsePage(IntPtr buffer, UIntPtr length)
+    {
+        var data = new byte[checked((int)length.ToUInt64())];
+        Marshal.Copy(buffer, data, 0, data.Length);
+        var span = data.AsSpan();
+        var rows = (int)BinaryPrimitives.ReadUInt32LittleEndian(span[8..]);
+        var tagCount = (int)BinaryPrimitives.ReadUInt32LittleEndian(span[16..]);
+        var excCount = (int)BinaryPrimitives.ReadUInt32LittleEndian(span[20..]);
+        var pkgCount = (int)BinaryPrimitives.ReadUInt32LittleEndian(span[24..]);
+        var textBytes = (int)BinaryPrimitives.ReadUInt64LittleEndian(span[28..]);
+        var at = PageHeaderBytes + rows * PageRowBytes;
+        var tags = ReadTable(span, ref at, tagCount);
+        var excs = ReadTable(span, ref at, excCount);
+        var pkgs = ReadTable(span, ref at, pkgCount);
+        var blob = span.Slice(at, textBytes);
+
+        var result = new LogcorePageRow[rows];
+        for (var i = 0; i < rows; i++)
+        {
+            var rec = span.Slice(PageHeaderBytes + i * PageRowBytes, PageRowBytes);
+            var flags = rec[5];
+            var textOff = (int)BinaryPrimitives.ReadUInt64LittleEndian(rec[28..]);
+            var textLen = (int)BinaryPrimitives.ReadUInt32LittleEndian(rec[36..]);
+            var raw = blob.Slice(textOff, textLen).ToArray();
+            result[i] = new LogcorePageRow
+            {
+                Ord = BinaryPrimitives.ReadUInt32LittleEndian(rec),
+                Level = rec[4],
+                Pid = BinaryPrimitives.ReadInt32LittleEndian(rec[8..]),
+                Tid = BinaryPrimitives.ReadInt32LittleEndian(rec[12..]),
+                Tag = Ref(tags, BinaryPrimitives.ReadUInt32LittleEndian(rec[40..])),
+                Raw = raw,
+                Time = Slice(
+                    raw,
+                    (int)BinaryPrimitives.ReadUInt32LittleEndian(rec[20..]),
+                    (int)BinaryPrimitives.ReadUInt32LittleEndian(rec[24..])),
+                Message = Slice(
+                    raw,
+                    (int)BinaryPrimitives.ReadUInt32LittleEndian(rec[16..]),
+                    raw.Length),
+                Crash = (flags & 1) != 0
+                    ? new LogcoreCrashInfo(
+                        rec[6],
+                        Ref(excs, BinaryPrimitives.ReadUInt32LittleEndian(rec[44..])),
+                        Ref(pkgs, BinaryPrimitives.ReadUInt32LittleEndian(rec[48..])))
+                    : null,
+            };
+        }
+        return result;
+    }
+
+    static string[] ReadTable(ReadOnlySpan<byte> data, ref int at, int count)
+    {
+        var values = new string[count];
+        for (var i = 0; i < count; i++)
+        {
+            var len = (int)BinaryPrimitives.ReadUInt32LittleEndian(data[at..]);
+            at += 4;
+            values[i] = Encoding.UTF8.GetString(data.Slice(at, len));
+            at += len;
+        }
+        return values;
+    }
+
+    static string? Ref(string[] table, uint index) =>
+        index == NoRef ? null : table[index];
+
+    static string Slice(byte[] raw, int start, int len)
+    {
+        start = Math.Clamp(start, 0, raw.Length);
+        len = Math.Clamp(len, 0, raw.Length - start);
+        return len == 0 ? "" : Encoding.UTF8.GetString(raw, start, len);
     }
 
     /// <summary>释放句柄：仅在已关闭时合法；未关闭抛 INVALID_STATE 且不释放。</summary>

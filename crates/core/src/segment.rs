@@ -216,10 +216,11 @@ impl LiveIndex {
     }
 
     /// 整份替换为给定段列表并更新行数（调用方按行序传入）。
+    /// 先发布段、后发布行数：读侧按「行数 → 快照」读取时，绝不会看到行数超出可见段。
     pub fn publish(&self, segments: Vec<Arc<Segment>>) {
         let rows = segments.iter().map(|s| s.row_count() as u64).sum();
-        self.rows.store(rows, Ordering::SeqCst);
         self.segments.store(Arc::new(segments));
+        self.rows.store(rows, Ordering::SeqCst);
     }
 
     pub fn rows(&self) -> u64 {
@@ -333,6 +334,64 @@ pub fn feed_range(store: &mut Store, data: &[u8], start: usize, end: usize) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn publish_never_reports_rows_beyond_visible_segments() {
+        use std::sync::atomic::AtomicBool;
+
+        let live = LiveIndex::new();
+        let stop = AtomicBool::new(false);
+        std::thread::scope(|s| {
+            s.spawn(|| {
+                for total in 1..=2_000u64 {
+                    let mut segs = Vec::new();
+                    let mut made = 0u64;
+                    while made < total {
+                        let take = (total - made).min(7) as usize;
+                        segs.push(Arc::new(Segment {
+                            offs: vec![0; take],
+                            ..Default::default()
+                        }));
+                        made += take as u64;
+                    }
+                    live.publish(segs);
+                }
+                stop.store(true, Ordering::SeqCst);
+            });
+            while !stop.load(Ordering::SeqCst) {
+                let rows = live.rows();
+                let visible: u64 = live
+                    .snapshot()
+                    .iter()
+                    .map(|s| s.row_count() as u64)
+                    .sum();
+                assert!(rows <= visible, "rows {rows} > visible {visible}");
+            }
+        });
+    }
+
+    #[test]
+    fn chunked_bom_stripped_on_first_line() {
+        let mut data = vec![0xEF, 0xBB, 0xBF];
+        data.extend_from_slice(b"11-14 12:00:01.123  1  2 I BOM: x\n");
+        data.extend_from_slice(b"11-14 12:00:02.000  3  4 I BOM: y\n");
+
+        let whole = crate::parse::parse_bytes(&data);
+        let (chunked, segments) = parse_chunked(&data, 7, 5);
+        assert_eq!(chunked, whole, "分块 ≡ 整份（含 BOM）");
+        assert_eq!(chunked.row_count(), 2);
+        assert_eq!(chunked.offs[0], 3, "首行剥离 BOM 后从字节 3 起");
+        let rows: usize = segments.iter().map(|s| s.row_count()).sum();
+        assert_eq!(rows, 2);
+    }
+
+    #[test]
+    fn msg_text_out_of_range_is_empty() {
+        assert_eq!(msg_text(b"Tag: msg", 0), "Tag: msg");
+        assert_eq!(msg_text(b"Tag: msg", 5), "msg");
+        assert_eq!(msg_text(b"Tag: msg", 8), "");
+        assert_eq!(msg_text(b"Tag: msg", 9), "");
+    }
 
     #[test]
     fn chunk_boundary_alignment() {

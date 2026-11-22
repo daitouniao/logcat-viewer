@@ -27,6 +27,7 @@ use crate::format;
 use crate::identity::Identity;
 use crate::locks;
 use crate::parse::Indexer;
+use crate::page;
 use crate::probe;
 use crate::proxy::{self, ProxyLease};
 use crate::request::{self, Kind, Mode, Request};
@@ -216,6 +217,8 @@ struct Inner {
     cache_marked: bool,
     descriptor: Option<Descriptor>,
     payload: Option<Arc<Payload>>,
+    /// 装载时的只读源句柄：身份采集、整份读取与后续页读取共用，绑定原文件对象。
+    source_file: Option<Arc<File>>,
     pending_save: Option<PendingSave>,
     spool_dir: Option<PathBuf>,
     spool_marker: Option<File>,
@@ -682,6 +685,57 @@ impl SourceHandle {
         state::check(self.state(), Op::GetProgress)?;
         Ok(self.shared.progress.to_json())
     }
+
+    /// 行数：仅 `Loaded` 合法（门禁走状态矩阵）。
+    pub fn row_count(&self) -> CoreResult<u64> {
+        state::check(self.state(), Op::RowCount)?;
+        let g = self.inner.lock().unwrap();
+        let payload = g
+            .payload
+            .as_ref()
+            .ok_or_else(|| CoreError::new(INVALID_STATE))?;
+        Ok(payload.row_count() as u64)
+    }
+
+    /// 取页（布局 v1 字节）：状态门禁先于参数校验；条数上限 `MAX_PAGE_ROWS`。
+    pub fn page(&self, start: i64, count: i64) -> CoreResult<Vec<u8>> {
+        state::check(self.state(), Op::Page)?;
+        if start < 0 {
+            return Err(CoreError::invalid_arg("start"));
+        }
+        if count < 0 || count as usize > page::MAX_PAGE_ROWS {
+            return Err(CoreError::invalid_arg("count"));
+        }
+        self.read_page(start as usize, count as usize)
+    }
+
+    /// 取页并按布局 v1 编码；`start` / `count` 由入口完成校验。
+    /// 整份 `Payload` 与源句柄在锁内取 `Arc`，读文本在锁外进行。
+    fn read_page(&self, start: usize, count: usize) -> CoreResult<Vec<u8>> {
+        let (payload, file, display) = {
+            let g = self.inner.lock().unwrap();
+            let payload = g
+                .payload
+                .clone()
+                .ok_or_else(|| CoreError::new(INVALID_STATE))?;
+            let file = g
+                .source_file
+                .clone()
+                .ok_or_else(|| CoreError::new(INVALID_STATE))?;
+            (payload, file, g.request.path.clone().unwrap_or_default())
+        };
+        let mut entries = Vec::new();
+        for row in page::page_rows(&payload, start, count) {
+            let i = row.ord as usize;
+            let off = payload.offs[i].max(0) as u64;
+            let len = payload.lens[i].max(0) as usize;
+            let mut text = vec![0u8; len];
+            crate::identity::read_exact_at(&file, &mut text, off)
+                .map_err(|e| io_error(display.clone(), &e))?;
+            entries.push(row.with_text(text));
+        }
+        Ok(page::encode_page(&entries))
+    }
 }
 
 #[cfg(any(test, feature = "test-support"))]
@@ -716,6 +770,10 @@ impl SourceHandle {
 
     pub fn segment_count(&self) -> usize {
         self.shared.live.segment_count()
+    }
+
+    pub fn has_source_handle(&self) -> bool {
+        self.inner.lock().unwrap().source_file.is_some()
     }
 }
 
@@ -757,6 +815,7 @@ fn new_inner(req: Request) -> Inner {
         cache_marked: false,
         descriptor: None,
         payload: None,
+        source_file: None,
         pending_save: None,
         spool_dir: None,
         spool_marker: None,
@@ -770,6 +829,8 @@ fn new_inner(req: Request) -> Inner {
 }
 
 fn cleanup_resources(inner: &mut Inner) {
+    // 先释放源句柄，再删由句柄占用的临时产物（Windows 上占用会阻止删除）。
+    inner.source_file.take();
     if let Some(mut lease) = inner.lease.take() {
         lease.release();
     }
@@ -816,8 +877,27 @@ fn io_error(path: String, e: &std::io::Error) -> CoreError {
         .with("osError", Value::from(e.raw_os_error().unwrap_or(0)))
 }
 
-fn read_all(path: &str, display: &str) -> CoreResult<Vec<u8>> {
-    fs::read(path).map_err(|e| direct_error(display, &e))
+fn read_all_handle(file: &File, display: &str, size: u64) -> CoreResult<Vec<u8>> {
+    let mut data = vec![0u8; size as usize];
+    crate::identity::read_exact_at(file, &mut data, 0)
+        .map_err(|e| io_error(display.to_string(), &e))?;
+    Ok(data)
+}
+
+#[cfg(any(test, feature = "test-support"))]
+static OPEN_COUNT: AtomicU64 = AtomicU64::new(0);
+
+/// 装载期的唯一打开入口：句柄供身份采集、整份读取与页读取复用。
+fn open_source(path: &str) -> std::io::Result<File> {
+    let file = File::open(path)?;
+    #[cfg(any(test, feature = "test-support"))]
+    OPEN_COUNT.fetch_add(1, Ordering::SeqCst);
+    Ok(file)
+}
+
+#[cfg(test)]
+fn open_count() -> u64 {
+    OPEN_COUNT.load(Ordering::SeqCst)
 }
 
 fn parse_with_progress(
@@ -907,8 +987,8 @@ fn load_local(inner: &Arc<Mutex<Inner>>, shared: &Arc<Shared>) -> CoreResult<()>
         )
     };
 
-    let identity = Identity::capture(Path::new(&open_path))
-        .map_err(|e| direct_error(&display, &e))?;
+    let file = Arc::new(open_source(&open_path).map_err(|e| direct_error(&display, &e))?);
+    let identity = Identity::capture_file(&file).map_err(|e| direct_error(&display, &e))?;
     check_cancel(shared)?;
 
     let changed = plan_identity.as_ref() != Some(&identity);
@@ -923,8 +1003,6 @@ fn load_local(inner: &Arc<Mutex<Inner>>, shared: &Arc<Shared>) -> CoreResult<()>
 
     let decoded = match hit {
         Some(_header) => {
-            // 缓存不含文本，命中仍须打开源文件取文本
-            File::open(&open_path).map_err(|e| direct_error(&display, &e))?;
             let loaded = cache.as_ref().and_then(|store| store.load(&display, &identity));
             if loaded.is_none() {
                 // 头部完好但列数据损坏：静默降级完整解析，并把装载模式更新为分块渐进（仅此一次）
@@ -939,11 +1017,11 @@ fn load_local(inner: &Arc<Mutex<Inner>>, shared: &Arc<Shared>) -> CoreResult<()>
     };
     let (payload, doc_size, pending) = match decoded {
         Some(payload) => (Arc::new(payload), identity.size, None),
-        None => parse_source(inner, shared, &display, &open_path, &identity, &cache)?,
+        None => parse_source(inner, shared, &display, &file, &identity, &cache)?,
     };
 
     check_cancel(shared)?;
-    store_result(inner, shared, payload, doc_size);
+    store_result(inner, shared, payload, doc_size, file);
     inner.lock().unwrap().pending_save = pending;
     Ok(())
 }
@@ -953,12 +1031,12 @@ fn parse_source(
     inner: &Arc<Mutex<Inner>>,
     shared: &Arc<Shared>,
     display: &str,
-    open_path: &str,
+    file: &File,
     identity: &Identity,
     cache: &Option<Arc<CacheStore>>,
 ) -> CoreResult<(Arc<Payload>, u64, Option<PendingSave>)> {
     enter_stage(shared, Stage::Indexing, Some(identity.size));
-    let data = read_all(open_path, display)?;
+    let data = read_all_handle(file, display, identity.size)?;
     check_cancel(shared)?;
     let (payload, segments) = parse_with_progress(
         &data,
@@ -971,7 +1049,7 @@ fn parse_source(
     shared.live.publish(segments);
     let payload = Arc::new(payload);
     let mut pending = None;
-    if let (Some(store), Ok(after)) = (cache, Identity::capture(Path::new(open_path))) {
+    if let (Some(store), Ok(after)) = (cache, Identity::capture_file(file)) {
         {
             let mut g = inner.lock().unwrap();
             if !g.cache_marked {
@@ -1025,20 +1103,24 @@ fn load_proxy(inner: &Arc<Mutex<Inner>>, shared: &Arc<Shared>) -> CoreResult<()>
             g.request.options.probe_threshold,
         )
     };
-    if let Ok(mut f) = File::open(&dest) {
-        if let Ok(sample) = probe::read_window(&mut f, probe_window) {
-            if let Some(fmt) = format::detect_unsupported_format(&sample) {
-                return Err(reject_unsupported(fmt));
-            }
-            if !probe::sample_is_text(&sample, probe_threshold) {
-                return Err(reject_unsupported("Binary"));
-            }
+    let dest_display = dest.to_string_lossy().to_string();
+    let mut file = open_source(&dest_display).map_err(|e| io_error(dest_display.clone(), &e))?;
+    if let Ok(sample) = probe::read_window(&mut file, probe_window) {
+        if let Some(fmt) = format::detect_unsupported_format(&sample) {
+            return Err(reject_unsupported(fmt));
+        }
+        if !probe::sample_is_text(&sample, probe_threshold) {
+            return Err(reject_unsupported("Binary"));
         }
     }
+    let file = Arc::new(file);
+    let size = file
+        .metadata()
+        .map_err(|e| io_error(dest_display.clone(), &e))?
+        .len();
 
-    enter_stage(shared, Stage::Indexing, Some(total));
-    let data = fs::read(&dest)
-        .map_err(|e| io_error(dest.to_string_lossy().to_string(), &e))?;
+    enter_stage(shared, Stage::Indexing, Some(size));
+    let data = read_all_handle(&file, &dest_display, size)?;
     let (payload, segments) = parse_with_progress(
         &data,
         &shared.progress,
@@ -1049,11 +1131,17 @@ fn load_proxy(inner: &Arc<Mutex<Inner>>, shared: &Arc<Shared>) -> CoreResult<()>
     )?;
     shared.live.publish(segments);
     check_cancel(shared)?;
-    store_result(inner, shared, Arc::new(payload), data.len() as u64);
+    store_result(inner, shared, Arc::new(payload), data.len() as u64, file);
     Ok(())
 }
 
-fn store_result(inner: &Arc<Mutex<Inner>>, shared: &Shared, payload: Arc<Payload>, doc_size: u64) {
+fn store_result(
+    inner: &Arc<Mutex<Inner>>,
+    shared: &Shared,
+    payload: Arc<Payload>,
+    doc_size: u64,
+    source_file: Arc<File>,
+) {
     let rows = payload.row_count() as u64;
     shared.rows.store(rows, Ordering::SeqCst);
     shared.doc_size.store(doc_size, Ordering::SeqCst);
@@ -1063,6 +1151,7 @@ fn store_result(inner: &Arc<Mutex<Inner>>, shared: &Shared, payload: Arc<Payload
         desc.doc_size = doc_size;
     }
     g.payload = Some(payload);
+    g.source_file = Some(source_file);
 }
 
 /// 装载成功后把 sidecar 落盘交后台线程：Done 事件已发，退出不等待，失败静默。
@@ -1158,6 +1247,9 @@ fn consume(rx: Receiver<Batch>, mut file: File, path: PathBuf, shared: Arc<Share
         }
 
         let _ = file.flush();
+        // 每批冻结并发布段：采集在途也可按行快照读取（不开放采集分页，仍返回非法状态）。
+        indexer.freeze();
+        shared.live.publish(indexer.frozen().to_vec());
         let rows = indexer.row_count();
         shared.rows.store(rows, Ordering::SeqCst);
         shared.doc_size.store(written, Ordering::SeqCst);

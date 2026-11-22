@@ -831,7 +831,10 @@ fn spool_close_best_effort_when_locked() {
     wait_state(&h, State::Loaded);
     let dest = PathBuf::from(h.descriptor_json().unwrap()["sourcePath"].as_str().unwrap());
     let spool_dir = dest.parent().unwrap().to_path_buf();
-    let held = exclusive_hold(&dest);
+    // 句柄常驻占用 spool 文件本身；改由同目录的其他文件触发删除失败。
+    let blocker = spool_dir.join("held.bin");
+    fs::write(&blocker, b"x").unwrap();
+    let held = exclusive_hold(&blocker);
     h.close().unwrap();
     assert!(!locks::marker_path(&spool_dir).exists(), "标记已释放");
     assert!(spool_dir.exists(), "被占用删不掉时残留交维护");
@@ -1846,6 +1849,34 @@ fn consume_thread_processes_in_order() {
 }
 
 #[test]
+fn consumer_publishes_segments_per_batch() {
+    let dir = temp_dir("consume-publish");
+    let h = device_plan(&dir);
+    h.commit().unwrap();
+    h.feed(batch("p", 5)).unwrap();
+    wait_rows(&h, 5);
+    let segments_after_first = h.shared.live.segment_count();
+    h.feed(batch("q", 3)).unwrap();
+    wait_rows(&h, 8);
+    let snapshot = h.shared.live.snapshot();
+    assert!(
+        snapshot.len() > segments_after_first,
+        "段数应随批增长：{segments_after_first} -> {}",
+        snapshot.len()
+    );
+    let mut start_row = 0usize;
+    for segment in snapshot.iter() {
+        assert_eq!(segment.start_row, start_row, "段起始行连续");
+        start_row += segment.row_count();
+    }
+    assert_eq!(start_row, 8, "段覆盖全部行");
+    assert_eq!(h.shared.live.rows(), 8);
+    h.close().unwrap();
+    drop(h);
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn appended_matches_committed_batches() {
     let dir = temp_dir("appended-batches");
     let h = device_plan(&dir);
@@ -2450,6 +2481,415 @@ fn events_no_stopped_when_close_aborts_drain() {
     h.close().unwrap();
     assert_eq!(stop.join().unwrap(), CLOSED);
     assert_eq!(h.events_len(), 0);
+    drop(h);
+    let _ = fs::remove_dir_all(&dir);
+}
+// ── 4.3 源句柄与装载同源 ──
+
+#[test]
+fn source_handle_present_after_loaded() {
+    let dir = temp_dir("handle-loaded");
+    let (h, _file) = local_plan(&dir, &["11-14 12:00:01.123  1  2 I T: a"]);
+    assert!(!h.has_source_handle(), "装载前无源句柄");
+    h.commit().unwrap();
+    wait_state(&h, State::Loaded);
+    assert!(h.has_source_handle(), "Loaded 后保留源句柄");
+    h.close().unwrap();
+    assert!(!h.has_source_handle(), "关闭后释放源句柄");
+    drop(h);
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn load_uses_single_source_handle() {
+    let dir = temp_dir("handle-single");
+    let (h, _file) = local_plan(&dir, &["11-14 12:00:01.123  1  2 I T: a"]);
+    let before = super::open_count();
+    h.commit().unwrap();
+    wait_state(&h, State::Loaded);
+    assert_eq!(
+        super::open_count() - before,
+        1,
+        "身份采集、整份读取与页读取共用一次打开"
+    );
+    h.close().unwrap();
+    drop(h);
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn load_source_replaced_during_load_still_consistent() {
+    let dir = temp_dir("handle-replaced");
+    let (h, file) = local_plan(&dir, &["11-14 12:00:01.123  1  2 I T: a"]);
+    h.hold_loader();
+    h.commit().unwrap();
+    fs::write(
+        &file,
+        "11-14 12:00:02.001  1  2 I T: b\n\
+11-14 12:00:02.002  1  2 I T: c\n\
+11-14 12:00:02.003  1  2 I T: d\n",
+    )
+    .unwrap();
+    h.release_loader();
+    wait_state(&h, State::Loaded);
+    assert_eq!(
+        h.descriptor_json().unwrap()["rowCount"], 3,
+        "装载与保留句柄对应同一份被替换后的内容"
+    );
+    assert!(h.has_source_handle());
+    h.close().unwrap();
+    drop(h);
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn load_source_open_failure_fails() {
+    let dir = temp_dir("handle-open-fail");
+    let (h, file) = local_plan(&dir, &["11-14 12:00:01.123  1  2 I T: a"]);
+    h.hold_loader();
+    h.commit().unwrap();
+    fs::remove_file(&file).unwrap();
+    h.release_loader();
+    wait_state(&h, State::Failed);
+    let events = h.poll_events().unwrap();
+    assert!(
+        events.iter().any(|e| matches!(e, Event::Error(err) if err.code == DIRECT_OPEN_FAILED)),
+        "打开失败按装载失败上报"
+    );
+    assert!(!h.has_source_handle());
+    drop(h);
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn source_handle_released_before_temp_cleanup() {
+    let dir = temp_dir("handle-cleanup");
+    let spool = dir.join("spool");
+    fs::create_dir_all(&spool).unwrap();
+    let path = spool.join("x.log");
+    fs::write(&path, b"x").unwrap();
+    let marker = locks::claim(&spool).unwrap();
+
+    let req = request::parse(&file_request(
+        &path,
+        &dir,
+        &dir.join("cache"),
+        &unique_pipe("cleanup"),
+        "",
+        &[],
+        500,
+        "Auto",
+    ))
+    .unwrap();
+    let mut inner = super::new_inner(req);
+    inner.spool_dir = Some(spool.clone());
+    inner.spool_marker = Some(marker);
+    let handle = std::sync::Arc::new(File::open(&path).unwrap());
+    let weak = std::sync::Arc::downgrade(&handle);
+    inner.source_file = Some(handle);
+
+    super::cleanup_resources(&mut inner);
+    assert!(weak.upgrade().is_none(), "先释放源句柄");
+    assert!(!spool.exists(), "再删由句柄占用的临时产物");
+    let _ = fs::remove_dir_all(&dir);
+}
+
+// ── 4.4 文本按偏移读取 ──
+
+fn page_texts(buf: &[u8]) -> Vec<String> {
+    assert_eq!(&buf[..4], b"LPAG");
+    let rows = u32::from_le_bytes(buf[8..12].try_into().unwrap()) as usize;
+    let text_bytes = u64::from_le_bytes(buf[28..36].try_into().unwrap()) as usize;
+    let blob = &buf[buf.len() - text_bytes..];
+    (0..rows)
+        .map(|i| {
+            let rec = 36 + i * 52;
+            let off = u64::from_le_bytes(buf[rec + 28..rec + 36].try_into().unwrap()) as usize;
+            let len = u32::from_le_bytes(buf[rec + 36..rec + 40].try_into().unwrap()) as usize;
+            String::from_utf8(blob[off..off + len].to_vec()).unwrap()
+        })
+        .collect()
+}
+
+const PAGE_LINES: [&str; 3] = [
+    "11-14 12:00:01.123  1  2 I T: a",
+    "11-14 12:00:02.123  3  4 D U: b",
+    "11-14 12:00:03.123  5  6 E V: c",
+];
+
+#[test]
+fn page_text_matches_source_bytes() {
+    let dir = temp_dir("page-text");
+    let (h, _file) = local_plan(&dir, &PAGE_LINES);
+    h.commit().unwrap();
+    wait_state(&h, State::Loaded);
+    assert_eq!(page_texts(&h.read_page(0, 100).unwrap()), PAGE_LINES);
+    h.close().unwrap();
+    drop(h);
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn page_text_truncated_source_errors() {
+    let dir = temp_dir("page-truncated");
+    let (h, file) = local_plan(&dir, &PAGE_LINES);
+    h.commit().unwrap();
+    wait_state(&h, State::Loaded);
+    OpenOptions::new()
+        .write(true)
+        .open(&file)
+        .unwrap()
+        .set_len(0)
+        .unwrap();
+    let err = h.read_page(0, 100).unwrap_err();
+    assert_eq!(err.code, IO_ERROR);
+    assert_eq!(
+        err.params.get("path").and_then(|v| v.as_str()),
+        Some(file.to_string_lossy().as_ref())
+    );
+    h.close().unwrap();
+    drop(h);
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn page_partial_read_fails_whole_page() {
+    let dir = temp_dir("page-partial");
+    let (h, file) = local_plan(&dir, &PAGE_LINES);
+    h.commit().unwrap();
+    wait_state(&h, State::Loaded);
+    let total = fs::metadata(&file).unwrap().len();
+    // 截掉最后一行尾部若干字节：前两行可读，末行不足 → 整页失败
+    OpenOptions::new()
+        .write(true)
+        .open(&file)
+        .unwrap()
+        .set_len(total - 4)
+        .unwrap();
+    let err = h.read_page(0, 100).unwrap_err();
+    assert_eq!(err.code, IO_ERROR, "不返回部分页");
+    h.close().unwrap();
+    drop(h);
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn page_after_rename_reads_loaded_content() {
+    let dir = temp_dir("page-rename");
+    let (h, file) = local_plan(&dir, &PAGE_LINES);
+    h.commit().unwrap();
+    wait_state(&h, State::Loaded);
+    fs::rename(&file, dir.join("a.rotated")).unwrap();
+    fs::write(&file, b"11-14 12:00:09.999  9  9 W N: new file\n").unwrap();
+    assert_eq!(page_texts(&h.read_page(0, 100).unwrap()), PAGE_LINES);
+    h.close().unwrap();
+    drop(h);
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn page_after_longer_replacement_reads_loaded_content() {
+    let dir = temp_dir("page-replaced");
+    let (h, file) = local_plan(&dir, &PAGE_LINES);
+    h.commit().unwrap();
+    wait_state(&h, State::Loaded);
+    let longer = dir.join("longer.log");
+    fs::write(
+        &longer,
+        "11-14 12:00:09.999  9  9 W N: replacement line one\n\
+11-14 12:00:10.000  9  9 W N: replacement line two\n\
+11-14 12:00:11.000  9  9 W N: replacement line three\n\
+11-14 12:00:12.000  9  9 W N: replacement line four\n",
+    )
+    .unwrap();
+    fs::remove_file(&file).unwrap();
+    fs::rename(&longer, &file).unwrap();
+    assert_eq!(page_texts(&h.read_page(0, 100).unwrap()), PAGE_LINES);
+    h.close().unwrap();
+    drop(h);
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn page_after_cache_hit_matches_parse() {
+    let dir = temp_dir("page-cache-hit");
+    let cache = dir.join("cache");
+    let file = text_file(&dir, "a.log", &PAGE_LINES);
+    let req = file_request(
+        &file,
+        &dir,
+        &cache,
+        &unique_pipe("page-hit"),
+        "",
+        &[],
+        500,
+        "Auto",
+    );
+    let first = SourceHandle::plan(&req).unwrap();
+    first.commit().unwrap();
+    wait_state(&first, State::Loaded);
+    let parsed = first.read_page(0, 100).unwrap();
+    wait_lcs(&cache);
+    first.close().unwrap();
+    drop(first);
+
+    let second = SourceHandle::plan(&req).unwrap();
+    second.commit().unwrap();
+    wait_state(&second, State::Loaded);
+    assert_eq!(
+        second.descriptor_json().unwrap()["loadMode"],
+        "OneShot",
+        "命中缓存"
+    );
+    assert_eq!(second.read_page(0, 100).unwrap(), parsed);
+    second.close().unwrap();
+    drop(second);
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn page_after_progressive_load_matches() {
+    let dir = temp_dir("page-progressive");
+    let lines: Vec<String> = (0..30)
+        .map(|i| format!("11-14 12:00:{:02}.123  1  2 I T: line {i}", i))
+        .collect();
+    let refs: Vec<&str> = lines.iter().map(String::as_str).collect();
+    let file = text_file(&dir, "a.log", &refs);
+    let cache_a = dir.join("cache-a");
+    let cache_b = dir.join("cache-b");
+    let req_a = file_request(
+        &file,
+        &dir,
+        &cache_a,
+        &unique_pipe("page-chunk"),
+        "",
+        &[],
+        500,
+        "Auto",
+    );
+    let chunked = SourceHandle::plan(&req_a).unwrap();
+    chunked.set_chunk_sizes(7, 5);
+    chunked.commit().unwrap();
+    wait_state(&chunked, State::Loaded);
+    assert!(chunked.segment_count() > 1, "确实分块");
+    let chunked_page = chunked.read_page(0, 100).unwrap();
+
+    let req_b = file_request(
+        &file,
+        &dir,
+        &cache_b,
+        &unique_pipe("page-whole"),
+        "",
+        &[],
+        500,
+        "Auto",
+    );
+    let whole = SourceHandle::plan(&req_b).unwrap();
+    whole.commit().unwrap();
+    wait_state(&whole, State::Loaded);
+    assert_eq!(chunked_page, whole.read_page(0, 100).unwrap());
+
+    chunked.close().unwrap();
+    whole.close().unwrap();
+    drop(chunked);
+    drop(whole);
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn page_spans_chunk_boundary() {
+    let dir = temp_dir("page-boundary");
+    let lines: Vec<String> = (0..30)
+        .map(|i| format!("11-14 12:00:{:02}.123  1  2 I T: line {i}", i))
+        .collect();
+    let refs: Vec<&str> = lines.iter().map(String::as_str).collect();
+    let (h, _file) = local_plan(&dir, &refs);
+    h.set_chunk_sizes(7, 5);
+    h.commit().unwrap();
+    wait_state(&h, State::Loaded);
+    assert!(h.segment_count() > 1);
+    let texts = page_texts(&h.read_page(0, 100).unwrap());
+    assert_eq!(texts.len(), 30);
+    assert_eq!(texts, refs);
+    h.close().unwrap();
+    drop(h);
+    let _ = fs::remove_dir_all(&dir);
+}
+
+// ── 4.5 状态门禁与参数校验 ──
+
+#[test]
+fn row_count_rejected_before_loaded() {
+    let dir = temp_dir("page-rowcount-gate");
+    let (h, _file) = local_plan(&dir, &PAGE_LINES);
+    h.hold_loader();
+    h.commit().unwrap();
+    assert_eq!(h.row_count().unwrap_err().code, INVALID_STATE);
+    h.release_loader();
+    wait_state(&h, State::Loaded);
+    assert_eq!(h.row_count().unwrap(), PAGE_LINES.len() as u64);
+    h.close().unwrap();
+    drop(h);
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn page_rejected_before_loaded() {
+    let dir = temp_dir("page-gate");
+    let (h, _file) = local_plan(&dir, &PAGE_LINES);
+    h.hold_loader();
+    h.commit().unwrap();
+    assert_eq!(h.page(0, 1).unwrap_err().code, INVALID_STATE);
+    h.release_loader();
+    wait_state(&h, State::Loaded);
+    assert_eq!(page_texts(&h.page(0, 1).unwrap()), vec![PAGE_LINES[0]]);
+    h.close().unwrap();
+    drop(h);
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn page_closed_after_close() {
+    let dir = temp_dir("page-closed");
+    let (h, _file) = local_plan(&dir, &PAGE_LINES);
+    h.commit().unwrap();
+    wait_state(&h, State::Loaded);
+    h.close().unwrap();
+    assert_eq!(h.page(0, 1).unwrap_err().code, CLOSED);
+    assert_eq!(h.row_count().unwrap_err().code, CLOSED);
+    drop(h);
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn page_capture_running_rejected() {
+    let dir = temp_dir("page-capture");
+    let h = device_plan(&dir);
+    h.commit().unwrap();
+    assert_eq!(h.page(0, 1).unwrap_err().code, INVALID_STATE);
+    assert_eq!(h.row_count().unwrap_err().code, INVALID_STATE);
+    h.close().unwrap();
+    drop(h);
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn page_rejects_count_over_max() {
+    let dir = temp_dir("page-count-max");
+    let (h, _file) = local_plan(&dir, &PAGE_LINES);
+    h.commit().unwrap();
+    wait_state(&h, State::Loaded);
+    let max = crate::page::MAX_PAGE_ROWS;
+    let over = h.page(0, max as i64 + 1).unwrap_err();
+    assert_eq!(over.code, INVALID_ARG);
+    assert_eq!(over.params["field"], "count");
+    let neg_start = h.page(-1, 1).unwrap_err();
+    assert_eq!(neg_start.code, INVALID_ARG);
+    assert_eq!(neg_start.params["field"], "start");
+    let neg_count = h.page(0, -1).unwrap_err();
+    assert_eq!(neg_count.code, INVALID_ARG);
+    assert_eq!(neg_count.params["field"], "count");
+    h.close().unwrap();
     drop(h);
     let _ = fs::remove_dir_all(&dir);
 }

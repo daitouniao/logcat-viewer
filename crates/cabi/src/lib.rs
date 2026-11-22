@@ -16,7 +16,7 @@ use logcore_core::events::events_json;
 use logcore_core::maintain;
 use logcore_core::proxy;
 use logcore_core::source::SourceHandle;
-use logcore_core::state::State;
+use logcore_core::state::{self, Op, State};
 
 thread_local! {
     static LAST_ERROR: RefCell<Option<CoreError>> = const { RefCell::new(None) };
@@ -216,6 +216,84 @@ pub extern "C" fn logcore_get_descriptor(
             Err(e) => record(e),
         }
     })
+}
+
+/// 行数：仅 `Loaded` 合法；状态门禁先于 out 指针校验。
+#[no_mangle]
+pub extern "C" fn logcore_row_count(handle: *mut SourceHandle, out_rows: *mut u64) -> i32 {
+    guard(|| {
+        let Some(h) = (unsafe { handle.as_ref() }) else {
+            return record(CoreError::invalid_arg("handle"));
+        };
+        if let Err(e) = state::check(h.state(), Op::RowCount) {
+            return record(e);
+        }
+        if out_rows.is_null() {
+            return record(CoreError::invalid_arg("out"));
+        }
+        match h.row_count() {
+            Ok(rows) => {
+                unsafe { *out_rows = rows };
+                OK
+            }
+            Err(e) => record(e),
+        }
+    })
+}
+
+/// 取页：返回 core 分配的布局 v1 缓冲，宿主以 `logcore_free_page(ptr, len)` 释放。
+#[no_mangle]
+pub extern "C" fn logcore_page(
+    handle: *mut SourceHandle,
+    start: i64,
+    count: i64,
+    out_ptr: *mut *mut u8,
+    out_len: *mut usize,
+) -> i32 {
+    guard(|| {
+        let Some(h) = (unsafe { handle.as_ref() }) else {
+            return record(CoreError::invalid_arg("handle"));
+        };
+        if let Err(e) = state::check(h.state(), Op::Page) {
+            return record(e);
+        }
+        // 失败路径不留可释放的 out 值；out 指针为 null 的调用无法写。
+        if !out_ptr.is_null() {
+            unsafe { *out_ptr = std::ptr::null_mut() };
+        }
+        if !out_len.is_null() {
+            unsafe { *out_len = 0 };
+        }
+        if out_ptr.is_null() || out_len.is_null() {
+            return record(CoreError::invalid_arg("out"));
+        }
+        match h.page(start, count) {
+            Ok(bytes) => {
+                let boxed = bytes.into_boxed_slice();
+                let len = boxed.len();
+                let ptr = Box::into_raw(boxed) as *mut u8;
+                unsafe {
+                    *out_ptr = ptr;
+                    *out_len = len;
+                }
+                OK
+            }
+            Err(e) => record(e),
+        }
+    })
+}
+
+/// 释放页缓冲：按 `len` 重建 `Box<[u8]>`（分配时长度即容量）；null 安全。
+#[no_mangle]
+pub extern "C" fn logcore_free_page(ptr: *mut u8, len: usize) {
+    let _ = guard(|| {
+        if ptr.is_null() {
+            return OK;
+        }
+        let slice = std::ptr::slice_from_raw_parts_mut(ptr, len);
+        drop(unsafe { Box::from_raw(slice) });
+        OK
+    });
 }
 
 /// 启动维护：无句柄、不依赖活动源（D19）。
@@ -589,5 +667,213 @@ mod tests {
         assert_eq!(logcore_stop(handle), OK);
         assert_eq!(logcore_close(handle), OK);
         assert_eq!(logcore_free_handle(handle), OK);
+    }
+
+    fn loaded_handle(req: &str) -> *mut SourceHandle {
+        let (code, handle, _) = plan(req);
+        assert_eq!(code, OK);
+        assert_eq!(logcore_commit(handle), OK);
+        assert!(wait_until(|| handle_ref(handle).state() == State::Loaded));
+        handle
+    }
+
+    fn header_rows(ptr: *const u8) -> u32 {
+        let bytes = unsafe { std::slice::from_raw_parts(ptr, 36) };
+        assert_eq!(&bytes[..4], b"LPAG");
+        u32::from_le_bytes(bytes[8..12].try_into().unwrap())
+    }
+
+    fn page_call(handle: *mut SourceHandle, start: i64, count: i64) -> (i32, *mut u8, usize) {
+        let mut ptr: *mut u8 = std::ptr::null_mut();
+        let mut len = 0usize;
+        let code = logcore_page(handle, start, count, &mut ptr, &mut len);
+        (code, ptr, len)
+    }
+
+    fn paging_fixture(tag: &str) -> (std::path::PathBuf, std::path::PathBuf) {
+        let dir = temp_dir(tag);
+        let file = text_file(
+            &dir,
+            "p.log",
+            &[
+                "11-14 12:00:01.123  1  2 I Tag: a",
+                "11-14 12:00:02.123  3  4 D Tag: b",
+                "11-14 12:00:03.123  5  6 E Tag: c",
+            ],
+        );
+        (dir, file)
+    }
+
+    #[test]
+    fn cabi_row_count_matches_descriptor() {
+        let (dir, file) = paging_fixture("ffi-rowcount");
+        let req = file_request(&file, &dir, &dir, "logcore-ffi-rc", "", &[], 500, "Auto");
+        let handle = loaded_handle(&req);
+        let mut rows = 0u64;
+        assert_eq!(logcore_row_count(handle, &mut rows), OK);
+        assert_eq!(rows, 3);
+        assert_eq!(descriptor(handle)["rowCount"].as_u64(), Some(3));
+        assert_eq!(logcore_close(handle), OK);
+        assert_eq!(logcore_free_handle(handle), OK);
+    }
+
+    #[test]
+    fn cabi_row_count_before_loaded_invalid() {
+        let (dir, file) = paging_fixture("ffi-rowcount-gate");
+        let req = file_request(&file, &dir, &dir, "logcore-ffi-rcg", "", &[], 500, "Auto");
+        let (code, handle, _) = plan(&req);
+        assert_eq!(code, OK);
+        handle_ref(handle).hold_loader();
+        assert_eq!(logcore_commit(handle), OK);
+        let mut rows = 0u64;
+        assert_eq!(logcore_row_count(handle, &mut rows), INVALID_STATE);
+        handle_ref(handle).release_loader();
+        assert!(wait_until(|| handle_ref(handle).state() == State::Loaded));
+        assert_eq!(logcore_close(handle), OK);
+        assert_eq!(logcore_free_handle(handle), OK);
+    }
+
+    #[test]
+    fn cabi_row_count_null_out_invalid() {
+        let (dir, file) = paging_fixture("ffi-rowcount-null");
+        let req = file_request(&file, &dir, &dir, "logcore-ffi-rcn", "", &[], 500, "Auto");
+        let handle = loaded_handle(&req);
+        assert_eq!(
+            logcore_row_count(handle, std::ptr::null_mut()),
+            logcore_core::error::INVALID_ARG
+        );
+        assert_eq!(take_error()["params"]["field"], "out");
+        assert_eq!(logcore_close(handle), OK);
+        assert_eq!(logcore_free_handle(handle), OK);
+    }
+
+    #[test]
+    fn cabi_page_beyond_rows_returns_empty() {
+        let (dir, file) = paging_fixture("ffi-page-beyond");
+        let req = file_request(&file, &dir, &dir, "logcore-ffi-pb", "", &[], 500, "Auto");
+        let handle = loaded_handle(&req);
+        let (code, ptr, len) = page_call(handle, 3, 5);
+        assert_eq!(code, OK);
+        assert_eq!(len, 36);
+        assert_eq!(header_rows(ptr), 0);
+        logcore_free_page(ptr, len);
+        assert_eq!(logcore_close(handle), OK);
+        assert_eq!(logcore_free_handle(handle), OK);
+    }
+
+    #[test]
+    fn cabi_page_zero_count_returns_header_only() {
+        let (dir, file) = paging_fixture("ffi-page-zero");
+        let req = file_request(&file, &dir, &dir, "logcore-ffi-pz", "", &[], 500, "Auto");
+        let handle = loaded_handle(&req);
+        let (code, ptr, len) = page_call(handle, 0, 0);
+        assert_eq!(code, OK);
+        assert_eq!(len, 36);
+        assert_eq!(header_rows(ptr), 0);
+        logcore_free_page(ptr, len);
+        assert_eq!(logcore_close(handle), OK);
+        assert_eq!(logcore_free_handle(handle), OK);
+    }
+
+    #[test]
+    fn cabi_page_count_over_max_field() {
+        let (dir, file) = paging_fixture("ffi-page-max");
+        let req = file_request(&file, &dir, &dir, "logcore-ffi-pm", "", &[], 500, "Auto");
+        let handle = loaded_handle(&req);
+        let (code, ptr, len) = page_call(handle, 0, 4097);
+        assert_eq!(code, logcore_core::error::INVALID_ARG);
+        assert_eq!(take_error()["params"]["field"], "count");
+        assert!(ptr.is_null() && len == 0);
+        assert_eq!(logcore_close(handle), OK);
+        assert_eq!(logcore_free_handle(handle), OK);
+    }
+
+    #[test]
+    fn cabi_page_negative_start_field() {
+        let (dir, file) = paging_fixture("ffi-page-negstart");
+        let req = file_request(&file, &dir, &dir, "logcore-ffi-pns", "", &[], 500, "Auto");
+        let handle = loaded_handle(&req);
+        let (code, _, _) = page_call(handle, -1, 1);
+        assert_eq!(code, logcore_core::error::INVALID_ARG);
+        assert_eq!(take_error()["params"]["field"], "start");
+        assert_eq!(logcore_close(handle), OK);
+        assert_eq!(logcore_free_handle(handle), OK);
+    }
+
+    #[test]
+    fn cabi_page_negative_count_field() {
+        let (dir, file) = paging_fixture("ffi-page-negcount");
+        let req = file_request(&file, &dir, &dir, "logcore-ffi-pnc", "", &[], 500, "Auto");
+        let handle = loaded_handle(&req);
+        let (code, _, _) = page_call(handle, 0, -1);
+        assert_eq!(code, logcore_core::error::INVALID_ARG);
+        assert_eq!(take_error()["params"]["field"], "count");
+        assert_eq!(logcore_close(handle), OK);
+        assert_eq!(logcore_free_handle(handle), OK);
+    }
+
+    #[test]
+    fn cabi_page_invalid_state_beats_param_error() {
+        let (dir, file) = paging_fixture("ffi-page-state");
+        let req = file_request(&file, &dir, &dir, "logcore-ffi-pst", "", &[], 500, "Auto");
+        let (code, handle, _) = plan(&req);
+        assert_eq!(code, OK);
+        handle_ref(handle).hold_loader();
+        assert_eq!(logcore_commit(handle), OK);
+        let (code, _, _) = page_call(handle, -1, -1);
+        assert_eq!(code, INVALID_STATE, "非法状态先于参数校验");
+        handle_ref(handle).release_loader();
+        assert!(wait_until(|| handle_ref(handle).state() == State::Loaded));
+        assert_eq!(logcore_close(handle), OK);
+        assert_eq!(logcore_free_handle(handle), OK);
+    }
+
+    #[test]
+    fn cabi_page_null_out_invalid() {
+        let (dir, file) = paging_fixture("ffi-page-nullout");
+        let req = file_request(&file, &dir, &dir, "logcore-ffi-pno", "", &[], 500, "Auto");
+        let handle = loaded_handle(&req);
+        let mut len = 99usize;
+        let code = logcore_page(handle, 0, 1, std::ptr::null_mut(), &mut len);
+        assert_eq!(code, logcore_core::error::INVALID_ARG);
+        assert_eq!(take_error()["params"]["field"], "out");
+        assert_eq!(len, 0, "失败路径清空长度");
+        assert_eq!(logcore_close(handle), OK);
+        assert_eq!(logcore_free_handle(handle), OK);
+    }
+
+    #[test]
+    fn cabi_page_error_clears_out() {
+        let (dir, file) = paging_fixture("ffi-page-clear");
+        let req = file_request(&file, &dir, &dir, "logcore-ffi-pcl", "", &[], 500, "Auto");
+        let handle = loaded_handle(&req);
+        let mut ptr: *mut u8 = 1 as *mut u8;
+        let mut len = 7usize;
+        let code = logcore_page(handle, 0, 5000, &mut ptr, &mut len);
+        assert_eq!(code, logcore_core::error::INVALID_ARG);
+        assert!(ptr.is_null());
+        assert_eq!(len, 0);
+        assert_eq!(logcore_close(handle), OK);
+        assert_eq!(logcore_free_handle(handle), OK);
+    }
+
+    #[test]
+    fn cabi_page_start_near_i64_max_returns_empty() {
+        let (dir, file) = paging_fixture("ffi-page-imax");
+        let req = file_request(&file, &dir, &dir, "logcore-ffi-pim", "", &[], 500, "Auto");
+        let handle = loaded_handle(&req);
+        let (code, ptr, len) = page_call(handle, i64::MAX, 5);
+        assert_eq!(code, OK, "起点饱和后为空页而非溢出");
+        assert_eq!(len, 36);
+        assert_eq!(header_rows(ptr), 0);
+        logcore_free_page(ptr, len);
+        assert_eq!(logcore_close(handle), OK);
+        assert_eq!(logcore_free_handle(handle), OK);
+    }
+
+    #[test]
+    fn cabi_free_page_null_safe() {
+        logcore_free_page(std::ptr::null_mut(), 0);
+        logcore_free_page(std::ptr::null_mut(), 36);
     }
 }

@@ -2,7 +2,6 @@
 //! 时间戳以 Windows FILETIME ticks 保存，线格式用 Unix epoch 毫秒。
 
 use std::fs::File;
-use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
 use std::time::UNIX_EPOCH;
 
@@ -19,7 +18,13 @@ pub struct Identity {
 
 impl Identity {
     pub fn capture(path: &Path) -> std::io::Result<Self> {
-        let meta = std::fs::metadata(path)?;
+        let file = File::open(path)?;
+        Self::capture_file(&file)
+    }
+
+    /// 从已打开的句柄取身份：不再按路径二次打开（装载与页读取共用句柄）。
+    pub fn capture_file(file: &File) -> std::io::Result<Self> {
+        let meta = file.metadata()?;
         let size = meta.len();
         let mtime_ticks = meta
             .modified()
@@ -29,17 +34,15 @@ impl Identity {
             .unwrap_or(0)
             + FILETIME_UNIX_EPOCH_TICKS;
 
-        let mut file = File::open(path)?;
         let len = FINGERPRINT_BYTES.min(size);
         let mut head = vec![0u8; len as usize];
         if len > 0 {
-            file.read_exact(&mut head)?;
+            read_exact_at(file, &mut head, 0)?;
         }
         let head_hash = fnv1a(&head);
         let tail_hash = if size > len {
-            file.seek(SeekFrom::Start(size - len))?;
             let mut tail = vec![0u8; len as usize];
-            file.read_exact(&mut tail)?;
+            read_exact_at(file, &mut tail, size - len)?;
             fnv1a(&tail)
         } else {
             // 小文件首尾是同一段（既有实现口径）
@@ -74,6 +77,34 @@ pub fn fnv1a(data: &[u8]) -> u64 {
         h = h.wrapping_mul(1_099_511_628_211);
     }
     h
+}
+
+/// 按偏移精确读满：不改文件游标，页读取与身份采集共用。
+pub(crate) fn read_exact_at(file: &File, buf: &mut [u8], offset: u64) -> std::io::Result<()> {
+    let mut done = 0usize;
+    while done < buf.len() {
+        let n = read_at(file, &mut buf[done..], offset + done as u64)?;
+        if n == 0 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::UnexpectedEof,
+                "read_exact_at",
+            ));
+        }
+        done += n;
+    }
+    Ok(())
+}
+
+#[cfg(windows)]
+fn read_at(file: &File, buf: &mut [u8], offset: u64) -> std::io::Result<usize> {
+    use std::os::windows::fs::FileExt;
+    file.seek_read(buf, offset)
+}
+
+#[cfg(not(windows))]
+fn read_at(file: &File, buf: &mut [u8], offset: u64) -> std::io::Result<usize> {
+    use std::os::unix::fs::FileExt;
+    file.read_at(buf, offset)
 }
 
 #[cfg(test)]
