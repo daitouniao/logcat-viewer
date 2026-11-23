@@ -8,6 +8,7 @@ pub mod crash;
 pub mod descriptor;
 pub mod error;
 pub mod events;
+pub mod filter;
 pub mod format;
 pub mod identity;
 pub mod locks;

@@ -19,8 +19,8 @@ use serde_json::{json, Value};
 
 use crate::descriptor::{Descriptor, LoadMode, Route};
 use crate::error::{
-    CoreError, CoreResult, CLOSED, DIRECT_OPEN_FAILED, FAILED, INTERNAL, INVALID_STATE, IO_ERROR,
-    NOT_FOUND, PROXY_DISCONNECT, STOPPED, UNSUPPORTED_FORMAT,
+    io_error, CoreError, CoreResult, CLOSED, DIRECT_OPEN_FAILED, FAILED, INTERNAL, INVALID_STATE,
+    IO_ERROR, NOT_FOUND, PROXY_DISCONNECT, STOPPED, UNSUPPORTED_FORMAT,
 };
 use crate::events::{Event, EventQueue, Progress, Stage};
 use crate::format;
@@ -872,12 +872,6 @@ fn open_path_for(display: &str) -> String {
     } else {
         display.to_string()
     }
-}
-
-fn io_error(path: String, e: &std::io::Error) -> CoreError {
-    CoreError::new(IO_ERROR)
-        .with("path", Value::from(path))
-        .with("osError", Value::from(e.raw_os_error().unwrap_or(0)))
 }
 
 fn read_all_handle(file: &File, display: &str, size: u64) -> CoreResult<Vec<u8>> {
