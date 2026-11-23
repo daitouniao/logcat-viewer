@@ -665,9 +665,12 @@ Rust core 的测试分两层，**口径与上表的 C# 数字互不相加**：
 
 **必须串行**：代理实例注册表与 `shutdown` 是进程全局状态，默认并行跑会出现互踩的伪失败
 （实测默认并行 6 条代理用例失败，`--test-threads=1` 后全过）。报告 Rust 结果时写明
-「串行口径 N 条」。本机实测：Rust UT **285/285**（串行，2026-11-22；`--workspace` 口径：core 259 + cabi 26）；
+「串行口径 N 条」。本机实测：Rust UT **373/373**（串行，2026-11-23；`--workspace` 口径：core 347 + cabi 26）；
 C# 侧绑定 UT + 经 FFI 的 IT 合计 **63/63**。
 
+> 2026-11-23 **rust-core-filter-kernel**：Rust UT 285 → **373**（+88：过滤模型与校验 21 条、
+> 结构化/tag 结果集 19 条、正文回读与大小写/空词 28 条、错误与分页/只读 20 条）；C# 侧未改，仍 **915/915**。
+>
 > 2026-11-22 **rust-core-result-set**：Rust UT 270 → **285**（+15：结果集模型与 `resolve`
 > 12 条、页装配恒等/非恒等与页头断言 3 条），用例总数变化仅此一处；C# 侧未改，仍 **915/915**。
 
@@ -676,9 +679,9 @@ C# 侧绑定 UT + 经 FFI 的 IT 合计 **63/63**。
 `LogcoreUnavailableException` 明确失败，而不是静默跳过。
 
 **覆盖率**：Rust 覆盖率是独立口径（`cargo llvm-cov`），不并入 C# 的 94.26% 统计。
-本机实测（2026-11-22，串行，`rust-core-result-set` 同批重采）：行 **91.29%**（6,690 / 7,328）、
-区域 91.20%、函数 89.65%。
-`crates/cabi/src/bin/test_proxy.rs`（测试代理入口，0%）计入分母，剔除后库本体行覆盖 **91.71%**（6,690 / 7,295）；
+本机实测（2026-11-23，串行，`rust-core-filter-kernel` 同批重采）：行 **92.32%**（8,027 / 8,695）、
+区域 92.42%、函数 90.93%；新增 `filter.rs` 行覆盖 97.81%。
+`crates/cabi/src/bin/test_proxy.rs`（测试代理入口，0%）计入分母，剔除后库本体行覆盖 **92.67%**（8,027 / 8,662）；
 库内最低是 `winserver.rs` 78.93%（监听线程的异常分支多由代理子进程侧触发，进程内测不到）。
 采集命令：`cargo llvm-cov -- --test-threads=1`（需先 `cargo install cargo-llvm-cov` 并
 `rustup component add llvm-tools-preview`）。插桩构建把测试代理建在 cargo 的 target 目录，

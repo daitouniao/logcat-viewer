@@ -90,6 +90,13 @@ pub fn param_keys(code: i32) -> &'static [&'static str] {
 /// 附加在代理失败上的「直开也失败过」证据（D15 附注）。
 pub const DIRECT_OPEN_ERROR_KEY: &str = "directOpenError";
 
+/// 源文件读取失败：分页与过滤共用同一 `path` / `osError` 形状。
+pub(crate) fn io_error(path: String, e: &std::io::Error) -> CoreError {
+    CoreError::new(IO_ERROR)
+        .with("path", Value::from(path))
+        .with("osError", Value::from(e.raw_os_error().unwrap_or(0)))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
