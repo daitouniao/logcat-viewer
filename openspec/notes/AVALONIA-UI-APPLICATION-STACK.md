@@ -101,10 +101,8 @@ View (XAML)  只写语义引用：{loc Key=...} / {DynamicResource Surface.Panel
 3. **自绘帧率**：10M 行下「只画视口」是否跟手，是方案成立与否的硬指标。
 4. **原生缓冲生命周期**：`logcore_page` 返回「谁分配谁释放」的裸缓冲；Avalonia 合成可能延迟到后续帧，不能取页后立即释放。两条路径二选一：取页即解码成行模型，或 pinned 缓冲 + 引用计数。
 
-## 8. 待澄清
+## 8. 已定与待澄清
 
-- 新分类名与规范落位：新 UI 宿主的行为契约（主题、语言、大列表渲染）需要新的 `openspec/specs/` 分类，分类名须先登记进 `openspec/config.yaml`。
-  - 为什么需要澄清：现有分类只有 `old`（C# 旧实现）与 `logcore`（Rust core），新 UI 不属于二者。
-  - 方案：登记 `next`；或本 change 先不产出行为契约（`skip_specs`）。
-  - 当前偏向：登记 `next`，与「新宿主接管能力即新建分类」的既定规则一致。
-- 中文输入法、字体度量、自绘帧率三项均需探针实测后才能定稿，当前结论属设计判断，未实测。
+- 已定：新分类 `next` 登记进 `openspec/config.yaml`；新 UI 首批 capability 为 `ui-theme`、`ui-localization`、`log-view-rendering`（`ui-localization` 命名避开既有 `old/ui-language`，满足「同一 capability 名不得跨分类并存」）。
+- 待澄清：语言设置是否与旧查看器共享同一份持久化文件（旧应用重启生效、不做实时通知）。当前未定，第一版只保证本应用内即时切换。
+- 待实测：中文输入法、字体度量、自绘帧率三项均需探针实测后才能定稿，当前结论属设计判断，未实测。
