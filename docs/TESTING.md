@@ -689,7 +689,25 @@ C# 侧绑定 UT + 经 FFI 的 IT 合计 **63/63**。
 
 ---
 
-## 7. 一句话速查
+## 7. 新 UI 宿主（`logcat-next/`）
+
+新 UI 宿主（OpenSpec change avalonia-ui-shell）带独立测试工程 `Next.Tests`，数字与上表互不相加：
+
+| 入口 | 说明 |
+| --- | --- |
+| `dotnet test logcat-next/Next.Tests/Next.Tests.csproj` | 互操作绑定与导出缺失、页布局 v1 解码与释放恰好一次、真实 core 端到端（plan/commit/轮询/行数/分页边界/空文件）、双语目录键集合与占位符、语义 token 完整性、视口取页范围 |
+
+**前置**：同样要求先 `cargo build`（装载层按旧查看器同一探测顺序回退到
+`logcore/target/debug/logcore.dll`，另支持 `LOGCORE_DLL` 与应用目录显式定位）。
+双语目录以 JSON 文件随输出复制（`Strings\`），不用 EmbeddedResource——Avalonia
+构建任务会把 EmbeddedResource 吸进 `!AvaloniaResources`，清单不可见（实测）。
+
+本机实测（2026-11-24）：**Next.Tests 30/30**；主仓 `logcat.slnx` 全量 **915/915** 未受影响
+（新工程与旧 viewer 完全并存，互不引用）。
+
+---
+
+## 8. 一句话速查
 
 - 我在终端 → §2.1（`dotnet test --collect` + `python tests/coverage-report.py`）。
 - 智能体沙箱 → §3 建 tstrun 跑测试、§2.2 用 coverlet console 出覆盖率。

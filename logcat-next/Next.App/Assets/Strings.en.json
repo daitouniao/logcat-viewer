@@ -1,0 +1,19 @@
+{
+  "App.Title": "logcat Next",
+  "Menu.File": "File",
+  "Menu.Open": "Open File…",
+  "Menu.Language": "Language",
+  "Menu.Theme": "Theme",
+  "Theme.Light": "Light",
+  "Theme.Dark": "Dark",
+  "Theme.System": "Follow System",
+  "Lang.Zh": "简体中文",
+  "Lang.En": "English",
+  "Status.Ready": "Ready",
+  "Status.Loading": "Loading {0}…",
+  "Status.Loaded": "Loaded {0:N0} rows",
+  "Status.Empty": "File is empty",
+  "Error.OpenFailed": "Open failed: {0}",
+  "Error.LoadFailed": "Load failed ({0}): {1}",
+  "Error.LogcoreMissing": "Log data component unavailable: {0}"
+}

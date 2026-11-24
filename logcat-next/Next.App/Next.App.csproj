@@ -1,0 +1,50 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+    <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <!-- 版本号继承自仓库根 Directory.Build.props（唯一来源） -->
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Avalonia" Version="11.3.23" />
+    <PackageReference Include="Avalonia.Desktop" Version="11.3.23" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="11.3.23" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Next.Interop\Next.Interop.csproj" />
+  </ItemGroup>
+
+  <!--
+    双语目录随输出复制（Avalonia 构建任务会把 EmbeddedResource 吸进 !AvaloniaResources
+    大包导致清单里拿不到，故不用 EmbeddedResource）；键集合一致性由 Next.Tests 把关。
+  -->
+  <ItemGroup>
+    <None Include="Assets\Strings.*.json" CopyToOutputDirectory="PreserveNewest" Link="Strings\%(Filename)%(Extension)" />
+  </ItemGroup>
+
+  <!--
+    logcore.dll 随构建复制到输出（design D9）：开发树从仓库根的 cargo 产物取。
+    取不到不报错——装载层的开发树回退（向上 8 层找 logcore/target/<配置>/）
+    仍能命中，复制只是让输出目录自包含。
+  -->
+  <PropertyGroup>
+    <RepoRoot>$([System.IO.Path]::GetFullPath('$(MSBuildProjectDirectory)\..\..'))</RepoRoot>
+    <LogcoreDll Condition="'$(Configuration)' == 'Debug'">$(RepoRoot)\logcore\target\debug\logcore.dll</LogcoreDll>
+    <LogcoreDll Condition="'$(Configuration)' != 'Debug'">$(RepoRoot)\logcore\target\release\logcore.dll</LogcoreDll>
+  </PropertyGroup>
+  <Target Name="CopyLogcoreDll" AfterTargets="Build">
+    <Copy SourceFiles="$(LogcoreDll)" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true"
+          Condition="Exists('$(LogcoreDll)')" />
+    <Message Text="logcore.dll 不在 $(LogcoreDll)，输出目录未携带（装载层将走开发树回退）"
+             Importance="high" Condition="!Exists('$(LogcoreDll)')" />
+  </Target>
+
+</Project>

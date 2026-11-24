@@ -1,0 +1,58 @@
+<ResourceDictionary xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+  <!--
+    语义色 token（design D3）：全部界面与自绘只引用这里的语义角色，禁止颜色字面量。
+    明暗两套 ThemeDictionaries；切换 = 换 RequestedThemeVariant（App.ApplyTheme）。
+    Light 调色板沿用旧查看器既有观感（级别色与旧 LogListView 一致），Dark 按深色背景
+    提亮一级保证可读（spec next/ui-theme：级别色两套主题分别定义、语义一致）。
+  -->
+  <ResourceDictionary.ThemeDictionaries>
+
+    <ResourceDictionary x:Key="Light">
+      <SolidColorBrush x:Key="Surface.Canvas" Color="#FFFFFF" />
+      <SolidColorBrush x:Key="Surface.Panel" Color="#F5F5F5" />
+      <SolidColorBrush x:Key="Surface.HeaderRow" Color="#ECECEC" />
+      <SolidColorBrush x:Key="Surface.Border" Color="#D9D9D9" />
+      <SolidColorBrush x:Key="Text.Primary" Color="#1A1A1A" />
+      <SolidColorBrush x:Key="Text.Muted" Color="#757575" />
+      <SolidColorBrush x:Key="Accent" Color="#1A73E8" />
+      <SolidColorBrush x:Key="Level.Verbose" Color="#8C8C8C" />
+      <SolidColorBrush x:Key="Level.Debug" Color="#1A73E8" />
+      <SolidColorBrush x:Key="Level.Info" Color="#188038" />
+      <SolidColorBrush x:Key="Level.Warn" Color="#B06000" />
+      <SolidColorBrush x:Key="Level.Error" Color="#C62828" />
+      <SolidColorBrush x:Key="Level.Fatal" Color="#8E24AA" />
+      <SolidColorBrush x:Key="Level.Assert" Color="#6A1B9A" />
+      <SolidColorBrush x:Key="Level.Unknown" Color="#757575" />
+      <SolidColorBrush x:Key="Mark.Background" Color="#FFE9A8" />
+      <SolidColorBrush x:Key="Filter.Or" Color="#E8F1FB" />
+      <SolidColorBrush x:Key="Filter.And" Color="#FDF0E3" />
+      <SolidColorBrush x:Key="Filter.CaseOn" Color="#B00020" />
+    </ResourceDictionary>
+
+    <ResourceDictionary x:Key="Dark">
+      <SolidColorBrush x:Key="Surface.Canvas" Color="#1E1E1E" />
+      <SolidColorBrush x:Key="Surface.Panel" Color="#252627" />
+      <SolidColorBrush x:Key="Surface.HeaderRow" Color="#2D2D30" />
+      <SolidColorBrush x:Key="Surface.Border" Color="#3C3C40" />
+      <SolidColorBrush x:Key="Text.Primary" Color="#E6E6E6" />
+      <SolidColorBrush x:Key="Text.Muted" Color="#9E9E9E" />
+      <SolidColorBrush x:Key="Accent" Color="#6FA8F0" />
+      <SolidColorBrush x:Key="Level.Verbose" Color="#9E9E9E" />
+      <SolidColorBrush x:Key="Level.Debug" Color="#6FA8F0" />
+      <SolidColorBrush x:Key="Level.Info" Color="#6FCF8F" />
+      <SolidColorBrush x:Key="Level.Warn" Color="#E8A94E" />
+      <SolidColorBrush x:Key="Level.Error" Color="#F07070" />
+      <SolidColorBrush x:Key="Level.Fatal" Color="#C88BE0" />
+      <SolidColorBrush x:Key="Level.Assert" Color="#B89BE0" />
+      <SolidColorBrush x:Key="Level.Unknown" Color="#9E9E9E" />
+      <SolidColorBrush x:Key="Mark.Background" Color="#5A4A1F" />
+      <SolidColorBrush x:Key="Filter.Or" Color="#22384E" />
+      <SolidColorBrush x:Key="Filter.And" Color="#4A3520" />
+      <SolidColorBrush x:Key="Filter.CaseOn" Color="#FF6E6E" />
+    </ResourceDictionary>
+
+  </ResourceDictionary.ThemeDictionaries>
+
+</ResourceDictionary>
