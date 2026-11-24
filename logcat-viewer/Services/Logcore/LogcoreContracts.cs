@@ -166,7 +166,7 @@ public sealed record LogcoreCrashInfo(byte Kind, string? ExceptionType, string? 
 /// <summary>页行（design D2/D3）：原文与按字节区间切片后的时间 / 消息。</summary>
 public sealed class LogcorePageRow
 {
-    public uint Ord { get; init; }
+    public uint DocRow { get; init; }
     public byte Level { get; init; }
     public int Pid { get; init; }
     public int Tid { get; init; }

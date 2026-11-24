@@ -698,6 +698,22 @@ impl SourceHandle {
         Ok(payload.row_count() as u64)
     }
 
+    /// 查询开启取装载快照：状态门禁走 `Op::OpenQuery`，返回共享索引与只读源句柄。
+    pub(crate) fn query_snapshot(&self) -> CoreResult<(Arc<Payload>, Arc<File>, String)> {
+        state::check(self.state(), Op::OpenQuery)?;
+        let g = self.inner.lock().unwrap();
+        let payload = g
+            .payload
+            .clone()
+            .ok_or_else(|| CoreError::new(INVALID_STATE))?;
+        let file = g
+            .source_file
+            .clone()
+            .ok_or_else(|| CoreError::new(INVALID_STATE))?;
+        let display = g.request.path.clone().unwrap_or_default();
+        Ok((payload, file, display))
+    }
+
     /// 取页（布局 v1 字节）：状态门禁先于参数校验；条数上限 `MAX_PAGE_ROWS`。
     pub fn page(&self, start: i64, count: i64) -> CoreResult<Vec<u8>> {
         state::check(self.state(), Op::Page)?;
@@ -725,19 +741,8 @@ impl SourceHandle {
                 .ok_or_else(|| CoreError::new(INVALID_STATE))?;
             (payload, file, g.request.path.clone().unwrap_or_default())
         };
-        debug_assert!(payload.row_count() <= u32::MAX as usize, "文档行数超出 u32");
         let result = ResultSet::identity(payload.row_count() as u32);
-        let mut entries = Vec::new();
-        for row in page::page_rows_for(&result, &payload, start, count) {
-            let i = row.doc_row as usize;
-            let off = payload.offs[i].max(0) as u64;
-            let len = payload.lens[i].max(0) as usize;
-            let mut text = vec![0u8; len];
-            crate::identity::read_exact_at(&file, &mut text, off)
-                .map_err(|e| io_error(display.clone(), &e))?;
-            entries.push(row.with_text(text));
-        }
-        Ok(page::encode_page(&entries, start as u32))
+        page::read_page_bytes(&result, &payload, &file, &display, start, count)
     }
 }
 

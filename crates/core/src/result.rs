@@ -49,6 +49,32 @@ impl ResultSet {
         }
     }
 
+    /// 向后取页起点：第一条文档行号不小于 `start_doc_row` 的结果序号；
+    /// 没有这样的结果行返回 `None`（不回退到前一条）。
+    pub fn forward_ord(&self, start_doc_row: u32) -> Option<usize> {
+        match self {
+            Self::Identity { rows } => {
+                if start_doc_row < *rows {
+                    Some(start_doc_row as usize)
+                } else {
+                    None
+                }
+            }
+            Self::Rows(rows) => {
+                let at = rows.partition_point(|&row| row < start_doc_row);
+                (at < rows.len()).then_some(at)
+            }
+        }
+    }
+
+    /// 向上取页：文档行号严格小于 `end_doc_row` 的结果条数（即终点之前的连续前缀长度）。
+    pub fn count_before(&self, end_doc_row: u32) -> usize {
+        match self {
+            Self::Identity { rows } => (end_doc_row as usize).min(*rows as usize),
+            Self::Rows(rows) => rows.partition_point(|&row| row < end_doc_row),
+        }
+    }
+
     /// 真实行 → 结果集序号：命中返回该 `ord`；不命中取最近，平局取前；
     /// 越界取首/末；空结果集返回 `None`。
     pub fn resolve(&self, doc_row: u32) -> Option<u32> {
@@ -115,6 +141,56 @@ mod tests {
     fn result_rows_len_matches_rows() {
         assert_eq!(rows().len(), 3);
         assert!(ResultSet::from_rows(Vec::new(), 10).is_empty());
+    }
+
+    #[test]
+    fn result_forward_ord_rows() {
+        let set = ResultSet::from_rows(vec![2, 5, 9], 10);
+        assert_eq!(set.forward_ord(0), Some(0), "首条不小于起点");
+        assert_eq!(set.forward_ord(2), Some(0), "起点即命中");
+        assert_eq!(set.forward_ord(3), Some(1), "落在结果行之间取后一条");
+        assert_eq!(set.forward_ord(6), Some(2));
+        assert_eq!(set.forward_ord(9), Some(2));
+    }
+
+    #[test]
+    fn result_forward_ord_identity() {
+        let set = ResultSet::identity(10);
+        assert_eq!(set.forward_ord(0), Some(0));
+        assert_eq!(set.forward_ord(4), Some(4));
+        assert_eq!(set.forward_ord(9), Some(9));
+    }
+
+    #[test]
+    fn result_forward_ord_past_end_none() {
+        assert_eq!(ResultSet::from_rows(vec![2, 5, 9], 10).forward_ord(10), None);
+        assert_eq!(ResultSet::identity(10).forward_ord(10), None);
+    }
+
+    #[test]
+    fn result_count_before_rows() {
+        let set = ResultSet::from_rows(vec![2, 5, 9], 10);
+        assert_eq!(set.count_before(0), 0);
+        assert_eq!(set.count_before(2), 0);
+        assert_eq!(set.count_before(3), 1);
+        assert_eq!(set.count_before(9), 2);
+        assert_eq!(set.count_before(10), 3);
+    }
+
+    #[test]
+    fn result_count_before_identity() {
+        let set = ResultSet::identity(10);
+        assert_eq!(set.count_before(0), 0);
+        assert_eq!(set.count_before(4), 4);
+        assert_eq!(set.count_before(10), 10);
+        assert_eq!(set.count_before(99), 10);
+    }
+
+    #[test]
+    fn result_count_before_zero_none() {
+        assert_eq!(ResultSet::identity(0).count_before(0), 0);
+        assert_eq!(ResultSet::identity(0).forward_ord(0), None);
+        assert_eq!(ResultSet::from_rows(vec![0, 2], 10).count_before(0), 0);
     }
 
     #[test]

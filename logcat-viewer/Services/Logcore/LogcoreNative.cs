@@ -130,6 +130,12 @@ internal static class LogcoreNative
     internal delegate int RowCountFn(IntPtr handle, out ulong rows);
     internal delegate int PageFn(IntPtr handle, long start, long count, out IntPtr buffer, out UIntPtr length);
     internal delegate void FreePageFn(IntPtr buffer, UIntPtr length);
+    internal delegate int OpenQueryFn(IntPtr handle, IntPtr filterJson, out IntPtr query);
+    internal delegate int QueryRowCountFn(IntPtr query, out ulong rows);
+    internal delegate int QueryResolveFn(IntPtr query, long docRow, out long resolvedDocRow);
+    internal delegate int QueryPageFn(IntPtr query, long start, long count, out IntPtr buffer, out UIntPtr length);
+    internal delegate int QueryPageBackwardFn(IntPtr query, long end, long count, out IntPtr buffer, out UIntPtr length);
+    internal delegate int FreeQueryFn(IntPtr query);
     internal delegate int StartupMaintainFn(IntPtr request, out IntPtr json);
     internal delegate int ShutdownFn();
     internal delegate void FreeStringFn(IntPtr text);
@@ -152,6 +158,12 @@ internal static class LogcoreNative
         public RowCountFn RowCount { get; }
         public PageFn Page { get; }
         public FreePageFn FreePage { get; }
+        public OpenQueryFn OpenQuery { get; }
+        public QueryRowCountFn QueryRowCount { get; }
+        public QueryResolveFn QueryResolve { get; }
+        public QueryPageFn QueryPage { get; }
+        public QueryPageBackwardFn QueryPageBackward { get; }
+        public FreeQueryFn FreeQuery { get; }
         public StartupMaintainFn StartupMaintain { get; }
         public ShutdownFn Shutdown { get; }
         public HandleFn FreeHandle { get; }
@@ -174,6 +186,12 @@ internal static class LogcoreNative
             RowCount = Bind<RowCountFn>("logcore_row_count");
             Page = Bind<PageFn>("logcore_page");
             FreePage = Bind<FreePageFn>("logcore_free_page");
+            OpenQuery = Bind<OpenQueryFn>("logcore_open_query");
+            QueryRowCount = Bind<QueryRowCountFn>("logcore_query_row_count");
+            QueryResolve = Bind<QueryResolveFn>("logcore_query_resolve");
+            QueryPage = Bind<QueryPageFn>("logcore_query_page");
+            QueryPageBackward = Bind<QueryPageBackwardFn>("logcore_query_page_backward");
+            FreeQuery = Bind<FreeQueryFn>("logcore_free_query");
             StartupMaintain = Bind<StartupMaintainFn>("logcore_startup_maintain");
             Shutdown = Bind<ShutdownFn>("logcore_shutdown");
             FreeHandle = Bind<HandleFn>("logcore_free_handle");

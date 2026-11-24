@@ -4,7 +4,9 @@
 //! 行记录中的行号一律是文档行号，结果集序号只作页内坐标。
 
 use std::collections::HashMap;
+use std::fs::File;
 
+use crate::error::{io_error, CoreResult};
 use crate::result::ResultSet;
 use crate::sidecar::{CrashEntry, Payload};
 
@@ -44,6 +46,30 @@ pub fn page_rows_for(
     let end = ord_start.saturating_add(count).min(len);
     let doc_rows: Vec<u32> = (ord_start..end).map(|ord| result.doc_row(ord)).collect();
     rows_for_doc_rows(&doc_rows, payload)
+}
+
+/// 取结果集 `[ord_start, ord_start + count)` 一页并编码（布局 v1）。
+/// 行原文按装载快照回读；任一行失败即整页 `IO_ERROR`，不产出部分页。
+pub fn read_page_bytes(
+    result: &ResultSet,
+    payload: &Payload,
+    file: &File,
+    display: &str,
+    ord_start: usize,
+    count: usize,
+) -> CoreResult<Vec<u8>> {
+    debug_assert!(payload.row_count() <= u32::MAX as usize, "文档行数超出 u32");
+    let mut entries = Vec::new();
+    for row in page_rows_for(result, payload, ord_start, count) {
+        let i = row.doc_row as usize;
+        let off = payload.offs[i].max(0) as u64;
+        let len = payload.lens[i].max(0) as usize;
+        let mut text = vec![0u8; len];
+        crate::identity::read_exact_at(file, &mut text, off)
+            .map_err(|e| io_error(display.to_string(), &e))?;
+        entries.push(row.with_text(text));
+    }
+    Ok(encode_page(&entries, ord_start as u32))
 }
 
 /// 内核：按文档行号装配行内容；`doc_rows` 必须升序且小于文档行数。

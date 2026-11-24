@@ -15,6 +15,7 @@ use logcore_core::error::{CoreError, CoreResult, INTERNAL, INVALID_STATE, OK};
 use logcore_core::events::events_json;
 use logcore_core::maintain;
 use logcore_core::proxy;
+use logcore_core::query::{self, QueryHandle};
 use logcore_core::source::SourceHandle;
 use logcore_core::state::{self, Op, State};
 
@@ -39,13 +40,17 @@ fn guard<F: FnOnce() -> i32>(f: F) -> i32 {
     catch_unwind(AssertUnwindSafe(f)).unwrap_or_else(|_| record(CoreError::new(INTERNAL)))
 }
 
-unsafe fn request_text<'a>(ptr: *const c_char) -> CoreResult<&'a str> {
+unsafe fn text_arg<'a>(ptr: *const c_char, field: &'static str) -> CoreResult<&'a str> {
     if ptr.is_null() {
-        return Err(CoreError::invalid_arg("request"));
+        return Err(CoreError::invalid_arg(field));
     }
     CStr::from_ptr(ptr)
         .to_str()
-        .map_err(|_| CoreError::invalid_arg("request"))
+        .map_err(|_| CoreError::invalid_arg(field))
+}
+
+unsafe fn request_text<'a>(ptr: *const c_char) -> CoreResult<&'a str> {
+    text_arg(ptr, "request")
 }
 
 fn into_c_string(value: &Value) -> *mut c_char {
@@ -257,30 +262,36 @@ pub extern "C" fn logcore_page(
         if let Err(e) = state::check(h.state(), Op::Page) {
             return record(e);
         }
-        // 失败路径不留可释放的 out 值；out 指针为 null 的调用无法写。
-        if !out_ptr.is_null() {
-            unsafe { *out_ptr = std::ptr::null_mut() };
-        }
-        if !out_len.is_null() {
-            unsafe { *out_len = 0 };
-        }
+        clear_page_out(out_ptr, out_len);
         if out_ptr.is_null() || out_len.is_null() {
             return record(CoreError::invalid_arg("out"));
         }
         match h.page(start, count) {
-            Ok(bytes) => {
-                let boxed = bytes.into_boxed_slice();
-                let len = boxed.len();
-                let ptr = Box::into_raw(boxed) as *mut u8;
-                unsafe {
-                    *out_ptr = ptr;
-                    *out_len = len;
-                }
-                OK
-            }
+            Ok(bytes) => write_page_out(bytes, out_ptr, out_len),
             Err(e) => record(e),
         }
     })
+}
+
+/// 失败路径不留可释放的 out 值；null 指针跳过。
+fn clear_page_out(out_ptr: *mut *mut u8, out_len: *mut usize) {
+    if !out_ptr.is_null() {
+        unsafe { *out_ptr = std::ptr::null_mut() };
+    }
+    if !out_len.is_null() {
+        unsafe { *out_len = 0 };
+    }
+}
+
+/// 页缓冲交接：core 分配，宿主以 `logcore_free_page(ptr, len)` 释放。
+fn write_page_out(bytes: Vec<u8>, out_ptr: *mut *mut u8, out_len: *mut usize) -> i32 {
+    let boxed = bytes.into_boxed_slice();
+    let len = boxed.len();
+    unsafe {
+        *out_ptr = Box::into_raw(boxed) as *mut u8;
+        *out_len = len;
+    }
+    OK
 }
 
 /// 释放页缓冲：按 `len` 重建 `Box<[u8]>`（分配时长度即容量）；null 安全。
@@ -294,6 +305,133 @@ pub extern "C" fn logcore_free_page(ptr: *mut u8, len: usize) {
         drop(unsafe { Box::from_raw(slice) });
         OK
     });
+}
+
+/// 开启查询：源须 `Loaded`；扫描同步完成后返回查询句柄。
+#[no_mangle]
+pub extern "C" fn logcore_open_query(
+    handle: *mut SourceHandle,
+    filter_json: *const c_char,
+    out_query: *mut *mut QueryHandle,
+) -> i32 {
+    guard(|| {
+        if !out_query.is_null() {
+            unsafe { *out_query = std::ptr::null_mut() };
+        }
+        let Some(h) = (unsafe { handle.as_ref() }) else {
+            return record(CoreError::invalid_arg("handle"));
+        };
+        if out_query.is_null() {
+            return record(CoreError::invalid_arg("out"));
+        }
+        let result = (|| -> CoreResult<*mut QueryHandle> {
+            let filter = unsafe { text_arg(filter_json, "filter")? };
+            Ok(Box::into_raw(Box::new(query::open(h, filter)?)))
+        })();
+        match result {
+            Ok(query) => {
+                unsafe { *out_query = query };
+                OK
+            }
+            Err(e) => record(e),
+        }
+    })
+}
+
+#[no_mangle]
+pub extern "C" fn logcore_query_row_count(query: *mut QueryHandle, out_rows: *mut u64) -> i32 {
+    guard(|| {
+        let Some(q) = (unsafe { query.as_ref() }) else {
+            return record(CoreError::invalid_arg("query"));
+        };
+        if out_rows.is_null() {
+            return record(CoreError::invalid_arg("out"));
+        }
+        unsafe { *out_rows = q.row_count() };
+        OK
+    })
+}
+
+/// 定位：返回最近结果行的文档行号；无结果时成功且写 `-1`。
+#[no_mangle]
+pub extern "C" fn logcore_query_resolve(
+    query: *mut QueryHandle,
+    doc_row: i64,
+    out_doc_row: *mut i64,
+) -> i32 {
+    guard(|| {
+        if !out_doc_row.is_null() {
+            unsafe { *out_doc_row = -1 };
+        }
+        let Some(q) = (unsafe { query.as_ref() }) else {
+            return record(CoreError::invalid_arg("query"));
+        };
+        if out_doc_row.is_null() {
+            return record(CoreError::invalid_arg("out"));
+        }
+        unsafe { *out_doc_row = q.resolve(doc_row).map_or(-1, |row| row as i64) };
+        OK
+    })
+}
+
+/// 向后取页：起点为真实文档行号；页缓冲复用 `logcore_free_page`。
+#[no_mangle]
+pub extern "C" fn logcore_query_page(
+    query: *mut QueryHandle,
+    start: i64,
+    count: i64,
+    out_ptr: *mut *mut u8,
+    out_len: *mut usize,
+) -> i32 {
+    guard(|| {
+        clear_page_out(out_ptr, out_len);
+        let Some(q) = (unsafe { query.as_ref() }) else {
+            return record(CoreError::invalid_arg("query"));
+        };
+        if out_ptr.is_null() || out_len.is_null() {
+            return record(CoreError::invalid_arg("out"));
+        }
+        match q.page(start, count) {
+            Ok(bytes) => write_page_out(bytes, out_ptr, out_len),
+            Err(e) => record(e),
+        }
+    })
+}
+
+/// 向上取页：终点为排他文档行号，页内升序。
+#[no_mangle]
+pub extern "C" fn logcore_query_page_backward(
+    query: *mut QueryHandle,
+    end: i64,
+    count: i64,
+    out_ptr: *mut *mut u8,
+    out_len: *mut usize,
+) -> i32 {
+    guard(|| {
+        clear_page_out(out_ptr, out_len);
+        let Some(q) = (unsafe { query.as_ref() }) else {
+            return record(CoreError::invalid_arg("query"));
+        };
+        if out_ptr.is_null() || out_len.is_null() {
+            return record(CoreError::invalid_arg("out"));
+        }
+        match q.page_backward(end, count) {
+            Ok(bytes) => write_page_out(bytes, out_ptr, out_len),
+            Err(e) => record(e),
+        }
+    })
+}
+
+/// 释放查询句柄：null 安全；查询不持有源句柄，无需先关源。
+#[no_mangle]
+pub extern "C" fn logcore_free_query(query: *mut QueryHandle) -> i32 {
+    guard(|| {
+        if query.is_null() {
+            return OK;
+        }
+        drop(unsafe { Box::from_raw(query) });
+        OK
+    })
 }
 
 /// 启动维护：无句柄、不依赖活动源（D19）。
@@ -690,6 +828,37 @@ mod tests {
         (code, ptr, len)
     }
 
+    fn open_query(handle: *mut SourceHandle, filter: &str) -> (i32, *mut QueryHandle) {
+        let text = CString::new(filter).unwrap();
+        let mut query: *mut QueryHandle = std::ptr::null_mut();
+        let code = logcore_open_query(handle, text.as_ptr(), &mut query);
+        (code, query)
+    }
+
+    fn query_page_call(query: *mut QueryHandle, start: i64, count: i64) -> (i32, *mut u8, usize) {
+        let mut ptr: *mut u8 = std::ptr::null_mut();
+        let mut len = 0usize;
+        let code = logcore_query_page(query, start, count, &mut ptr, &mut len);
+        (code, ptr, len)
+    }
+
+    fn query_page_backward_call(
+        query: *mut QueryHandle,
+        end: i64,
+        count: i64,
+    ) -> (i32, *mut u8, usize) {
+        let mut ptr: *mut u8 = std::ptr::null_mut();
+        let mut len = 0usize;
+        let code = logcore_query_page_backward(query, end, count, &mut ptr, &mut len);
+        (code, ptr, len)
+    }
+
+    fn doc_row_at(ptr: *const u8, len: usize, record: usize) -> u32 {
+        let bytes = unsafe { std::slice::from_raw_parts(ptr, len) };
+        let at = 36 + record * 52;
+        u32::from_le_bytes(bytes[at..at + 4].try_into().unwrap())
+    }
+
     fn paging_fixture(tag: &str) -> (std::path::PathBuf, std::path::PathBuf) {
         let dir = temp_dir(tag);
         let file = text_file(
@@ -875,5 +1044,122 @@ mod tests {
     fn cabi_free_page_null_safe() {
         logcore_free_page(std::ptr::null_mut(), 0);
         logcore_free_page(std::ptr::null_mut(), 36);
+    }
+
+    #[test]
+    fn cabi_open_query_rejects_null_out() {
+        let (dir, file) = paging_fixture("ffi-q-nullout");
+        let req = file_request(&file, &dir, &dir, "logcore-ffi-qn", "", &[], 500, "Auto");
+        let handle = loaded_handle(&req);
+        let filter = CString::new("{}").unwrap();
+        let code = logcore_open_query(handle, filter.as_ptr(), std::ptr::null_mut());
+        assert_eq!(code, logcore_core::error::INVALID_ARG);
+        assert_eq!(take_error()["params"]["field"], "out");
+        assert_eq!(logcore_close(handle), OK);
+        assert_eq!(logcore_free_handle(handle), OK);
+    }
+
+    #[test]
+    fn cabi_open_query_invalid_filter_field() {
+        let (dir, file) = paging_fixture("ffi-q-badfilter");
+        let req = file_request(&file, &dir, &dir, "logcore-ffi-qb", "", &[], 500, "Auto");
+        let handle = loaded_handle(&req);
+        let (code, query) = open_query(handle, r#"{"levels":[0]}"#);
+        assert_eq!(code, logcore_core::error::INVALID_ARG);
+        assert!(query.is_null(), "失败不产出查询句柄");
+        assert_eq!(take_error()["params"]["field"], "levels");
+        assert_eq!(logcore_close(handle), OK);
+        assert_eq!(logcore_free_handle(handle), OK);
+    }
+
+    #[test]
+    fn cabi_query_page_roundtrip() {
+        let (dir, file) = paging_fixture("ffi-q-page");
+        let req = file_request(&file, &dir, &dir, "logcore-ffi-qp", "", &[], 500, "Auto");
+        let handle = loaded_handle(&req);
+        let (code, query) = open_query(handle, r#"{"pids":{"values":[3]}}"#);
+        assert_eq!(code, OK);
+        let mut rows = 0u64;
+        assert_eq!(logcore_query_row_count(query, &mut rows), OK);
+        assert_eq!(rows, 1);
+        let (code, ptr, len) = query_page_call(query, 0, 10);
+        assert_eq!(code, OK);
+        assert_eq!(header_rows(ptr), 1);
+        assert_eq!(doc_row_at(ptr, len, 0), 1, "行记录写真实文档行号");
+        logcore_free_page(ptr, len);
+        assert_eq!(logcore_free_query(query), OK);
+        assert_eq!(logcore_close(handle), OK);
+        assert_eq!(logcore_free_handle(handle), OK);
+    }
+
+    #[test]
+    fn cabi_query_page_backward_roundtrip() {
+        let (dir, file) = paging_fixture("ffi-q-back");
+        let req = file_request(&file, &dir, &dir, "logcore-ffi-qbk", "", &[], 500, "Auto");
+        let handle = loaded_handle(&req);
+        let (code, query) = open_query(handle, "{}");
+        assert_eq!(code, OK);
+        let (code, ptr, len) = query_page_backward_call(query, 3, 2);
+        assert_eq!(code, OK);
+        assert_eq!(header_rows(ptr), 2);
+        assert_eq!(
+            (doc_row_at(ptr, len, 0), doc_row_at(ptr, len, 1)),
+            (1, 2),
+            "取终点前最近两行且页内升序"
+        );
+        logcore_free_page(ptr, len);
+        assert_eq!(logcore_free_query(query), OK);
+        assert_eq!(logcore_close(handle), OK);
+        assert_eq!(logcore_free_handle(handle), OK);
+    }
+
+    #[test]
+    fn cabi_query_resolve_no_result_is_minus_one() {
+        let (dir, file) = paging_fixture("ffi-q-resolve");
+        let req = file_request(&file, &dir, &dir, "logcore-ffi-qr", "", &[], 500, "Auto");
+        let handle = loaded_handle(&req);
+        let (code, query) = open_query(handle, r#"{"pids":{"values":[999]}}"#);
+        assert_eq!(code, OK);
+        let mut out_row = 7i64;
+        assert_eq!(logcore_query_resolve(query, 1, &mut out_row), OK);
+        assert_eq!(out_row, -1, "无定位不是错误，写 -1");
+        let mut out_row = 7i64;
+        assert_eq!(logcore_query_resolve(query, -5, &mut out_row), OK);
+        assert_eq!(out_row, -1, "空结果集负锚点同样写 -1");
+        assert_eq!(logcore_free_query(query), OK);
+        assert_eq!(logcore_close(handle), OK);
+        assert_eq!(logcore_free_handle(handle), OK);
+    }
+
+    #[test]
+    fn cabi_query_page_clears_out_on_error() {
+        let (dir, file) = paging_fixture("ffi-q-clear");
+        let req = file_request(&file, &dir, &dir, "logcore-ffi-qc", "", &[], 500, "Auto");
+        let handle = loaded_handle(&req);
+        let (code, query) = open_query(handle, "{}");
+        assert_eq!(code, OK);
+        let mut ptr: *mut u8 = 1 as *mut u8;
+        let mut len = 7usize;
+        let code = logcore_query_page(query, 0, 5000, &mut ptr, &mut len);
+        assert_eq!(code, logcore_core::error::INVALID_ARG);
+        assert_eq!(take_error()["params"]["field"], "count");
+        assert!(ptr.is_null(), "失败路径清空页指针");
+        assert_eq!(len, 0);
+        assert_eq!(logcore_free_query(query), OK);
+        assert_eq!(logcore_close(handle), OK);
+        assert_eq!(logcore_free_handle(handle), OK);
+    }
+
+    #[test]
+    fn cabi_free_query_null_safe() {
+        assert_eq!(logcore_free_query(std::ptr::null_mut()), OK);
+        let (dir, file) = paging_fixture("ffi-q-free");
+        let req = file_request(&file, &dir, &dir, "logcore-ffi-qf", "", &[], 500, "Auto");
+        let handle = loaded_handle(&req);
+        let (code, query) = open_query(handle, "{}");
+        assert_eq!(code, OK);
+        assert_eq!(logcore_free_query(query), OK);
+        assert_eq!(logcore_close(handle), OK);
+        assert_eq!(logcore_free_handle(handle), OK);
     }
 }

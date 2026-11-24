@@ -166,11 +166,28 @@ public sealed class LogcoreSource : IDisposable
         }
     }
 
+    /// <summary>在已装载源上开启查询：扫描同步完成，结果集固化在查询句柄内。</summary>
+    public LogcoreQuery OpenQuery(string filterJson)
+    {
+        ArgumentNullException.ThrowIfNull(filterJson);
+        var text = Marshal.StringToCoTaskMemUTF8(filterJson);
+        try
+        {
+            var code = _native.OpenQuery(Handle, text, out var query);
+            ThrowIfError(_native, code);
+            return new LogcoreQuery(_native, query);
+        }
+        finally
+        {
+            Marshal.FreeCoTaskMem(text);
+        }
+    }
+
     const int PageHeaderBytes = 36;
     const int PageRowBytes = 52;
     const uint NoRef = uint.MaxValue;
 
-    static IReadOnlyList<LogcorePageRow> ParsePage(IntPtr buffer, UIntPtr length)
+    internal static IReadOnlyList<LogcorePageRow> ParsePage(IntPtr buffer, UIntPtr length)
     {
         var data = new byte[checked((int)length.ToUInt64())];
         Marshal.Copy(buffer, data, 0, data.Length);
@@ -196,7 +213,7 @@ public sealed class LogcoreSource : IDisposable
             var raw = blob.Slice(textOff, textLen).ToArray();
             result[i] = new LogcorePageRow
             {
-                Ord = BinaryPrimitives.ReadUInt32LittleEndian(rec),
+                DocRow = BinaryPrimitives.ReadUInt32LittleEndian(rec),
                 Level = rec[4],
                 Pid = BinaryPrimitives.ReadInt32LittleEndian(rec[8..]),
                 Tid = BinaryPrimitives.ReadInt32LittleEndian(rec[12..]),
@@ -289,7 +306,7 @@ public sealed class LogcoreSource : IDisposable
         }
     }
 
-    static void ThrowIfError(LogcoreNative.Exports native, int code)
+    internal static void ThrowIfError(LogcoreNative.Exports native, int code)
     {
         if (code == LogcoreErrorCodes.Ok)
         {

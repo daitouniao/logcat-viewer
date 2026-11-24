@@ -28,6 +28,7 @@ pub enum Op {
     FreeHandle,
     RowCount,
     Page,
+    OpenQuery,
 }
 
 impl Op {
@@ -44,6 +45,7 @@ impl Op {
             Op::FreeHandle => "free_handle",
             Op::RowCount => "row_count",
             Op::Page => "page",
+            Op::OpenQuery => "open_query",
         }
     }
 }
@@ -59,8 +61,8 @@ pub fn check(state: State, op: Op) -> CoreResult<()> {
         (FreeHandle, _) => INVALID_STATE,
         // 其余操作在 Closed 上的返回码
         (_, Closed) => CLOSED,
-        (RowCount, Loaded) | (Page, Loaded) => return Ok(()),
-        (RowCount, _) | (Page, _) => INVALID_STATE,
+        (RowCount, Loaded) | (Page, Loaded) | (OpenQuery, Loaded) => return Ok(()),
+        (RowCount, _) | (Page, _) | (OpenQuery, _) => INVALID_STATE,
         (Commit, PlanReady) => return Ok(()),
         (Commit, _) => INVALID_STATE,
         (Feed, Running) => return Ok(()),
@@ -109,6 +111,19 @@ mod tests {
     }
 
     #[test]
+    fn state_open_query_only_loaded() {
+        for state in STATES {
+            if state == State::Loaded {
+                assert_eq!(allowed(state, Op::OpenQuery), None, "Loaded 放行");
+            } else if state == State::Closed {
+                assert_eq!(allowed(state, Op::OpenQuery), Some(CLOSED));
+            } else {
+                assert_eq!(allowed(state, Op::OpenQuery), Some(INVALID_STATE));
+            }
+        }
+    }
+
+    #[test]
     fn state_free_before_close_invalid() {
         for state in STATES {
             if state == State::Closed {
@@ -127,7 +142,7 @@ mod tests {
     #[test]
     fn state_matrix_matches_d23() {
         // 逐格表（D23 矩阵的完整副本，防止实现随手放宽）
-        let table: [(Op, [Option<i32>; 8]); 11] = [
+        let table: [(Op, [Option<i32>; 8]); 12] = [
             (
                 Op::Commit,
                 [None, Some(5), Some(5), Some(5), Some(5), Some(5), Some(5), Some(4)],
@@ -170,6 +185,10 @@ mod tests {
             ),
             (
                 Op::Page,
+                [Some(5), Some(5), None, Some(5), Some(5), Some(5), Some(5), Some(4)],
+            ),
+            (
+                Op::OpenQuery,
                 [Some(5), Some(5), None, Some(5), Some(5), Some(5), Some(5), Some(4)],
             ),
         ];

@@ -19,7 +19,7 @@ internal static class PageFixture
     internal static string[] Snapshot(LogcoreSource source) =>
         source.GetPage(0, 100).Select(r =>
             string.Join('|',
-                r.Ord,
+                r.DocRow,
                 r.Level,
                 r.Pid,
                 r.Tid,
@@ -45,7 +45,7 @@ public sealed class LogcorePageContentIT : LogcoreIntegrationTest
 
         var rows = source.GetPage(0, 10);
         Assert.Equal(lines.Length, rows.Count);
-        Assert.Equal(Enumerable.Range(0, lines.Length).Select(i => (uint)i), rows.Select(r => r.Ord));
+        Assert.Equal(Enumerable.Range(0, lines.Length).Select(i => (uint)i), rows.Select(r => r.DocRow));
         Assert.Equal((ulong)lines.Length, source.RowCount());
 
         var first = rows[0];
@@ -81,7 +81,7 @@ public sealed class LogcorePageContentIT : LogcoreIntegrationTest
         LogcoreTestSupport.DrainUntil(source, es => es.Any(e => e.Type == "done"));
 
         var tail = source.GetPage(4, 10);
-        Assert.Equal(new uint[] { 4, 5 }, tail.Select(r => r.Ord));
+        Assert.Equal(new uint[] { 4, 5 }, tail.Select(r => r.DocRow));
         Assert.Equal("11-14 12:00:03.000", tail[0].Time);
         source.Close();
         source.Free();
@@ -275,7 +275,7 @@ public sealed class LogcorePagePathsIT : LogcoreIntegrationTest
             all.AddRange(source.GetPage(start, 7));
         }
         Assert.Equal(100, all.Count);
-        Assert.Equal(Enumerable.Range(0, 100).Select(i => (uint)i), all.Select(r => r.Ord));
+        Assert.Equal(Enumerable.Range(0, 100).Select(i => (uint)i), all.Select(r => r.DocRow));
         Assert.Equal(Enumerable.Range(0, 100).Select(i => $"row{i}"), all.Select(r => r.Message));
         source.Close();
         source.Free();
