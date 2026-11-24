@@ -33,7 +33,7 @@
 ## 6. 全量验证与合入
 
 - [x] 6.1 在 worktree 跑全量：`cargo build` + `cargo test --workspace -- --test-threads=1` + `dotnet test tests/logcat.Tests/logcat.Tests.csproj` + `bash scripts/run-tests-en-us.sh`（Release + en-US，与 CI 同口径）；确认受影响用例全过、全量无新增失败并记录条数
-- [ ] 6.2 将 `wt/rust-core-query-handle` 合入目标分支 `master`（`git merge`），在 master 上重跑 6.1 的全部命令并确认结果一致
+- [x] 6.2 将 `wt/rust-core-query-handle` 合入目标分支 `master`（`git merge`），在 master 上重跑 6.1 的全部命令并确认结果一致
 - [x] 6.3 `openspec validate rust-core-query-handle --strict` 通过；回读四件产物与实现，列出需求与用例覆盖对照
   - 查询开启与结果集 → `query_open_empty_filter_is_identity`、`query_open_filtered_row_count`、`query_open_invalid_filter_reports_field`、`query_open_requires_loaded`、`query_open_after_close_returns_closed`、`query_open_empty_document`、`query_two_queries_independent`
   - 结果分页 → `query_page_starts_at_real_doc_row`、`_forward_skips_non_matching`、`_forward_no_repeat`、`_between_results_starts_next`、`_past_end_returns_empty`、`_zero_count_returns_empty`、`_rejects_negative_start`、`_rejects_zero_count_with_negative_start`、`_rejects_negative_count`、`_rejects_count_over_max`、`_text_matches_source`、`_entries_carry_doc_row`
