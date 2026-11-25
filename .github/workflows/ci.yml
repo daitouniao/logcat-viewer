@@ -75,3 +75,39 @@ jobs:
             Where-Object { $_.DirectoryName -like "*tmp*" } |
             Select-Object -First 20 |
             ForEach-Object { Write-Host "=== $($_.FullName) ==="; Get-Content $_.FullName -TotalCount 50 }
+
+  # MCP 服务端（Node，mcp/）：独立的 stdio 服务端工程，与 .NET 主工程无耦合，
+  # 故单开一个作业——Node 装好就能跑，不必等 .NET 那一摊。
+  mcp:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: mcp
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # SDK 要求 Node ≥ 20；此处钉住 LTS 主线。
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Show environment
+        run: |
+          Write-Host "--- node ---"
+          node --version
+          Write-Host "--- npm ---"
+          npm --version
+
+      # 锁文件入库，用 ci 严格按锁定版本安装，不让传递依赖漂移。
+      - name: Install dependencies
+        run: npm ci
+
+      # 构建与测试分开两步：编译失败与用例失败在日志里要能区分开。
+      - name: Build
+        run: npm run build
+
+      - name: Test
+        run: npm test
