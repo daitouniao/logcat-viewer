@@ -37,7 +37,7 @@
 
 ## 7. 合入
 
-- [ ] 7.1 将 `wt/avalonia-ui-shell` 合入目标分支 `master`；验证：合入后 `master` 上 `dotnet build` 与 `dotnet test` 全过，并报告用例口径数字
+- [x] 7.1 将 `wt/avalonia-ui-shell` 合入目标分支 `master`；验证：合入后 `master` 上 `dotnet test` 全过（主仓 923/923、Next.Tests 30/30）
 
 ## Workflow follow-up
 
