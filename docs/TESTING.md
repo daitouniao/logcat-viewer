@@ -1,6 +1,6 @@
 # 单元测试与覆盖率实操指南
 
-> 最后更新：2026-11-24
+> 最后更新：2026-11-26
 > 本文是「怎么把测试跑起来、覆盖率怎么出」的**唯一操作入口**。
 > 有效性审计（变异测试）见 [`UT-AUDIT.md`](UT-AUDIT.md)。
 > **CI 语言环境陷阱**（本地全绿、推送就红）见 §3.4。
@@ -698,7 +698,33 @@ C# 侧绑定 UT + 经 FFI 的 IT 合计 **71/71**。
 
 ---
 
-## 7. 新 UI 宿主（`logcat-next/`）
+## 7. MCP 服务端（Node，`mcp/`）
+
+MCP 服务端工程 `mcp/`（OpenSpec change mcp-node-shell）是独立的 Node 进程，
+用例数与覆盖率**不并入**上方 C# / Rust 的合计口径：
+
+| 入口 | 说明 |
+| --- | --- |
+| `npm --prefix mcp ci` | 按锁文件安装依赖（Node ≥ 20） |
+| `npm --prefix mcp run build` | TypeScript 编译，产出在 `mcp/dist/`（已忽略，不入库） |
+| `npm --prefix mcp test` | 编译后跑 `node --test dist/test/`（Node 内置测试运行器，无第三方 runner） |
+| `npm --prefix mcp run test:coverage` | 同上并输出 Node 内置覆盖率（`--experimental-test-coverage`） |
+
+覆盖内容：契约信封与错误码（信封同源、错误码取值与命名族、区域无关性）、
+握手与能力声明、工具注册与列举、未注册工具与未握手调用的拒绝路径、
+自述工具五项字段、stdout 纯净性、端到端链路（子进程拉起）、客户端断开后的进程退出、
+引擎无关性与依赖清单检查。
+
+本机实测（2026-11-26）：**41 条用例，40 通过 / 0 失败 / 1 跳过**。
+跳过项为「收到终止信号后退出」——Windows 不向子进程投递 POSIX 信号，
+该用例仅在类 Unix 平台执行；断开标准输入触发退出是另一条用例，已在本机通过。
+
+> 端到端用例以子进程方式拉起服务端并观测真实的标准输出、标准错误与退出码，
+> 不做进程内替换；标准输出的每一行都逐行断言为合法协议消息。
+
+---
+
+## 8. 新 UI 宿主（`logcat-next/`）
 
 新 UI 宿主（OpenSpec change avalonia-ui-shell）带独立测试工程 `Next.Tests`，数字与上表互不相加：
 
@@ -716,9 +742,10 @@ C# 侧绑定 UT + 经 FFI 的 IT 合计 **71/71**。
 
 ---
 
-## 8. 一句话速查
+## 9. 一句话速查
 
 - 我在终端 → §2.1（`dotnet test --collect` + `python tests/coverage-report.py`）。
 - 智能体沙箱 → §3 建 tstrun 跑测试、§2.2 用 coverlet console 出覆盖率。
 - 数字看着不对 → §5，先查分母（§5.1）。
 - 数字好看但心里没底 → [`UT-AUDIT.md`](UT-AUDIT.md) 跑变异测试。
+- MCP 服务端（Node）→ §7，`npm --prefix mcp test`。

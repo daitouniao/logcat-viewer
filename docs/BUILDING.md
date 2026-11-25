@@ -61,6 +61,25 @@ C# 绑定层按下列顺序探测 `logcore.dll`，取第一个存在的：
 全部不存在时，`Logcore.UseLibrary` 抛 `LogcoreUnavailableException`，消息同时给出
 `cargo build` 与 `LOGCORE_DLL` 两条出路；已成功加载的库不受后续探测失败影响。
 
+### MCP 服务端（`mcp/`，Node）
+
+MCP 服务端是独立的 Node 工程，不在 `logcat.slnx` 里，需单独安装与编译。
+要求 Node ≥ 20（SDK 的引擎要求）。锁文件 `mcp/package-lock.json` 已入库。
+
+```powershell
+npm --prefix mcp ci         # 按锁文件安装依赖
+npm --prefix mcp run build  # 编译：产出 mcp/dist/（已忽略，不入库）
+```
+
+编译产物入口为 `mcp/dist/src/index.js`（ESM）。本地手动跑一次：
+
+```powershell
+node mcp/dist/src/index.js
+```
+
+该进程以标准输入输出承载 MCP 协议消息，标准输出只写协议消息、诊断信息走标准错误；
+标准输入到达文件末尾（客户端断开）时进程随之退出。
+
 ## 三、跑测试
 
 ```powershell
@@ -83,6 +102,14 @@ dotnet build tests\logcat.Tests\logcat.Tests.csproj -c Release
 ```
 
 完整测试与覆盖率办法见 [`TESTING.md`](TESTING.md)。
+
+MCP 服务端工程的测试用 Node 内置测试运行器，无第三方 runner：
+
+```powershell
+npm --prefix mcp test
+```
+
+该命令先编译再跑 `node --test mcp/dist/test/`；覆盖率用 `npm --prefix mcp run test:coverage`。
 
 ## 四、发布
 
