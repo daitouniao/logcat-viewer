@@ -19,6 +19,26 @@ Node 用例数**单独记录**，不并入上表 C# / Rust 合计口径。
 **唯一跳过项**：「收到终止信号后退出」——Windows 不向子进程投递 POSIX 信号，
 该用例仅在类 Unix 平台执行；「客户端断开后服务端退出」是另一条用例，本机已通过。
 
+### 合入 master 后的复跑（任务 9.3）
+
+`wt/mcp-node-shell` 合入 `master`（快进）后在 master 上重跑上表全部命令，结果一致：
+
+| 口径 | master 复跑结果 |
+| --- | --- |
+| `cargo test --workspace -- --test-threads=1` | **425 / 425 全过**（core 392 + cabi 33） |
+| `dotnet test tests/logcat.Tests/logcat.Tests.csproj -c Release` | **923 / 923 全过，0 失败，0 跳过** |
+| `bash scripts/run-tests-en-us.sh` | **Total tests: 923**，EXIT 0 |
+| `npm --prefix mcp test` | **41 条用例，40 通过 / 0 失败 / 1 跳过** |
+
+> **环境坑（非本刀引入）**：master 上首轮复跑时 Rust UT 与 56 条 C# IT 报
+> `PermissionDenied / Access denied`，落点在 `crates/core/src/testutil.rs` 的
+> `fs::create_dir_all(std::env::temp_dir() …)` 与 `LogcoreTestSupport.NewTempDir`
+> 的 `Path.GetTempPath()`——**本机 `%TEMP%`（`AppData\Local\Temp`）当时被拒**，
+> 与本刀改动无关（本刀零 C#/Rust 改动）。按 `docs/TESTING.md` 既定办法把
+> `TMP`/`TEMP` 指到仓库内 `.tmp-test/covtemp` 后复跑，全绿。
+> 另注：Windows PowerShell 5.1 读取无 BOM 且含中文的 `.ps1` 时按 ANSI 解码，
+> 注释乱码会破坏后续行解析——本轮复跑脚本改为纯 ASCII 后正常。
+
 ## 二、改动清单
 
 | 文件 | 改动 |

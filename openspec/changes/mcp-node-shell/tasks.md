@@ -63,4 +63,4 @@
 
 - [ ] [x] 9.1 全量验证：在 worktree 内执行 `cargo build` 与 `cargo test --workspace -- --test-threads=1`，以及 `dotnet test tests/logcat.Tests/logcat.Tests.csproj`，与 `bash scripts/run-tests-en-us.sh`（Release 构建 + en-US 区域全量测试，与流水线口径一致）；确认受影响用例全过、全量无新增失败，并记录各口径条数
 - [ ] [x] 9.2 执行 `openspec validate mcp-node-shell --strict` 通过；在本 change 目录下产出 `apply-log.md`（沿用本仓惯例：状态头含状态/日期/归档/分支与目标分支，含「实测结果」表），其中「实测结果」记录 9.1 各口径条数，并附一段覆盖对照——逐条列出本刀规范需求与对应测试用例名、标出未覆盖项
-- [ ] 9.3 wt 合入目标分支 `master`（`git merge wt/mcp-node-shell`），在 `master` 上重跑 9.1 的全部命令并确认结果一致
+- [ ] [x] 9.3 wt 合入目标分支 `master`（`git merge wt/mcp-node-shell`），在 `master` 上重跑 9.1 的全部命令并确认结果一致
