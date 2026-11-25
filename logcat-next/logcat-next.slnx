@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="Next.Interop/Next.Interop.csproj" />
+  <Project Path="Next.App/Next.App.csproj" />
+  <Project Path="Next.Tests/Next.Tests.csproj" />
+</Solution>

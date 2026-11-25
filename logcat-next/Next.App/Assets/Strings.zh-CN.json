@@ -1,0 +1,19 @@
+{
+  "App.Title": "logcat Next",
+  "Menu.File": "文件",
+  "Menu.Open": "打开文件…",
+  "Menu.Language": "语言",
+  "Menu.Theme": "主题",
+  "Theme.Light": "浅色",
+  "Theme.Dark": "深色",
+  "Theme.System": "跟随系统",
+  "Lang.Zh": "简体中文",
+  "Lang.En": "English",
+  "Status.Ready": "就绪",
+  "Status.Loading": "正在加载 {0}…",
+  "Status.Loaded": "已加载 {0:N0} 行",
+  "Status.Empty": "文件为空",
+  "Error.OpenFailed": "打开失败：{0}",
+  "Error.LoadFailed": "加载失败（{0}）：{1}",
+  "Error.LogcoreMissing": "日志数据组件不可用：{0}"
+}

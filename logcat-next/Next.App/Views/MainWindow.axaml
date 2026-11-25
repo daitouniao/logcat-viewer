@@ -1,0 +1,58 @@
+﻿<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:loc="clr-namespace:Next.App.Localization;assembly=Next.App"
+        xmlns:c="using:Next.App.Controls"
+        x:Class="Next.App.Views.MainWindow"
+        Title="{loc:Loc Key=App.Title}"
+        Width="1200" Height="720"
+        FontFamily="Microsoft YaHei UI, Segoe UI"
+        FontSize="12">
+
+  <DockPanel>
+
+    <Menu DockPanel.Dock="Top">
+      <MenuItem Header="{loc:Loc Key=Menu.File}">
+        <MenuItem Header="{loc:Loc Key=Menu.Open}" Click="OnOpenClick" />
+      </MenuItem>
+      <MenuItem Header="{loc:Loc Key=Menu.Language}">
+        <MenuItem Header="{loc:Loc Key=Lang.Zh}" Tag="zh-CN" Click="OnLanguageClick" />
+        <MenuItem Header="{loc:Loc Key=Lang.En}" Tag="en" Click="OnLanguageClick" />
+      </MenuItem>
+      <MenuItem Header="{loc:Loc Key=Menu.Theme}">
+        <MenuItem Header="{loc:Loc Key=Theme.Light}" Tag="light" Click="OnThemeClick" />
+        <MenuItem Header="{loc:Loc Key=Theme.Dark}" Tag="dark" Click="OnThemeClick" />
+        <MenuItem Header="{loc:Loc Key=Theme.System}" Tag="system" Click="OnThemeClick" />
+      </MenuItem>
+    </Menu>
+
+    <!-- 列标题：与画布列起点一致的域常量（不走本地化，与旧查看器同口径） -->
+    <Border DockPanel.Dock="Top" Background="{DynamicResource Surface.HeaderRow}"
+            BorderBrush="{DynamicResource Surface.Border}" BorderThickness="0,0,0,1">
+      <Canvas Height="22">
+        <TextBlock Canvas.Left="70" Canvas.Top="4" Text="#" Foreground="{DynamicResource Text.Muted}" />
+        <TextBlock Canvas.Left="190" Canvas.Top="4" Text="Time" Foreground="{DynamicResource Text.Muted}" />
+        <TextBlock Canvas.Left="258" Canvas.Top="4" Text="PID" Foreground="{DynamicResource Text.Muted}" />
+        <TextBlock Canvas.Left="326" Canvas.Top="4" Text="TID" Foreground="{DynamicResource Text.Muted}" />
+        <TextBlock Canvas.Left="356" Canvas.Top="4" Text="Lv" Foreground="{DynamicResource Text.Muted}" />
+        <TextBlock Canvas.Left="390" Canvas.Top="4" Text="Tag" Foreground="{DynamicResource Text.Muted}" />
+        <TextBlock Canvas.Left="518" Canvas.Top="4" Text="Message" Foreground="{DynamicResource Text.Muted}" />
+      </Canvas>
+    </Border>
+
+    <!-- 状态栏：文案经 StatusText（键 + 参数本地化），错误与进度都落这里 -->
+    <Border DockPanel.Dock="Bottom" Background="{DynamicResource Surface.Panel}"
+            BorderBrush="{DynamicResource Surface.Border}" BorderThickness="0,1,0,0">
+      <TextBlock Margin="8,4" Text="{Binding StatusText}" Foreground="{DynamicResource Text.Primary}" />
+    </Border>
+
+    <!-- 虚拟滚动：画布固定在视口自绘（不随内容平移），ScrollViewer 只提供滚动范围与滚动条 -->
+    <Panel ClipToBounds="True">
+      <c:LogCanvas x:Name="Canvas" Provider="{Binding Provider}" IsHitTestVisible="False" />
+      <ScrollViewer x:Name="Scroller" Padding="0" Background="Transparent">
+        <Panel x:Name="ScrollSpace" />
+      </ScrollViewer>
+    </Panel>
+
+  </DockPanel>
+
+</Window>
