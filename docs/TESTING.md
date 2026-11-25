@@ -709,6 +709,7 @@ MCP 服务端工程 `mcp/`（OpenSpec change mcp-node-shell）是独立的 Node 
 | `npm --prefix mcp run build` | TypeScript 编译，产出在 `mcp/dist/`（已忽略，不入库） |
 | `npm --prefix mcp test` | 编译后跑 `node --test dist/test/`（Node 内置测试运行器，无第三方 runner） |
 | `npm --prefix mcp run test:coverage` | 同上并输出 Node 内置覆盖率（`--experimental-test-coverage`） |
+| `npm --prefix mcp run harness` | 手工验收台：起一个网页把 stdio 服务端桥成 HTTP，可看工具清单、调工具、看原始 JSON-RPC 流量（需先 `npm --prefix mcp run build`） |
 
 覆盖内容：契约信封与错误码（信封同源、错误码取值与命名族、区域无关性）、
 握手与能力声明、工具注册与列举、未注册工具与未握手调用的拒绝路径、

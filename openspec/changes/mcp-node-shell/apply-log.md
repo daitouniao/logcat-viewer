@@ -60,6 +60,10 @@ Node 用例数**单独记录**，不并入上表 C# / Rust 合计口径。
 
 未改动：任何 C# / Rust 生产代码、双 README、版本号同步点、发布相关配置。
 
+**追加（非契约产物）**：`mcp/dev/web-harness.mjs` —— 开发期手工验收台，把 stdio 服务端桥成
+HTTP 并用网页展示工具清单、调用结果与原始 JSON-RPC 流量；不新增工具、不改服务端契约、
+不进 `files` 发布清单，仅 `npm --prefix mcp run harness` 手动起。
+
 ## 三、规范覆盖对照
 
 | 规范需求（`specs/mcp/server-shell/spec.md`） | 对应用例 |
