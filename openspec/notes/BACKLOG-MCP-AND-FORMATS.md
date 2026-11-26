@@ -112,7 +112,9 @@ Unicode \w \d \s \b, \p{...} property classes, character-class set operations
 (?i)/(?-i) inside the pattern still applies. Limits: at most 16 patterns per message
 condition, at most 2000 characters each. Invalid or over-budget patterns are rejected
 with REGEX_INVALID and a reason (syntax / too_long / too_many / too_size) — they are
-never silently downgraded to substring matching.
+never silently downgraded to substring matching. `(?-u)` is accepted and switches the
+Perl classes to ASCII-only semantics, so `\w` stops matching CJK text — leave Unicode
+on unless you mean it.
 ```
 
 ### D6 MCP 发布形态（阻塞发布文档）

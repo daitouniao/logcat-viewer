@@ -8,11 +8,11 @@
 ## 2. 依赖与体积基线
 
 - [ ] 2.1 `crates/core/Cargo.toml` 增加 `regex = "1.13"` 与 `regex-syntax = "0.8"`（默认 feature，D1）；验证：`cargo build` 成功，`Cargo.lock` 由 27 包增至 31 包（新增 `aho-corasick` / `memchr` / `regex-automata` / `regex-syntax`），解析到的 `regex` 版本不低于 1.13
-- [ ] 2.2 实测带依赖重编后的 `logcore.dll` 增量，并与 D1 备选乙（`perf` + `unicode-case` + `unicode-perl`）对比；验证：给出 debug 与 Release 两口径的字节数，数值记入本任务备注，结论决定是否触发体积告警
+- [ ] 2.2 实测带依赖重编后的 `logcore.dll` 增量，并与 D1 裁剪档（`perf` + `unicode-case` + `unicode-perl`）对比；验证：给出 debug 与 Release 两口径的字节数、数值记入本任务备注；增量超 1.3 MiB 时**停下报告等重新拍板**，不得自行切裁剪档（见 D1）
 
-- [ ] 2.3 用临时探针（git-ignored，不落仓库）实测两项并把结论回填 `design.md`：① `RegexSetBuilder::size_limit` 按整组产物还是逐条计数，给出 16 条满载下 D7 保留清单的构造结果与峰值内存，据此定整组兜底数值（起始候选 4 MiB）；② 内联大小写开关双向实测（外层 `case:false` + pattern 内 `(?i)`、外层缺省 + pattern 内 `(?-i)`）。验证：D15 的整组数值有实测依据；D16 的两个 spec 场景与实测一致，不符则先回改 `specs/logcore/filter/spec.md` 与任务 5.3 的用例名，并把结论写回 `openspec/notes/RUST-CORE-REGEX-DIALECT.md`
+- [ ] 2.3 用临时探针（git-ignored，不落仓库）实测三项并把结论回填 `design.md`：① `RegexSetBuilder::size_limit` 按整组产物还是逐条计数，给出 16 条满载下 D7 保留清单的构造结果与峰值内存，据此定整组兜底数值（起始候选 4 MiB）；② 内联大小写开关双向实测（外层 `case:false` + pattern 内 `(?i)`、外层缺省 + pattern 内 `(?-i)`）；③ `(?-u)` 边角——属性类与集合运算是可用还是被拒、`(?-u:\W)` 在 lossy `&str` 通道上的实际表现。验证：D15 的整组数值有实测依据；D16 的两个 spec 场景与实测一致，不符则先回改 `specs/logcore/filter/spec.md` 与任务 5.3 的用例名，并把结论写回 `openspec/notes/RUST-CORE-REGEX-DIALECT.md`；③ 若构成需要承诺的可观察行为则补 spec 场景与任务 6.3 用例，否则只记入 D9 本文
 - [ ] 2.4 收口口径复核：D15 两道闸、D16 双向入规范、D17 `params` 只带 `reason`（+ 可归因时的 `index`）均已定稿并回写本文与 spec；验证：`design.md` D15–D17 无「待拍」字样（只允许整组数值与 `(?-i)` 实测这两项挂「待 2.3 结果」），`openspec validate rust-core-msg-regex --strict` 仍为 0 告警
-- [ ] 2.5 用临时探针测编译缓存收益：16 条典型 pattern 的编译耗时、编译产物内存、同一条件重复开启的命中收益；验证：回填 `design.md` D3a 的缓存归属、键、淘汰策略与容量，明确是否采用 LFU、是否需要字节预算，`openspec validate rust-core-msg-regex --strict` 仍为 0 告警
+- [ ] 2.5 用临时探针测编译缓存收益：16 条典型 pattern 的编译耗时、编译产物内存、同一条件重复开启的命中收益；验证：数值记入本任务备注，并校验 `design.md` D3a 的 8 条 / 8 MiB 取值是否需要下调（口径已定，只调数值；若收益可忽略则整体砍掉缓存），回填后 `openspec validate rust-core-msg-regex --strict` 仍为 0 告警
 
 ## 3. 错误码 17（两表对齐）
 
@@ -28,31 +28,36 @@
 
 - [ ] 4.5 开启查询面同步（`logcore/query` 的 MODIFIED）：正则非法在 open 同步拒绝、句柄状态不变，合法正则正常建查询；验证：新增 `query_open_invalid_regex_reports_regex_invalid`、`query_open_valid_regex_builds_result`，既有 `query_open_invalid_filter_reports_field` 与 `query_open_empty_filter_is_identity` 不回归
 
+- [ ] 4.6 测试落点：新建 `crates/core/src/filter_regex_tests.rs`，照 `source.rs` 末尾 `#[path = "source_tests.rs"]` 的先例由 `filter.rs` 挂载；§4–§6 的全部新用例写在该文件，实现代码仍留在 `filter.rs`；验证：`filter.rs` 不新增 `#[test]`，拆分前后 `cargo test --workspace -- --test-threads=1` 的用例总数一致
+
 ## 5. 扫描与正文语义（D2）
 
 - [ ] 5.1 正则档按 D2 每行归一化一次、该行全部 pattern 复用（lossy 置于 pattern 循环外，代码走查确认），并保持 `scan_inner` 正文接缝不变；验证：`regex_dirty_row_matches_replacement_char`、`regex_dirty_row_spanned_by_wildcard`、`regex_multi_pattern_equals_single_pattern_union`
 - [ ] 5.2 空正文与空 pattern（R3/R4）；验证：`regex_empty_body_anchor_matches`、`regex_empty_body_star_matches`、`regex_empty_body_word_boundary_misses`、`regex_empty_pattern_always_true_skips_read`、`regex_empty_pattern_exclude_yields_empty`
 - [ ] 5.3 大小写等价（缺省折叠、区分大小写精确、pattern 内联开关双向不被外层抹掉、`ß`/`ẞ`）；验证：`regex_case_insensitive_default_hits`、`regex_case_sensitive_misses`、`regex_inline_ignore_case_overrides_outer_case`、`regex_inline_case_sensitive_overrides_default`、`regex_sharp_s_fold_equivalent`
-- [ ] 5.4 `op` 与 `exclude` 组合：`RegexSet` 位集与「合并 alternation」「逐条 `is_match`」两种对照档给出同一行集，`and`/`or`/排除/顺序无关；验证：`regex_or_equals_merged_alternation`、`regex_and_requires_all_patterns`、`regex_exclude_keeps_misses`、`regex_value_order_independent`
+- [ ] 5.4 `op` 与 `exclude` 组合：实现只走 `RegexSet`（D4 已定，不再有合并档这条实现路径），「合并 alternation」与「逐条 `is_match`」只作为**测试内对照档**验证行集等价；验证：`regex_or_equals_merged_alternation_oracle`、`regex_or_equals_per_pattern_oracle`、`regex_and_requires_all_patterns`、`regex_exclude_keeps_misses`、`regex_value_order_independent`
 - [ ] 5.5 正则档沿用既有扫描不变量：块长无关、重复执行一致、只读、不回退分页；验证：`regex_chunk_size_invariant`、`regex_repeat_yields_same_result`、`regex_does_not_mutate_snapshot`
 - [ ] 5.6 正则档与子串档互不回归（同一文档、同批条件分别以两档提交）；验证：`regex_mode_does_not_change_substring_result`、`substring_default_mode_unchanged`
-- [ ] 5.7 编译缓存按 D3a 落地（每源、LRU、8 条 + 8 MiB 预留、`op`/`exclude` 不进键）：缓存只能省编译、不得改变行为；验证：`regex_cache_repeated_open_same_result`、`regex_cache_key_ignores_op_and_exclude`、`regex_cache_budget_full_still_executes`、`regex_cache_not_shared_across_sources`、`regex_cache_miss_matches_uncached_result`
+- [ ] 5.7 编译缓存按 D3a 落地（每源、LRU、8 条 + 8 MiB 预留、键取 pattern 原文序列 + `case`、`op`/`exclude` 不进键）：缓存只能省编译、不得改变行为，也不得因放不下而新增拒绝；验证：`regex_cache_repeated_open_same_result`、`regex_cache_key_ignores_op_and_exclude`、`regex_cache_key_uses_pattern_text_not_hash`、`regex_cache_budget_full_still_executes`、`regex_cache_not_shared_across_sources`、`regex_cache_miss_matches_uncached_result`
 
 ## 6. 方言边界（spec「正则方言边界」）
 
 - [ ] 6.1 环视、反向引用、原子组、独占量词按 `syntax` 拒绝，不静默降级；验证：`regex_rejects_lookahead`、`regex_rejects_lookbehind`、`regex_rejects_backreference`、`regex_rejects_atomic_group`、`regex_rejects_possessive`、`regex_rejects_unclosed_group`
 - [ ] 6.2 Unicode 语义可用（`\w` 对中文正文、`\p{...}` 属性类、字符类集合运算）；验证：`regex_unicode_word_class_on_chinese`、`regex_property_class_uppercase_letter`、`regex_class_set_operation`
+- [ ] 6.3 内联 flag 行为可观察（`(?x)` 忽略模式内空白、`(?m)` 与 `(?mR)` 对回车换行的锚点差异、`(?-u)` 把词类降为 ASCII，见 spec 三条新场景）；验证：`regex_verbose_flag_ignores_pattern_whitespace`、`regex_multiline_anchor_misses_crlf`、`regex_multiline_crlf_anchor_matches`、`regex_non_unicode_word_class_ascii_only`
 
 ## 7. 全量验证与文档联动
 
 - [ ] 7.1 Rust 全量按串行口径复跑 `cargo test --workspace -- --test-threads=1`；验证：基线 425/425（core 392 + cabi 33）无新增失败，报告「串行口径 N 条」与新增条数明细
 - [ ] 7.2 C# 全量 `dotnet test`；验证：基线 923/923 无新增失败（含 3.2 的断言扩充）
 - [ ] 7.3 更新 `docs/TESTING.md` §6 的 Rust 数字与 README×2 的徽章/当前版本行（同一批，README 两份必须同步）；验证：文档数字与 7.1/7.2 实测一致
-- [ ] 7.4 实测正则档全量扫描耗时（单条、4 条、16 条三档）并与子串档对照；验证：数值记入本任务备注，16 条上限下的耗时落在可接受口径内（否则回到 D7 调整条数上限并同步 spec）。首选 176 MB / 272 万行的网络共享样本；该样本不可用时降级为 200k 行 × 约 80 B 的合成样本折算，并在备注写明用的是哪一口径，不得混读
+- [ ] 7.4 实测正则档全量扫描耗时（单条、4 条、16 条三档）并与子串档对照；验证：数值记入本任务备注，16 条上限下的耗时落在可接受口径内（否则回到 D7 调整条数上限并同步 spec）。首选 176 MB / 272 万行的网络共享样本；该样本不可用时**复用 `crates/core/src/sample_gen.rs` 的确定性样本（`BIG_BYTES = 40 MiB`，固定种子，`source_tests.rs` 已在用）折算**，不另造新样本口径；备注须写明用的是哪一口径，且 40 MiB 的数值折算到 272 万行时按约 1/4.5 的比值换算、不得混读
+- [ ] 7.5 探索笔记收口：把 `openspec/notes/RUST-CORE-REGEX-DIALECT.md` §7 的「待拍板」各项改写为本 change 定稿后的最终状态（含 2.2/2.3/2.5 的新实测），删除被否决选项的铺陈与「未拍」字样；验证：该节不再自称「本文不下结论」，且数值与 `design.md` D1/D7/D15 一致
 
 ## 8. 收口
 
 - [ ] 8.1 wt 合入目标分支：`git merge wt/rust-core-msg-regex` 合入 **`master`**；验证：`git log master` 出现该合并、`git status` 干净；worktree 清除随归档执行（本任务只记合入完成）
+- [ ] 8.2 交付验收材料（本卡无 UI 面，不做 GUI 手测）：汇总 7.1/7.2 的口径数字与 2.2/2.3/2.5/7.4 的四项实测数值，交用户验收；验证：AI 不自行判定「验收通过」，等用户明示
 
 ## Workflow follow-up
 
@@ -61,3 +66,4 @@
 - 归档同批：把探索笔记 `openspec/notes/RUST-CORE-REGEX-DIALECT.md` 以 `git mv` 移入 `openspec/notes/archive/`（加归档日期前缀），并 `git worktree remove` 清除 `wt/rust-core-msg-regex`。
 - 归档门禁：8.1 已关闭且 `wt/rust-core-msg-regex` 已合入 `master`；tasks 存在未关闭项时不得归档。
 - 本 change 不含发版动作（版本号 5 处同步与打 tag 需另行当轮授权）。
+- 任务 2.3 / 2.5 的临时探针**用完即弃**：留在 git-ignored 目录、不入库、不注册为 `crates/cli` 子命令；要留下的只有实测数据（tasks 备注）与据此回填的 `design.md` 取值。

@@ -35,9 +35,10 @@ MCP 侧的日志分析需要模式检索（`ANR in com\..*`、"排除含 GC 的�
 
 ## Impact
 
-- **代码**：`crates/core/Cargo.toml`（加依赖）、`crates/core/src/filter.rs`（`msg.mode` 校验、`CompiledMsg` 的正则分支、每行归一化接缝）、`crates/core/src/error.rs`（新增 17 与 `param_keys`，并修正既有断言 `code_name(17) == "UNKNOWN"`）、`crates/core/src/query.rs`（开启查询对正则非法的错误口径测试）。
+- **代码**：`crates/core/Cargo.toml`（加依赖）、`crates/core/src/filter.rs`（`msg.mode` 校验、`CompiledMsg` 的正则分支、每行归一化接缝、编译缓存）、`crates/core/src/filter_regex_tests.rs`（新增，按 `source.rs` 的 `#[path]` 先例承接本卡测试）、`crates/core/src/error.rs`（新增 17 与 `param_keys`，并修正既有断言 `code_name(17) == "UNKNOWN"`）、`crates/core/src/query.rs`（开启查询对正则非法的错误口径测试）。
 - **C# 侧**：仅 `logcat-viewer/Services/Logcore/LogcoreContracts.cs` 的码名表补一条常量与映射；不改 FFI 签名、不改 UI 交互（过滤条件已是 JSON 字符串通道，正则档对宿主透明）。
 - **依赖与产物**：`Cargo.lock` 新增 4 包；`logcore.dll` 体积上浮（口径见上）。
 - **文档**：`docs/TESTING.md` §6 的 Rust 数字（基线 Rust UT 425：core 392 + cabi 33；C# 923）与 README 徽章按联动同批更新。
 - **非目标**：tag 条件开放正则、捕获组抽取与命中位置回传（属行变换，另立 capability）、导出与上下文接口的正则参数、采集源正则、编码转换（C7）、UI 输入框与 `validate_pattern` 类无句柄校验导出、稳定版发版。
 - **与在途 change 的关系**：`mcp-node-shell` 明确"不接入日志数据能力、不定义业务工具面"，`avalonia-app-storage` 只动宿主持久化，`avalonia-ui-shell` 明确不改 `crates/` 与 C ABI——三者与本 change 无文件与契约重叠。
+- **验收依据**：本 change 没有可手测的 UI 面（GUI 无正则入口、`crates/cli` 只有 90 行调试壳），故以「Rust 全量（基线 425 + 新增）与 C# 全量（基线 923）无新增失败」+「依赖体积、整组规模上限、缓存收益、全量扫描耗时四项实测数值」为验收材料，不做 GUI 手工验收；不为验收临时加 UI 入口（会触发 UI 交互改动口径，属另一张卡）。
