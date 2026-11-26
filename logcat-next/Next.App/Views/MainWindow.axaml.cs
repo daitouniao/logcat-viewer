@@ -5,6 +5,7 @@ using Avalonia.Interactivity;
 using Avalonia.Threading;
 using Next.App.Controls;
 using Next.App.Localization;
+using Next.App.Storage;
 using Next.App.ViewModels;
 
 namespace Next.App.Views;
@@ -63,11 +64,7 @@ public partial class MainWindow : Window
         if ((e.Source as Control)?.Tag is string theme)
         {
             App.ApplyTheme(theme);
-            NextSettingsStore.Save(new Localization.NextSettings
-            {
-                Lang = LocalizationService.Instance.CurrentLanguage,
-                Theme = theme,
-            });
+            AppStorage.Settings.SetTheme(theme);
         }
     }
 

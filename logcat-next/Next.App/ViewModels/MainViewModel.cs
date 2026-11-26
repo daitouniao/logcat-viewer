@@ -6,6 +6,7 @@ using Avalonia.Controls;
 using Avalonia.Threading;
 using Next.App.Localization;
 using Next.App.Services;
+using Next.App.Storage;
 using Next.Interop;
 
 namespace Next.App.ViewModels;
@@ -88,7 +89,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         var token = cts.Token;
         try
         {
-            var source = LogcoreSource.Plan(BuildRequest(path));
+            var source = LogcoreSource.Plan(BuildRequest(path, AppStorage.Roots));
             var old = _source;
             _source = source;
             _ = Task.Run(() => old?.Dispose());
@@ -148,12 +149,14 @@ public sealed class MainViewModel : INotifyPropertyChanged
         }
     }
 
-    static string BuildRequest(string path)
+    /// <summary>
+    /// 组装 plan 请求：临时目录与索引缓存目录都由持久化根提供（design D8/D9）。
+    /// 目录创建交给调用方尽力而为，失败只留日志——缓存不可用必须降级而不是阻断打开。
+    /// </summary>
+    public static string BuildRequest(string path, StorageRoots roots)
     {
-        var tempDir = Path.Combine(Path.GetTempPath(), "logcat-next");
-        Directory.CreateDirectory(tempDir);
-        var sidecarDir = Path.Combine(tempDir, "sidecar");
-        Directory.CreateDirectory(sidecarDir);
+        EnsureDirectory(roots.TempDir);
+        EnsureDirectory(roots.CacheDir);
         var root = new JsonObject
         {
             ["kind"] = "File",
@@ -169,11 +172,23 @@ public sealed class MainViewModel : INotifyPropertyChanged
             },
             ["options"] = new JsonObject
             {
-                ["tempDir"] = tempDir,
-                ["sidecar"] = new JsonObject { ["dir"] = sidecarDir },
+                ["tempDir"] = roots.TempDir,
+                ["sidecar"] = new JsonObject { ["dir"] = roots.CacheDir },
             },
         };
         return root.ToJsonString();
+    }
+
+    static void EnsureDirectory(string directory)
+    {
+        try
+        {
+            Directory.CreateDirectory(directory);
+        }
+        catch (Exception error)
+        {
+            StartupLog.Write("ERROR", $"目录不可用：{directory}", error);
+        }
     }
 
     async Task SetErrorAsync(string key, params object?[] args)
