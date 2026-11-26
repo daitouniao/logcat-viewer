@@ -37,15 +37,15 @@
 ### D1 依赖：`regex` 取默认 feature，同时显式声明 `regex-syntax`
 
 ```toml
-regex = "1.11"          # 实际解析到 1.13.2，与 Cargo.lock 一致
+regex = "1.13"          # 方言承诺与上限实测均按 1.13.2 校准，下限不得退到 1.11/1.12
 regex-syntax = "0.8"    # 字面量短路判据需要直接 use，传递依赖不可直接 import
 ```
 
 - 为什么不 `default-features = false` 裁剪 Unicode：实测（同一探针 LTO+strip，std 基线 112 KiB）`perf` 单独 = 1154 KiB、`+unicode-case` = 1243.5 KiB、`+unicode-case+unicode-perl` = 1294 KiB、全开 = 1529 KiB。地板在引擎本体（≈ +1.0 MiB），裁剪最多省 235 KiB。
 - 裁剪的失效形态是**编译失败**而非静默少结果：关 `unicode-case` 后 `(?i)TIMEOUT` 直接编译失败，关 `unicode-perl` 后 `\w+` 对中文正文编译失败。官方保证裁剪只增减合法 pattern 集合、不改匹配语义。
-- 因此默认全开（甲）：`perf-literal`（aho-corasick + memchr 字面量预筛）本就不可裁，省下的字节换不回方言能力。`Cargo.lock` 27 → 31 包（新增 `aho-corasick` / `memchr` / `regex-automata` / `regex-syntax`）。
-- 备选（乙：`perf` + `unicode-case` + `unicode-perl`）保留为可回退开关，代价是 `\p{...}` 变成"方言里没有这个写法"。**列为评审要点，未拍。**
+- 因此默认全开（**已定，2026-11-25 评审确认**）：`perf-literal`（aho-corasick + memchr 字面量预筛）本就不可裁，省下的字节换不回方言能力。裁剪档（`perf` + `unicode-case` + `unicode-perl`，实测 1294 KiB，省 235 KiB）只作为**回退开关**保留：任务 2.2 实测真实 dll 增量超过 1.3 MiB 时才重议，届时 `\p{...}` 从"可用"变成"编译失败"要一并写进 MCP 工具说明。`Cargo.lock` 27 → 31 包（新增 `aho-corasick` / `memchr` / `regex-automata` / `regex-syntax`）。
 - `regex-syntax` 必须显式声明：D5 的短路判据要 `use regex_syntax::...`，而它作为 `regex` 的传递依赖在 Cargo 里不可直接 import（不声明则编译期报"找不到 crate"）。它不是新增依赖树条目，只是把既有版本提到直接依赖。
+- 版本下限取 `1.13` 而非原先的 `1.11`：spec 的方言能力集、P3 的规模上限与 D7 保留清单都按 1.13.2 校准；下限提到实测次版本，避免 `Cargo.lock` 删除重装时解析到 1.11/1.12 而让"所锁定版本行为"的承诺落空。仍用 caret 允许后续 1.x 补丁升级，与仓库既有依赖风格一致。
 
 ### D2 归一化接缝：在正则分支内做一次 lossy，不新增第二套正文取法
 
@@ -67,6 +67,16 @@ set.matches(&*text).matched_any()                  // 或 matched(i) 逐位取
 `FilterExpr::compile()` 内完成长度/条数校验 → 逐条 parse + Hir 短路判定 → 构造 matcher；任一失败即返回 `REGEX_INVALID`。`scan_inner` 只消费已编译结果，不新增错误分支。
 
 理由：开启查询是同步返回点（`query::open`），把拒绝收在此处即满足"不产出部分结果集、不改变源句柄状态"；若推迟到扫描期，就得为运行期失败设计第二套上报通道，与既有 `IO_ERROR` 通道混读。
+
+### D3a 编译产物缓存：每源 LRU，8 条 + 8 MiB 保守预算（已定）
+
+MCP 会话会反复用同一组 pattern 开启查询，故允许缓存正则编译产物（评审确认）。口径：
+
+1. **归属 = 每个源句柄**，挂在 `SourceHandle` 既有的 `inner: Arc<Mutex<Inner>>` 上。core 当前没有会话对象，进程级全局静态缓存会新引入跨线程与生命周期契约；`Inner` 已有串行化边界，复用即可，不新增同步原语。
+2. **缓存对象 = 编译后的正则 matcher**，不缓存整个 `CompiledFilter`（后者本就 `Clone`，其余字段编译很便宜）。键为正文条件的 pattern 序列与 `case` 取值；`op` 与 `exclude` 不参与 matcher 编译，不进键。
+3. **淘汰 = LRU**，不用 LFU：LFU 会把历史热门条目长期锁死、新热门进不来，还需老化机制；会话内重复用同一组条件，LRU 已足够。
+4. **容量 = 条数与预算双闸**：最多 8 条，且每条按其配置的 `size_limit` 预留额度、总额 8 MiB。预算是保守预留而非实测堆占用（`RegexSet` 不暴露产物尺寸），因此能给出确定的内存上界。条目放不进预算时**照常执行本次查询，只是不入缓存**——缓存是纯优化，不得改变行为或新增拒绝理由。
+5. 任务 2.5 的实测（16 条典型 pattern 的编译耗时、产物内存、重复开启命中收益）用于校验第 4 条取值；若实测显示收益可忽略，按无返工原则砍掉缓存而不是缩小预算。
 
 ### D4 多 pattern 执行档：`RegexSet` 单遍 + 只用存在性
 
@@ -92,22 +102,26 @@ pub const REGEX_INVALID: i32 = 17;              // param_keys = ["reason"]
 // index:  能归因到具体某条时附带（从 0 起的序号，可选键）
 ```
 
-- 单一码 + `reason` 分因，符合 D15/B1「params 只放语义键与数值、无文案」；不给错误码表加三条宿主几乎无法区分的条目。
-- 与探索笔记的三值 `reason` 相比**增加 `too_many`**：条数超限是可独立归因的用户可修问题，与"编译规模过大"在排障动作上不同（前者删条目、后者改写 pattern）。
+- 单一码 + `reason` 分因，符合 D15/B1「params 只放语义键与数值、无文案」；不给错误码表加三条宿主几乎无法区分的条目。`reason` 取值为 `syntax` / `too_long` / `too_many` / `too_size` 四值（**已定**，探索笔记原列三值，评审确认把条数超限单列：它比"改写 pattern"与"删条目"是两种不同的修复动作）。
+- `index` 为**附注键**，不进 `param_keys`：照 `DIRECT_OPEN_ERROR_KEY` 的先例处理——`param_keys(17) = ["reason"]`，能归因到具体某条时另以 `CoreError::with("index", ...)` 附带。宿主按 `reason` 定文案、按 `index`（若存在）定位第几条，缺失时按整体拒绝处理。
 - 必须同步改：`error.rs` 的 `code_name`、`param_keys`，以及既有测试 `error_code_table_values_are_stable` 中 `assert_eq!(code_name(17), "UNKNOWN")`（否则全量必红）。
-- C# 镜像 `LogcoreErrorCodes` 补 `RegexInvalid = 17` 与 `Name(17) => "REGEX_INVALID"`，并在 `BindingErrorCodeMappingTests.Code_names_match_d15_table` 扩一条断言；不新增 FFI IT（filter JSON 对宿主是透传字符串，正则行为已在 core 层钉死）。
+- C# 镜像（**已定**）：`LogcoreErrorCodes` 补 `RegexInvalid = 17` 与 `Name(17) => "REGEX_INVALID"`，并在 `BindingErrorCodeMappingTests.Code_names_match_d15_table` 扩一条断言；**不新增经 FFI 的 IT**——filter JSON 对宿主是透传字符串，正则行为已在 core 层钉死，跨层重复断言不增加覆盖。
 
 ### D7 常量取值
 
 | 常量 | 取值 | 依据 |
 | --- | --- | --- |
-| 单条 pattern 字符上限 | 2000 | 按 `chars()` 计（非字节）。编译侧不构成风险：2000 分支 pattern 编译 6.9 ms、10k 字符字面量 3.3 ms；上限主要封「条数 × 每条尺寸」的乘积面 |
-| 正则条数上限 | 16 | 条数直接乘每行成本（`RegexSet` 4 条 = 503 ns/行，2000 条 = 753 µs/100 KB）；旧线 `BLOCK_SCAN_MAX_KEYS = 8` 是兜底不是契约，取区间上沿 |
+| 单条 pattern 字符上限 | 2000（**已定**） | 按 `chars()` 计（非字节）。编译侧不构成风险：2000 分支 pattern 编译 6.9 ms、10k 字符字面量 3.3 ms；上限主要封「条数 × 每条尺寸」的乘积面 |
+| 正则条数上限 | 16（**已定**） | 条数直接乘每行成本（`RegexSet` 4 条 = 503 ns/行，2000 条 = 753 µs/100 KB）；旧线 `BLOCK_SCAN_MAX_KEYS = 8` 是兜底不是契约，取区间上沿 |
 | `size_limit` | 1 MiB（1_048_576） | 默认 10 MiB **挡不住**关键形态：`(\w+\s?){200}` 在默认下编译通过、对 2 KB 正文单行耗时 7.0 ms（其余同类都在 µs 级）→ 272 万行即小时级。1 MiB 拒它，同时保留 `timeout`、`(?i)(a\|…\|j)+`、`(a\|b\|c){50}`、2000 字符字面量、`(x\|y)×500`、`(a+)+b`、`([a-z]+)*$`、`(x\|x)+y`、10 层嵌套 group |
 | `nest_limit` | 沿用默认 1000 | 200 层嵌套 group 编译 0.6 ms、匹配 14.6 µs，不构成威胁；收紧到 16 会把 `(a\|b){100}{100}` 这类"合法但无意义"写法一并挡掉，收益已由 `size_limit` 承担 |
+| `dfa_size_limit` / `dfa_state_limit` 等 | 沿用默认 | 这些默认值本就面向不可信输入；`RegexSet` 的执行策略由引擎选择，本档不替它选策略，也不在无实测依据时复制一遍默认。任务 2.3 记录 16 条满载的构造结果与峰值内存，作为默认值够用的证据 |
 | 匹配超时 | 不设 | 线性时间界 + `size_limit` 承担防拖死（2026-11-15 拍板），本档不复活超时 |
 
 条数与长度上限进 spec（调用方需知道），`size_limit` 数值只留本文（引擎实现口径）。
+
+- 上限只约束正则档（**已定**）：子串档的 `msg.values` 今天既无条数也无长度上限（`validate()` 只拦 `tags.values` 空串），且子串档是「每词一轮全量扫描」，敞口比正则档更大。本 change 不动它，避免把已归档的「条件模型与组合」一起改；缺口已记入 `openspec/notes/BACKLOG-MCP-AND-FORMATS.md` D4，与 MCP 侧调用约束一并处理。
+- 规模上限是两道闸（口径见 D15）：逐条 `RegexBuilder::size_limit = 1 MiB` 预检 + 整组 `RegexSetBuilder::size_limit` 兜底。整组计数口径与兜底数值由任务 2.3 探针确定，不套用逐条数值。
 
 ### D8 校验与编译次序（决定 `reason` 归因）
 
@@ -115,9 +129,9 @@ pub const REGEX_INVALID: i32 = 17;              // param_keys = ["reason"]
 2. 条数 > 16 → `too_many`；任一条字符数 > 2000 → `too_long`（廉价、先于编译）；
 3. 逐条 `regex_syntax::parse` → 失败即 `syntax`；
 4. 短路判定（纯字面量 ⇒ 该条不进引擎）；
-5. 需要进引擎的条目以 `size_limit = 1 MiB` 构造 → 失败即 `too_size`。
+5. 逐条以 `RegexBuilder::size_limit = 1 MiB` 预检 → 失败即 `too_size` 并带该条 `index`；再以整组上限构造 `RegexSet` → 失败即 `too_size` 且**不带** `index`（见 D15）。
 
-同一条 pattern 只会给一个 `reason`（按此序首次命中者），`index` 取该条序号。
+同一条 pattern 只会给一个 `reason`（按此序首次命中者），`index` 取该条序号；只有整组规模超限这一道闸无法归因到单条，此时 `reason` 仍为 `too_size` 但不带 `index`。短路命中的纯字面量条目不进第 5 步，因此也不会因规模被拒。
 
 ### D9 正则方言边界（写进 spec 的能力集，本文留对照）
 
@@ -138,11 +152,24 @@ pattern 只被 Rust core 编译执行一次，C#（UI）与 Node（MCP）只承�
 - 字符串承载：MCP 侧 JSON 双反斜杠、C# 字面量、JS 字面量正则需剥斜杠——属宿主侧问题，core 只接受最终字符串，MUST NOT 由 core 猜宿主转义。宿主侧不做实时校验；若将来 UI 要输入框提示，须另立无句柄的 `validate_pattern` 类导出才能同引擎判定（本档不开）。
 - 承诺形式：spec 写能力集 + 不支持清单，版本锁定由 `Cargo.lock` 承担，本文留全量对照表。regex 升级时须重跑对照表（探索笔记已冻结，不再更新，新探索另生成笔记）。
 
+**D9a MCP 工具说明的可粘贴文案**（评审确认由本卡产出，`mcp-server` 卡直接取用，不再重新考古）：core 只回错误码，不会向 AI 解释"为什么被拒"，故工具说明必须前置这段规则，否则 AI 会反复生成被拒的 pattern。
+
+```text
+Pattern syntax: Rust `regex` crate (RE2-style). No lookaround, no backreferences,
+no atomic groups or possessive quantifiers. Supported: inline flags (?i)(?x)(?R),
+Unicode \w \d \s \b, \p{...} property classes, character-class set operations
+(&& -- ~~). Case-insensitive by default; `case: true` makes it exact, and an inline
+(?i)/(?-i) inside the pattern still applies. Limits: at most 16 patterns per message
+condition, at most 2000 characters each. Invalid or over-budget patterns are rejected
+with REGEX_INVALID and a reason (syntax / too_long / too_many / too_size) — they are
+never silently downgraded to substring matching.
+```
+
 ### D10 大小写折叠表：两档唯一差异点，记录不修
 
 正则档 `(?i)` 用 UTS#18 **simple** case folding，子串档用 `char::to_lowercase` **全**折叠。逐对实测（13 组 needle/hay）后唯一分歧是 **U+0130（`İ`）**一类：全折叠会多出组合字符 U+0307，使子串档下 `i` 命中 `İ`、正则档不命中。`ß`/`ss`、`ẞ`/`ß`、`ſs`/`ß`、`k`/U+212A（KELVIN）、`ı`/`I`、`İstanbul`/`istanbul` 两档一致。
 
-- 处理：**只在本文与探索笔记留事实，spec 不写该差异**（该差异只在同一查询混用两档时可见，且纯 ASCII 正文不受影响——spec 用「MUST NOT 出现在纯 ASCII 正文上」封住可观察面）。备选是在 spec 加一句折叠表出处，或把子串档改成 simple folding（会动已归档规范与现有测试，代价最大）。**列为评审要点，未拍。**
+- 处理（**已定**）：**只在本文与探索笔记留事实，spec 不写该差异**——该差异只在同一查询混用两档时可见，且纯 ASCII 正文不受影响，spec 已用「MUST NOT 出现在纯 ASCII 正文上」封住可观察面。曾考虑的两个替代（spec 加折叠表出处 / 子串档改 simple folding）均不采纳，后者会动已归档规范与既有测试。
 - 由此 D5 的短路只在区分大小写触发，天然避开折叠分歧。
 
 ### D11 与既有测试/文档的连带
@@ -157,7 +184,29 @@ pattern 只被 Rust core 编译执行一次，C#（UI）与 Node（MCP）只承�
 
 ### D13 delta 形态：原「无效条件被拒绝」走 REMOVED + ADDED，而非 MODIFIED
 
-openspec 对 MODIFIED 有防丢场景门禁——MODIFIED 整块替换需求，若少了主规范已有的场景即判 ERROR，且 REMOVED 与 ADDED 同名单也会判冲突。本 change 需要删掉该条里的「正则模式被拒」场景，因此整条 REMOVED（附 Reason/Migration）并以「参数类无效条件被拒绝」重建，其余 8 个场景逐条原样保留。归档后主规范只有新名单的条目，无重复内容。
+openspec 对 MODIFIED 有防丢场景门禁——MODIFIED 整块替换需求，若少了主规范已有的场景即判 ERROR，且 REMOVED 与 ADDED 同名单也会判冲突。本 change 需要删掉该条里的「正则模式被拒」场景，因此整条 REMOVED（附 Reason/Migration）并以「参数类无效条件被拒绝」重建（**改名已定**），其余 8 个场景逐条原样保留。归档后主规范只有新名单的条目，无重复内容；改名带来的连带是 `openspec/specs/old/message-filter` 与文档中不存在对该条目名的引用，故无需回改其他文件。
+
+### D15 规模闸口：逐条预检 + 整组兜底（已定）
+
+源码事实（本仓库锁定版本 `regex` 1.13.2，`src/builders.rs`）：`RegexSet` 与 `RegexBuilder` 同集具备 `size_limit` / `dfa_size_limit` / `nest_limit` / `case_insensitive` / `multi_line` / `ignore_whitespace`；但 `RegexSetBuilder` 只有 `new(patterns)` 一条批量入口、**没有 `add()`**，无法逐条设限，且其 `size_limit` 实现只是把同一个值转发给内部引擎 builder、文档措辞沿用单条口径的 "a single regex"（示例只给一条 `\w`）。因此「多条时按整组产物计还是逐条计」无法由文档推定，由任务 2.3 探针实测。
+
+口径：
+
+1. **逐条** `RegexBuilder::size_limit = 1 MiB` 预检——只为拒收与 `index` 归因，编译产物不进匹配路径。保留探索笔记 P3 的实测结论（1 MiB 拒 `(\w+\s?){200}`，D7 保留清单全过）。
+2. **整组** `RegexSetBuilder::size_limit` 兜底——防「条数 × 每条尺寸」的乘积面。数值按 2.3 探针回填（起始候选 4 MiB），验收线是 D7 保留清单在 16 条满载下全部通过。
+3. 两道闸都只在开启查询期发生，不在扫描热路径；多一趟逐条编译可接受。
+4. 整组超限复用 `reason = too_size`，不新增第五个取值，且**不附 `index`**（归因不到单条）——已由 spec「归因能定位到单条时才附带序号」钉住。
+5. 不采「仅整组一道闸」：整组产物天然大于任一条，逐条口径的 1 MiB 直接套用会误拒 16 条常见写法，且 `index` 归因失效。不采「不引入 `RegexSet`、逐条 `Regex::is_match`」：实测单条 158 ns/行、16 条最坏约 2.5 µs/行，272 万行折算约 6.9 s，劣于 `RegexSet` 单遍 503 ns/行。
+
+### D16 内联大小写开关与外层 `case` 对称生效（口径已定，行为待实测）
+
+spec 现有正向场景（外层区分大小写 + pattern 内声明忽略）与本批新增的反向场景（外层缺省忽略 + pattern 内 `(?-i)` 要求区分）都是可观察行为，**双向一并钉进规范**，不给宿主留各自猜测的空间；测试对称两条（任务 5.4）。
+
+**如实标注**：反向场景的依据只是 `case_insensitive` 等价于在 pattern 起始处置位、内联开关可覆盖这一方言常识，本仓库探索笔记**没有该项实测记录**。任务 2.3 的同一探针须双向各测一次；若实测与场景不符，以实测为准回改本条与 spec 场景（不得反过来放宽实现迁就文档），并把结论写回 `openspec/notes/RUST-CORE-REGEX-DIALECT.md` 后再归档。
+
+### D17 `params` 只带 `reason`（+ 可归因时的附注 `index`），不带 `field`（已定）
+
+17 码下 `field` 恒为 `"msg.values"`，属冗余信息；`index` 已足够定位到具体某条。宿主复用 `INVALID_ARG` 定位通道的做法只适用于参数类拒绝，不扩展到 17 码。`param_keys` 保持 `["reason"]`（任务 3.1）。
 
 ## Risks / Trade-offs
 
@@ -174,7 +223,10 @@ openspec 对 MODIFIED 有防丢场景门禁——MODIFIED 整块替换需求，�
 
 ## Open Questions
 
-- 真实 `logcore.dll` 在带依赖重编后的体积增量（apply 首步实测，不改变方案，只决定是否需要讨论 D1 备选乙）。
+- 真实 `logcore.dll` 在带依赖重编后的体积增量（apply 首步实测，不改变方案，只决定是否触发 D1 的裁剪回退）。
+- 整组 `RegexSetBuilder::size_limit` 的计数口径与兜底数值（D15 已定「两道闸」，数值待任务 2.3 探针回填）。
+- pattern 内 `(?-i)` 在外层缺省忽略大小写下是否真的生效（D16 已定口径，行为待任务 2.3 双向实测；不符则回改 spec 场景）。
+- 编译缓存（D3a）的 8 条 / 8 MiB 取值是否需要按任务 2.5 实测下调（口径已定，只调数值；实测若显示收益可忽略则整体砍掉）。
 - `op = or` 的最终实现档（合并 alternation / 逐条短路 / `RegexSet`）——三档行为已由 spec 钉等价，属实现内择一。
 - 采集源何时开放正则：本档只覆盖装载完成的文件源，采集源仍无统一快照读面（沿用既有缺口）。
 - 命中位置/命中词回传是否需要：需另立接口，与"不做抽取"边界相邻，本档不预留字段。
