@@ -19,12 +19,15 @@ public class LogCanvas : Control
     static readonly Typeface TextTypeface = new("Microsoft YaHei UI, Segoe UI");
     public const double RowHeightPublic = 17;
     const double RowHeight = RowHeightPublic;
-    const double PadLeft = 8;
     const double PadTop = 2;
     const double FontSize = 12;
 
     // 列起点：# / Time / PID / TID / Lv / Tag / Message（列名与旧查看器一致，域常量不走本地化）
-    static readonly double[] ColumnX = { 0, 62, 190, 258, 326, 356, 510 };
+    // 表头与自绘共用这一份常量；Tag 列加宽到 200，避免常见长 TAG 溢出。
+    public static readonly double[] ColumnStarts = { 0, 62, 190, 258, 326, 356, 556 };
+
+    /// <summary>文字左内边距；表头定位也用它，保证与数据列同起点。</summary>
+    public const double TextPadding = 8;
 
     public static readonly StyledProperty<LogPageProvider?> ProviderProperty =
         AvaloniaProperty.Register<LogCanvas, LogPageProvider?>(nameof(Provider));
@@ -125,19 +128,38 @@ public class LogCanvas : Control
             if (row is null)
             {
                 // 页未就绪：画占位行号，数据到达后经 Changed 重绘
-                Draw(context, (index + 1).ToString(), ColumnX[0], y, muted);
+                DrawCell(context, 0, y, (index + 1).ToString(), muted);
                 continue;
             }
 
-            Draw(context, (row.Ord + 1).ToString(), ColumnX[0], y, muted);
-            Draw(context, row.Time, ColumnX[1], y, primary);
-            Draw(context, row.Pid.ToString(), ColumnX[2], y, muted);
-            Draw(context, row.Tid.ToString(), ColumnX[3], y, muted);
+            DrawCell(context, 0, y, (row.Ord + 1).ToString(), muted);
+            DrawCell(context, 1, y, row.Time, primary);
+            DrawCell(context, 2, y, row.Pid.ToString(), muted);
+            DrawCell(context, 3, y, row.Tid.ToString(), muted);
             var levelBrush = TryBrush("Level." + LevelName(row.Level)) ?? muted;
-            Draw(context, LevelLetter(row.Level), ColumnX[4], y, levelBrush);
-            Draw(context, row.Tag ?? "", ColumnX[5], y, primary);
-            Draw(context, row.Message, ColumnX[6], y, primary);
+            DrawCell(context, 4, y, LevelLetter(row.Level), levelBrush);
+            DrawCell(context, 5, y, row.Tag ?? "", primary);
+            DrawCell(context, 6, y, row.Message, primary);
         }
+    }
+
+    /// <summary>按列裁剪后绘制：超宽 TAG 截断在列内，不再覆盖 Message。</summary>
+    void DrawCell(DrawingContext context, int column, double y, string text, IBrush? brush)
+    {
+        using (context.PushClip(CellRect(column, y)))
+        {
+            Draw(context, text, ColumnStarts[column], y, brush);
+        }
+    }
+
+    /// <summary>列裁剪矩形；最后一列到控件右边界为止。</summary>
+    Rect CellRect(int column, double y)
+    {
+        var start = ColumnStarts[column];
+        var end = column + 1 < ColumnStarts.Length
+            ? ColumnStarts[column + 1]
+            : Math.Max(Bounds.Width, start);
+        return new Rect(start, y, Math.Max(0, end - start), RowHeight);
     }
 
     static void Draw(DrawingContext context, string text, double x, double y, IBrush? brush)
@@ -153,7 +175,7 @@ public class LogCanvas : Control
             TextTypeface,
             FontSize,
             brush);
-        context.DrawText(formatted, new Point(PadLeft + x, y + PadTop));
+        context.DrawText(formatted, new Point(TextPadding + x, y + PadTop));
     }
 
     static string LevelName(byte level) => level switch

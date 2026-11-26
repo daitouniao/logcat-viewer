@@ -18,12 +18,23 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        LayoutHeader();
         DataContext = _vm;
         Scroller.ScrollChanged += OnScrollChanged;
         SizeChanged += (_, _) => UpdateViewport();
         KeyDown += OnKeyDown;
         LocalizationService.Instance.PropertyChanged += OnLanguageChanged;
         _vm.PropertyChanged += (_, _) => Dispatcher.UIThread.Post(UpdateViewport);
+    }
+
+    /// <summary>表头位置与自绘列起点同源，避免两套常量漂移（列宽见 LogCanvas.ColumnStarts）。</summary>
+    void LayoutHeader()
+    {
+        TextBlock[] labels = [HeaderNum, HeaderTime, HeaderPid, HeaderTid, HeaderLevel, HeaderTag, HeaderMessage];
+        for (var i = 0; i < labels.Length; i++)
+        {
+            Avalonia.Controls.Canvas.SetLeft(labels[i], LogCanvas.TextPadding + LogCanvas.ColumnStarts[i]);
+        }
     }
 
     void OnScrollChanged(object? sender, ScrollChangedEventArgs e)

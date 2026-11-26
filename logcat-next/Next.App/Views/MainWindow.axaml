@@ -29,13 +29,13 @@
     <Border DockPanel.Dock="Top" Background="{DynamicResource Surface.HeaderRow}"
             BorderBrush="{DynamicResource Surface.Border}" BorderThickness="0,0,0,1">
       <Canvas Height="22">
-        <TextBlock Canvas.Left="70" Canvas.Top="4" Text="#" Foreground="{DynamicResource Text.Muted}" />
-        <TextBlock Canvas.Left="190" Canvas.Top="4" Text="Time" Foreground="{DynamicResource Text.Muted}" />
-        <TextBlock Canvas.Left="258" Canvas.Top="4" Text="PID" Foreground="{DynamicResource Text.Muted}" />
-        <TextBlock Canvas.Left="326" Canvas.Top="4" Text="TID" Foreground="{DynamicResource Text.Muted}" />
-        <TextBlock Canvas.Left="356" Canvas.Top="4" Text="Lv" Foreground="{DynamicResource Text.Muted}" />
-        <TextBlock Canvas.Left="390" Canvas.Top="4" Text="Tag" Foreground="{DynamicResource Text.Muted}" />
-        <TextBlock Canvas.Left="518" Canvas.Top="4" Text="Message" Foreground="{DynamicResource Text.Muted}" />
+        <TextBlock x:Name="HeaderNum" Canvas.Top="4" Text="#" Foreground="{DynamicResource Text.Muted}" />
+        <TextBlock x:Name="HeaderTime" Canvas.Top="4" Text="Time" Foreground="{DynamicResource Text.Muted}" />
+        <TextBlock x:Name="HeaderPid" Canvas.Top="4" Text="PID" Foreground="{DynamicResource Text.Muted}" />
+        <TextBlock x:Name="HeaderTid" Canvas.Top="4" Text="TID" Foreground="{DynamicResource Text.Muted}" />
+        <TextBlock x:Name="HeaderLevel" Canvas.Top="4" Text="Lv" Foreground="{DynamicResource Text.Muted}" />
+        <TextBlock x:Name="HeaderTag" Canvas.Top="4" Text="Tag" Foreground="{DynamicResource Text.Muted}" />
+        <TextBlock x:Name="HeaderMessage" Canvas.Top="4" Text="Message" Foreground="{DynamicResource Text.Muted}" />
       </Canvas>
     </Border>
 
