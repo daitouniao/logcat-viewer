@@ -1,6 +1,7 @@
 ﻿using Xunit;
 using System.Text.Json;
 using Next.App.Localization;
+using Next.App.Storage;
 
 namespace Next.Tests;
 
@@ -23,16 +24,14 @@ public class LocalizationTests
         new(
             zh ?? new Dictionary<string, string>(),
             en ?? new Dictionary<string, string>(),
-            new FixedSettings(settings ?? new NextSettings()),
+            new FixedSettingsService(settings ?? new NextSettings()),
             () => systemLang);
 
-    sealed class FixedSettings(NextSettings value) : INextSettingsStore
+    sealed class FixedSettingsService(NextSettings value) : ISettingsService
     {
-        public NextSettings? Value { get; private set; } = value;
+        public string? Lang => value.Lang;
 
-        public NextSettings? Load() => Value;
-
-        public void Save(NextSettings settings) => Value = settings;
+        public void SetLanguage(string langCode) => value.Lang = langCode;
     }
 
     [Fact]
@@ -117,19 +116,28 @@ public class LocalizationTests
         Assert.True(svc.IsEnglish);
     }
 
-    /// <summary>切换语言不得清掉已持久化的主题选择。</summary>
+    /// <summary>切换语言不得清掉已持久化的主题选择（单写入入口整体落盘）。</summary>
     [Fact]
     public void SetLanguageKeepsSavedTheme()
     {
-        var store = new FixedSettings(new NextSettings { Lang = "zh-CN", Theme = "dark" });
+        var store = new FixedStore(new NextSettings { SchemaVersion = 1, Lang = "zh-CN", Theme = "dark" });
         var svc = new LocalizationService(
             new Dictionary<string, string> { ["A"] = "甲" },
             new Dictionary<string, string> { ["A"] = "A" },
-            store,
+            new NextSettingsService(store),
             () => "zh-CN");
         svc.Initialize(new NextSettings());
         svc.SetLanguage("en");
         Assert.Equal("en", store.Value?.Lang);
         Assert.Equal("dark", store.Value?.Theme);
+    }
+
+    sealed class FixedStore(NextSettings value) : INextSettingsStore
+    {
+        public NextSettings? Value { get; private set; } = value;
+
+        public NextSettings? Load() => Value;
+
+        public void Save(NextSettings settings) => Value = settings;
     }
 }

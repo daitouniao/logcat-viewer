@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Globalization;
 using System.Text.Json;
+using Next.App.Storage;
 
 namespace Next.App.Localization;
 
@@ -17,7 +18,7 @@ public sealed class LocalizationService : INotifyPropertyChanged
 
     readonly IReadOnlyDictionary<string, string> _zh;
     readonly IReadOnlyDictionary<string, string> _en;
-    readonly INextSettingsStore _settings;
+    readonly ISettingsService _settings;
     readonly Func<string> _systemLanguage;
     string _current;
 
@@ -27,7 +28,7 @@ public sealed class LocalizationService : INotifyPropertyChanged
     public LocalizationService(
         IReadOnlyDictionary<string, string> zh,
         IReadOnlyDictionary<string, string> en,
-        INextSettingsStore settings,
+        ISettingsService settings,
         Func<string> systemLanguage)
     {
         _zh = zh;
@@ -41,7 +42,7 @@ public sealed class LocalizationService : INotifyPropertyChanged
     public static LocalizationService Instance { get; } = new(
         LoadStrings(GetAssemblyDirectory(), "Strings.zh-CN.json"),
         LoadStrings(GetAssemblyDirectory(), "Strings.en.json"),
-        NextSettingsStore.Default,
+        AppStorage.Settings,
         () =>
         {
             var name = CultureInfo.CurrentUICulture.Name;
@@ -49,7 +50,7 @@ public sealed class LocalizationService : INotifyPropertyChanged
         });
 
     static string GetAssemblyDirectory() =>
-        Path.GetDirectoryName(typeof(LocalizationService).Assembly.Location) ?? AppContext.BaseDirectory;
+        Path.GetDirectoryName(typeof(LocalizationService).Assembly.Location) ?? ".";
 
     /// <summary>启动语言来源（spec next/ui-localization）：上次保存的选择 → 系统区域。</summary>
     public void Initialize(NextSettings settings)
@@ -79,8 +80,8 @@ public sealed class LocalizationService : INotifyPropertyChanged
         _current = target;
         if (save)
         {
-            // 只改语言，保留既有主题选择（否则切语言会清掉持久化的主题）
-            _settings.Save(new NextSettings { Lang = _current, Theme = _settings.Load()?.Theme });
+            // 单一写入入口（design D6）：只改语言，主题由设置服务自身保留
+            _settings.SetLanguage(_current);
         }
         // Avalonia 11.3 的索引器绑定只认 "Item" 作为失效通知名（空名与 "Item[]" 均不刷新）
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs("Item"));

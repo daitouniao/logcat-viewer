@@ -3,6 +3,7 @@ using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
 using Avalonia.Styling;
 using Next.App.Localization;
+using Next.App.Storage;
 
 namespace Next.App;
 
@@ -13,7 +14,7 @@ public partial class App : Application
     public override void OnFrameworkInitializationCompleted()
     {
         // 语言与主题在首窗前生效（spec next/ui-language、next/ui-theme：启动即呈现所选状态）
-        var settings = NextSettingsStore.Load();
+        var settings = AppStorage.Settings.Value;
         LocalizationService.Instance.Initialize(settings);
         ApplyTheme(settings.Theme);
 

@@ -748,7 +748,7 @@ MCP 服务端工程 `mcp/`（OpenSpec change mcp-node-shell）是独立的 Node 
 双语目录以 JSON 文件随输出复制（`Strings\`），不用 EmbeddedResource——Avalonia
 构建任务会把 EmbeddedResource 吸进 `!AvaloniaResources`，清单不可见（实测）。
 
-本机实测（2026-11-24）：**Next.Tests 30/30**；主仓 `logcat.slnx` 全量 **915/915** 未受影响
+本机实测（2026-11-26）：**Next.Tests 53/53**（含 `avalonia-app-storage` 新增：持久化根三分支、设置版本与原子写、日志前缀与轮转、缓存/临时目录、边界扫描）；主仓 `logcat.slnx` 全量 **915/915** 未受影响
 （新工程与旧 viewer 完全并存，互不引用）。
 
 ---
