@@ -60,7 +60,7 @@ set.matches(&*text).matched_any()                  // 或 matched(i) 逐位取
 - 不用 `bytes::Regex` 直喂 `&[u8]`：实测 `bytes::Regex` 的 `unicode` 默认为**开**，非法字节不是合法码点——对 `[x, 0xFF, y]`，`x.y` 不命中、`(?s).*` 只吃 1 字节、`\x{FFFD}` 与字面 U+FFFD 均不命中。结果是"屏幕上看得见、正则搜不着"，直接违反 `filter_msg_lossy_invalid_utf8` 已钉口径。
 - 不另设 ASCII 快速通道：实测 80 B 真人行长 × 200k 行，仅 lossy = 97 ns/行、仅 `is_ascii()` = 33 ns/行；lossy 一次低于子串档 CI 路径的双侧 `to_lowercase`（243 ns/行）。加门反而多一次遍历。
 - 「先 `from_utf8` 试探、失败才 lossy」不是第三方案——那就是 `from_utf8_lossy` 的内部行为，手写属重复实现。
-- 接缝位置：`scan_inner:499` 已有的 `msg.matches(body)` 调用点保持不变，分叉在 `CompiledMsg` 内部（子串档保留 `needles`，正则档保留编译好的 matcher）。`len == 0` 的快速路径同样保留——正则档对空切片求值即空文本求值，正是契约要求的语义。
+- 接缝位置：`scan_inner:499` 已有的 `msg.matches(body)` 调用点保持不变，分叉在 `CompiledMsg` 内部（子串档保留 `needles`，正则档按 D5a 保留 `needles` + `set` + `routes`）。`len == 0` 的快速路径同样保留——正则档对空切片求值即空文本求值，正是契约要求的语义。
 
 ### D3 编译时机：全部放在 `compile()`，扫描期零错误
 
@@ -91,8 +91,24 @@ pattern 解析后的 `Hir` 若整棵为 `Concat(Literal*)`，该条不走正则�
 
 - 判据实测自洽，**不需要额外的"是否纯 ASCII"限定**：`(?i)` 一旦出现，Hir 就变成 `Concat([Class({'T'..='T','t'..='t'}), …])`，不再是纯字面量。因此短路只在**区分大小写**（`case: true`）时可能触发，而区分大小写的字面量匹配两档逐位同形（都是字节包含），不存在折叠表分歧——这正是 spec「字面量型正则与子串档同结论」的实现依据。
 - 实测形态：`timeout` → `Literal("timeout")`（短路）；`tim\.eout` → `Literal("tim.eout")`（短路）；`^abc$` → `Concat([Look, Literal, Look])`（**不短路，正确**：锚点语义与子串包含不等价）；`a|b` → `Class`（不短路）；`tim.*eout`、`\d+`（不短路）。
-- 短路在**整条 `msg` 条件级**判定：全部取值都是纯字面量才整条短路；任一条是真 pattern 则整条走正则路径。混合档内不逐条分叉，避免同一行内两套正文取法交错。
+- 短路按**逐条**判定：每条 pattern 独立过 Hir 判据，纯字面量的条目复用 `needle_matches`，其余条目进 `RegexSet`（结构见 D5a）。混合批次不整条放弃短路——同一行只取一次正文，两类判定都在这份文本上做，不存在两套正文取法交错。
 - 收益实测：80 B 行 × 200k 行，单 pattern `is_match` = 158 ns/行、子串档区分大小写 = 110 ns/行（差 48 ns/行，272 万行 ≈ 130 ms）。用户写的"正则"里很大比例是字面量（含转义标点）。
+
+### D5a `CompiledMsg` 正则档形态：同结构并存 + 逐条路由
+
+```rust
+// 正则档新增字段，与子串档共存于同一 struct（不拆成两个类型）
+needles: Vec<Vec<u8>>,   // 该批中判为纯字面量的条目正文
+set: Option<RegexSet>,   // 只由非字面量条目构成；全为字面量时为 None
+routes: Vec<Route>,      // Literal(usize) | Set(usize)，保持提交顺序
+```
+
+1. 一条 `msg` 条件的判定 = 按 `routes` 逐条求值后按 `op` 聚合；`exclude` 仍作用于整条结论，不随路由变化。
+2. 字面量条目在**该行同一份 lossy 文本**上求值（对 `text.as_bytes()` 做字节包含），与正则条目共用同一次归一化——这正是 spec「同一行的归一化结论 MUST 被该行全部 pattern 复用」的实现约束。MUST NOT 为字面量条目另开一份原始字节正文取法，否则同一行内出现两种正文口径。
+3. 全字面量批次**不构造** `RegexSet`（空集会被判为永不命中，把结果集误压成空），该形态与子串档同结果集由测试钉住。
+4. 连带口径：字面量条目不进整组 `RegexSet`，因此不受 D15 第二道闸约束（D8 末句已写明「短路命中的条目不会因规模被拒」）；单条仍受条数 16 与 2000 字符限制，二者在路由之前完成校验。
+5. 缓存（D3a）的键仍是**整条正文条件的原文序列 + `case`**，不因路由拆分而变；缓存对象是 `routes` + `set` 这一组编译产物。
+6. 每行代价：`routes` 是一次线性遍历加逐条分支，相对 `RegexSet` 单遍判定为噪声级；收益是绝大多数含字面量的批次少编译、少占整组规模额度。
 
 ### D6 错误码 17 与参数形状
 
@@ -182,6 +198,7 @@ on unless you mean it.
 - 改写 `filter_expr_rejects_regex_mode`：`"regex"` 不再被拒，改为断言被接受；`filter_expr_rejects_unknown_mode`（`"word"`）保留。
 - **测试落点（已定）**：本卡新增用例约 40 条，不写进 `filter.rs`（已 1821 行、88 个 `#[test]`），改按 `source.rs` 末尾 `#[path = "source_tests.rs"]` 的既有先例拆出 `filter_regex_tests.rs`；实现代码仍留 `filter.rs`——拆实现为目录模块要把一批 `pub(crate)` 可见性重排，属纯搬家、白扩 diff 面。
 - **验收面（已定）**：GUI 无正则入口、`crates/cli` 只有 90 行调试壳，本卡不做 GUI 手测，验收材料 = 全量测试口径数字 + 四项实测数值（见 proposal 验收依据）。
+- **耗时实测不作测试用例（已定）**：任务 7.4 的三档耗时是一次性测量，数值只进 tasks 备注与 D4，不写成 `#[test]`、不引入 `#[ignore]`（仓库现无该先例，而 40 MiB 样本测试已在默认串行测试集内，再加性能用例会直接拉长 CI）。耗时随 `regex` 升级的漂移属「重跑方言对照表」时的检查项，靠人工复测承担，不做 CI 守卫。
 - `docs/TESTING.md` §6 的 Rust 数字（基线 Rust UT 425：core 392 + cabi 33；C# 923）与 README 徽章按联动同批更新。
 - 探索笔记 `RUST-CORE-REGEX-DIALECT.md` 随本 change 归档同批移入 `openspec/notes/archive/`（归档时执行，非本 change 编码内容）。
 
@@ -218,7 +235,7 @@ spec 现有正向场景（外层区分大小写 + pattern 内声明忽略）与�
 ## Risks / Trade-offs
 
 - **[体积] `logcore.dll` 上浮约 1.0–1.3 MiB（现有 debug dll 1.72 MiB → 约 1.6 倍）** → 探针口径是独立 exe，apply 阶段带真实依赖重编后复核增量；增量超 1.3 MiB 时**停下报告、等重新拍板**，候选退路是 D1 的裁剪档（省 235 KiB，代价 `\p{...}` 变非法），不自动启用（见 D1）。
-- **[耗时] `RegexSet` 每行常数约为单条 `Regex` 的 3 倍，16 条上限下全文档可至秒级** → 同步返回、非 UI 线程；条数上限与每行成本一并由 D7 承担；`op = or` 允许退回合并档/逐条短路（行为不变，测试钉等价）。
+- **[耗时] `RegexSet` 每行常数约为单条 `Regex` 的 3 倍，16 条上限下全文档可至秒级（推算值，见 D4）** → 同步返回、非 UI 线程；条数上限与每行成本一并由 D7 承担，数值由任务 7.4 一次性实测；执行路径唯一（D4 已定 `RegexSet` 单遍 + D5a 逐条路由），合并 alternation 与逐条 `is_match` 只作测试内对照档，不作为实现回退开关。
 - **[方言] LLM 生成的 pattern 可能带环视/反向引用，直接得到 `syntax` 拒绝** → 这是有意选择（拒绝优于静默降级）；宿主侧把"该方言不支持环视与反向引用"写进 MCP 工具说明，属于 MCP change 的文案工作，不在本 change。
 - **[一致性] 两档折叠表在 U+0130 上分歧，混用可能出现不同行集** → D10 记录并限定作用域；不改动子串档（改动会破坏已归档规范与既有测试）。
 - **[不可信输入] pattern 来自 MCP，dll 无进程隔离** → 线性时间界 + 长度/条数/`size_limit` 三重上限；实测唯一确认的失控形态 `(\w+\s?){200}` 在 1 MiB 下被拒。

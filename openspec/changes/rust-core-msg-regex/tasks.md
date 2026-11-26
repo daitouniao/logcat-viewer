@@ -24,7 +24,7 @@
 - [ ] 4.1 `validate()` 放行 `msg.mode = "regex"`（仍拒 `"word"` 等未知取值），`CompiledMsg` 增加正则分支与 `always_true` 同形规则；验证：新增 `filter_expr_accepts_regex_mode`、`filter_expr_regex_mode_defaults`，改写 `filter_expr_rejects_regex_mode` 为 `filter_expr_rejects_unknown_mode` 保持红转绿
 - [ ] 4.2 按 D8 次序实现校验（闸口布置按 D15 拍定结果）：条数 > 16 → `too_many`、单条字符数（按 `chars()`）> 2000 → `too_long`、`regex_syntax::parse` 失败 → `syntax`、规模超限 → `too_size`，`params` 带 `reason` 与可归因时的 `index`；验证：`regex_reject_reason_syntax`、`regex_reject_reason_too_long`、`regex_reject_reason_too_many`、`regex_reject_reason_too_size`、`regex_reject_attributed_index_points_to_offending_entry`、`regex_reject_group_size_omits_index`、`regex_reject_bounded_pattern_no_arg_error`
 - [ ] 4.3 常见形态不被上限误伤（D7 实测清单）；验证：`regex_accepts_common_forms`（含 20 分支合并正则、2000 字符纯字面量、逐字符量词串联、10 层嵌套分组、`(x|x)+y`）
-- [ ] 4.4 字面量短路判据落地（D5：Hir 整棵为 `Concat(Literal*)` 时整条复用 `needle_matches`，`(?i)` 使 Hir 变 `Class` 因而只在区分大小写触发）；验证：`regex_pure_literal_short_circuit_hits`、`regex_escaped_dot_equals_substring_result`、`regex_anchor_not_short_circuited`、`regex_mixed_values_skip_short_circuit`
+- [ ] 4.4 字面量短路判据与逐条路由落地（D5 + D5a：Hir 整棵为 `Concat(Literal*)` 的条目复用 `needle_matches`、其余进 `RegexSet`，`(?i)` 使 Hir 变 `Class` 因而只在区分大小写触发；全字面量批次不构造空 `RegexSet`；字面量条目在该行同一份 lossy 文本上求值）；验证：`regex_pure_literal_short_circuit_hits`、`regex_escaped_dot_equals_substring_result`、`regex_anchor_not_short_circuited`、`regex_mixed_batch_routes_per_entry`、`regex_all_literal_batch_equals_substring_mode`
 
 - [ ] 4.5 开启查询面同步（`logcore/query` 的 MODIFIED）：正则非法在 open 同步拒绝、句柄状态不变，合法正则正常建查询；验证：新增 `query_open_invalid_regex_reports_regex_invalid`、`query_open_valid_regex_builds_result`，既有 `query_open_invalid_filter_reports_field` 与 `query_open_empty_filter_is_identity` 不回归
 
@@ -51,7 +51,7 @@
 - [ ] 7.1 Rust 全量按串行口径复跑 `cargo test --workspace -- --test-threads=1`；验证：基线 425/425（core 392 + cabi 33）无新增失败，报告「串行口径 N 条」与新增条数明细
 - [ ] 7.2 C# 全量 `dotnet test`；验证：基线 923/923 无新增失败（含 3.2 的断言扩充）
 - [ ] 7.3 更新 `docs/TESTING.md` §6 的 Rust 数字与 README×2 的徽章/当前版本行（同一批，README 两份必须同步）；验证：文档数字与 7.1/7.2 实测一致
-- [ ] 7.4 实测正则档全量扫描耗时（单条、4 条、16 条三档）并与子串档对照；验证：数值记入本任务备注，16 条上限下的耗时落在可接受口径内（否则回到 D7 调整条数上限并同步 spec）。首选 176 MB / 272 万行的网络共享样本；该样本不可用时**复用 `crates/core/src/sample_gen.rs` 的确定性样本（`BIG_BYTES = 40 MiB`，固定种子，`source_tests.rs` 已在用）折算**，不另造新样本口径；备注须写明用的是哪一口径，且 40 MiB 的数值折算到 272 万行时按约 1/4.5 的比值换算、不得混读
+- [ ] 7.4 实测正则档全量扫描耗时（单条、4 条、16 条三档）并与子串档对照；验证：数值记入本任务备注，16 条上限下的耗时落在可接受口径内（否则回到 D7 调整条数上限并同步 spec）。首选 176 MB / 272 万行的网络共享样本；该样本不可用时**复用 `crates/core/src/sample_gen.rs` 的确定性样本（`BIG_BYTES = 40 MiB`，固定种子，`source_tests.rs` 已在用）折算**，不另造新样本口径；备注须写明用的是哪一口径，且 40 MiB 的数值折算到 272 万行时按约 1/4.5 的比值换算、不得混读。本任务为**一次性实测**：数值只进备注与 `design.md` D4，不写成 `#[test]`、不引入 `#[ignore]`（口径见 D11）
 - [ ] 7.5 探索笔记收口：把 `openspec/notes/RUST-CORE-REGEX-DIALECT.md` §7 的「待拍板」各项改写为本 change 定稿后的最终状态（含 2.2/2.3/2.5 的新实测），删除被否决选项的铺陈与「未拍」字样；验证：该节不再自称「本文不下结论」，且数值与 `design.md` D1/D7/D15 一致
 
 ## 8. 收口
@@ -66,4 +66,4 @@
 - 归档同批：把探索笔记 `openspec/notes/RUST-CORE-REGEX-DIALECT.md` 以 `git mv` 移入 `openspec/notes/archive/`（加归档日期前缀），并 `git worktree remove` 清除 `wt/rust-core-msg-regex`。
 - 归档门禁：8.1 已关闭且 `wt/rust-core-msg-regex` 已合入 `master`；tasks 存在未关闭项时不得归档。
 - 本 change 不含发版动作（版本号 5 处同步与打 tag 需另行当轮授权）。
-- 任务 2.3 / 2.5 的临时探针**用完即弃**：留在 git-ignored 目录、不入库、不注册为 `crates/cli` 子命令；要留下的只有实测数据（tasks 备注）与据此回填的 `design.md` 取值。
+- 任务 2.3 / 2.5 / 7.4 的临时探针**用完即弃**：留在 git-ignored 目录、不入库、不注册为 `crates/cli` 子命令；要留下的只有实测数据（tasks 备注）与据此回填的 `design.md` 取值。
