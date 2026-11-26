@@ -33,7 +33,7 @@
 
 ## 6. 合入
 
-- [ ] 6.1 将 `wt/avalonia-app-storage` 合入目标分支 `master`；验证：合入后 `dotnet build` 与 `dotnet test` 全过，并报告用例口径数字
+- [x] 6.1 将 `wt/avalonia-app-storage` 合入目标分支 `master`；验证：合入后 `dotnet build` 与 `dotnet test` 全过，并报告用例口径数字（2026-11-26 合入提交 `330a5f9`；合入后 build 0 警告 0 错误、Next.Tests 53/53）
 
 ## Workflow follow-up
 
