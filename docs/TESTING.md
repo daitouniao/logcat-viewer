@@ -725,7 +725,9 @@ MCP 服务端工程 `mcp/`（OpenSpec change mcp-node-shell）是独立的 Node 
 
 > **Node 版本口径**：测试运行器参数用 glob（`dist/test/*.test.js`）而非目录——
 > Node 22 的 `--test` 不接受目录参数（会当模块加载并报 `MODULE_NOT_FOUND`），
-> Node 26 才支持。CI 钉 Node 22，故必须用 glob。
+> glob 支持自 Node 22.6.0 起才有，故工程 `engines` 要求 `>=22.6.0`。
+> CI 的 `mcp` 作业用矩阵跑 **Node 26（当前 Active LTS，与本机同版本）+ Node 22（最老维护版，作支持下限）**，
+> 避免版本漂移造成「本地全绿、推送就红」。
 > 本机实测：**Node 22.23.5 与 Node 26.8.1 均为 41 通过 0 失败 1 跳过**。
 
 ---

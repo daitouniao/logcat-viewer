@@ -84,15 +84,22 @@ jobs:
     defaults:
       run:
         working-directory: mcp
+    strategy:
+      fail-fast: false
+      matrix:
+        # 26 = 当前 Active LTS（Lithium，2026-10-28 进入 LTS），与本机开发环境同版本；
+        # 22 = 仍在维护的最老 LTS（Jod），作为支持下限一并验证。
+        # 两个版本都跑，是为了避免「本地全绿、推送就红」——历史上正是在版本漂移上翻过车。
+        node-version: ['26', '22']
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # SDK 要求 Node ≥ 20；此处钉住 LTS 主线。
+      # SDK 本身要求 Node ≥ 20；本工程的开发/测试流程要求 ≥ 22.6（测试运行器的 glob 支持）。
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: ${{ matrix.node-version }}
 
       - name: Show environment
         run: |
