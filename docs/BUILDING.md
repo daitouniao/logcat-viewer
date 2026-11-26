@@ -109,7 +109,16 @@ MCP 服务端工程的测试用 Node 内置测试运行器，无第三方 runner
 npm --prefix mcp test
 ```
 
-该命令先编译再跑 `node --test mcp/dist/test/`；覆盖率用 `npm --prefix mcp run test:coverage`。
+该命令先编译再跑 `node --test "mcp/dist/test/*.test.js"`；覆盖率用 `npm --prefix mcp run test:coverage`。
+测试参数用 glob 而非目录——Node 22 的 `--test` 不接受目录参数，glob 支持自 Node 22.6.0 起才有。
+
+手工验收台（开发期工具，把 stdio 服务端桥成网页，不属发布产物）：
+
+```powershell
+npm --prefix mcp run harness
+```
+
+启动后浏览器打开 `http://127.0.0.1:8787`，可查看工具清单、调用工具、看原始 JSON-RPC 流量。
 
 ## 四、发布
 
