@@ -10,7 +10,7 @@
 | `cargo test --workspace -- --test-threads=1` | **425 / 425 全过，0 失败**（core 392 + cabi 33，串行口径） |
 | `dotnet test tests/logcat.Tests/logcat.Tests.csproj -c Release` | **923 / 923 全过，0 失败，0 跳过** |
 | `bash scripts/run-tests-en-us.sh`（Release + en-US，与流水线同口径） | **Total tests: 923**，EXIT 0 |
-| `npm --prefix mcp test` | **41 条用例，40 通过 / 0 失败 / 1 跳过** |
+| `npm --prefix mcp test` | **46 条用例，45 通过 / 0 失败 / 1 跳过** |
 | `openspec validate mcp-node-shell --strict` | 通过 |
 
 本刀未改动 C# / Rust 任何生产代码，两侧口径与基线（923 / 425）一致，无新增失败。
@@ -28,7 +28,7 @@ Node 用例数**单独记录**，不并入上表 C# / Rust 合计口径。
 | `cargo test --workspace -- --test-threads=1` | **425 / 425 全过**（core 392 + cabi 33） |
 | `dotnet test tests/logcat.Tests/logcat.Tests.csproj -c Release` | **923 / 923 全过，0 失败，0 跳过** |
 | `bash scripts/run-tests-en-us.sh` | **Total tests: 923**，EXIT 0 |
-| `npm --prefix mcp test` | **41 条用例，40 通过 / 0 失败 / 1 跳过** |
+| `npm --prefix mcp test` | **46 条用例，45 通过 / 0 失败 / 1 跳过** |
 
 > **环境坑（非本刀引入）**：master 上首轮复跑时 Rust UT 与 56 条 C# IT 报
 > `PermissionDenied / Access denied`，落点在 `crates/core/src/testutil.rs` 的
@@ -51,6 +51,7 @@ Node 用例数**单独记录**，不并入上表 C# / Rust 合计口径。
 | `mcp/src/tools/info.ts`（新增） | `info` 自述工具：五字段结果模式（服务端版本 / 协议版本 / 契约版本 / 能力集 / 传输形态） |
 | `mcp/src/version.ts`（新增） | 回读工程清单的 `version`（本刀为空串，如实回读不编造） |
 | `mcp/src/index.ts`（新增） | stdio 传输直连；客户端断开即退出；诊断一律走标准错误 |
+| `mcp/src/shutdown.ts`（新增） | 终止信号收尾逻辑（写诊断 → 退出），抽出后可被单测直接驱动 |
 | `mcp/test/**`（新增） | 4 个测试文件 + 2 个夹具，41 条用例 |
 | `openspec/config.yaml` | 登记分类 `mcp`（两处）＋新增「规范冻结粒度」段（全仓通用规则） |
 | `.gitignore` | 新增 `mcp/dist/`、`mcp/coverage/` |
@@ -87,7 +88,7 @@ HTTP 并用网页展示工具清单、调用结果与原始 JSON-RPC 流量；�
 | 空壳的引擎无关性 · 自述工具不读取日志 | `自述工具 › 调用过程不访问日志文件：产出只含自身身份信息`；`源码不含引擎调用 › 源码不读取引擎产出的日志数据文件`；`源码不含引擎调用 › 文件系统访问只出现在版本读取处，且只读工程清单` |
 | 传输形态限定为标准输入输出 · 只暴露标准输入输出 | `引擎无关性 › 握手结果中未声明任何网络传输形态，能力集只含工具能力`；`握手与能力声明 › 能力集只含工具相关能力，不声明资源与提示能力` |
 | 进程退出与资源释放 · 客户端断开后服务端退出 | `进程退出 › 客户端断开后进程在 5 秒内结束` |
-| 进程退出与资源释放 · 终止信号后不再写协议消息 | `终止信号 › 收到终止信号后退出，且退出前未向标准输出写入非协议内容`（**Windows 上跳过**：本平台不投递 POSIX 信号） |
+| 进程退出与资源释放 · 终止信号后不再写协议消息 | `终止信号收尾 › 收到信号时写一条诊断，并以 0 退出`；`终止信号收尾 › 诊断信息只走标准错误，退出前不向标准输出写入任何内容`（全平台）；`终止信号 › 收到终止信号后退出，且退出前未向标准输出写入非协议内容`（**仅类 Unix**：Windows 父进程无法给子进程投递可被 JS 处理的信号，`child.kill('SIGTERM')` 与 `SIGBREAK` 均为强杀） |
 
 **未覆盖项共 2 条**（上表已标出）：「无需凭据」与「契约版本随不兼容变更递增」。
 前者无可断言的外部行为；后者需先发生一次不兼容变更才可观测。

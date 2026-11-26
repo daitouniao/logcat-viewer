@@ -9,6 +9,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/server/stdio';
 
 import { CONTRACT_VERSION } from './contract.js';
 import { createServer } from './server.js';
+import { installShutdownHandlers } from './shutdown.js';
 import { readServerVersion } from './version.js';
 
 const server = createServer({ serverVersion: readServerVersion() });
@@ -23,11 +24,9 @@ transport.onclose = () => {
 };
 
 // 终止信号：先收尾再退出，且此后不再向标准输出写入任何内容。
-const shutdown = (signal: NodeJS.Signals) => {
-  console.error(`[logcat-mcp] received ${signal}, shutting down`);
-  process.exit(0);
-};
-process.on('SIGINT', shutdown);
-process.on('SIGTERM', shutdown);
+installShutdownHandlers({
+  report: (message) => console.error(message),
+  exit: (code) => process.exit(code),
+});
 
 await server.connect(transport);

@@ -128,7 +128,10 @@ describe('进程退出', () => {
 });
 
 describe('终止信号', () => {
-  // Windows 不向子进程投递 POSIX 信号，故该路径只在类 Unix 平台验证。
+  // Windows 上父进程无法给子进程投递可被 JS 处理的信号（child.kill('SIGTERM')
+  // 是强杀，SIGBREAK 同样落到 TerminateProcess），故这条端到端路径只在
+  // 类 Unix 平台跑。收尾逻辑本身（写诊断、退出、不写标准输出）由
+  // shutdown.test.ts 在所有平台直接断言。
   it('收到终止信号后退出，且退出前未向标准输出写入非协议内容', { skip: process.platform === 'win32' }, async () => {
     const server = startServer();
     try {
