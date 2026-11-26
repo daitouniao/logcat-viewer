@@ -10,7 +10,7 @@
 | `cargo test --workspace -- --test-threads=1` | **425 / 425 全过，0 失败**（core 392 + cabi 33，串行口径） |
 | `dotnet test tests/logcat.Tests/logcat.Tests.csproj -c Release` | **923 / 923 全过，0 失败，0 跳过** |
 | `bash scripts/run-tests-en-us.sh`（Release + en-US，与流水线同口径） | **Total tests: 923**，EXIT 0 |
-| `npm --prefix mcp test` | **46 条用例，45 通过 / 0 失败 / 1 跳过** |
+| `npm --prefix mcp test` | **45 条用例，45 通过 / 0 失败 / 0 跳过** |
 | `openspec validate mcp-node-shell --strict` | 通过 |
 
 本刀未改动 C# / Rust 任何生产代码，两侧口径与基线（923 / 425）一致，无新增失败。
@@ -28,7 +28,7 @@ Node 用例数**单独记录**，不并入上表 C# / Rust 合计口径。
 | `cargo test --workspace -- --test-threads=1` | **425 / 425 全过**（core 392 + cabi 33） |
 | `dotnet test tests/logcat.Tests/logcat.Tests.csproj -c Release` | **923 / 923 全过，0 失败，0 跳过** |
 | `bash scripts/run-tests-en-us.sh` | **Total tests: 923**，EXIT 0 |
-| `npm --prefix mcp test` | **46 条用例，45 通过 / 0 失败 / 1 跳过** |
+| `npm --prefix mcp test` | **45 条用例，45 通过 / 0 失败 / 0 跳过** |
 
 > **环境坑（非本刀引入）**：master 上首轮复跑时 Rust UT 与 56 条 C# IT 报
 > `PermissionDenied / Access denied`，落点在 `crates/core/src/testutil.rs` 的
@@ -88,7 +88,7 @@ HTTP 并用网页展示工具清单、调用结果与原始 JSON-RPC 流量；�
 | 空壳的引擎无关性 · 自述工具不读取日志 | `自述工具 › 调用过程不访问日志文件：产出只含自身身份信息`；`源码不含引擎调用 › 源码不读取引擎产出的日志数据文件`；`源码不含引擎调用 › 文件系统访问只出现在版本读取处，且只读工程清单` |
 | 传输形态限定为标准输入输出 · 只暴露标准输入输出 | `引擎无关性 › 握手结果中未声明任何网络传输形态，能力集只含工具能力`；`握手与能力声明 › 能力集只含工具相关能力，不声明资源与提示能力` |
 | 进程退出与资源释放 · 客户端断开后服务端退出 | `进程退出 › 客户端断开后进程在 5 秒内结束` |
-| 进程退出与资源释放 · 终止信号后不再写协议消息 | `终止信号收尾 › 收到信号时写一条诊断，并以 0 退出`；`终止信号收尾 › 诊断信息只走标准错误，退出前不向标准输出写入任何内容`（全平台）；`终止信号 › 收到终止信号后退出，且退出前未向标准输出写入非协议内容`（**仅类 Unix**：Windows 父进程无法给子进程投递可被 JS 处理的信号，`child.kill('SIGTERM')` 与 `SIGBREAK` 均为强杀） |
+| 进程退出与资源释放 · 终止信号后不再写协议消息 | `终止信号收尾 › 收到信号时写一条诊断，并以 0 退出`；`终止信号收尾 › 诊断信息只走标准错误，退出前不向标准输出写入任何内容`；`终止信号收尾 › 注册后 SIGINT / SIGTERM 生效，注销后移除`；`终止信号收尾 › Windows 上额外注册 SIGBREAK（控制台 Ctrl+Break）` |
 
 **未覆盖项共 2 条**（上表已标出）：「无需凭据」与「契约版本随不兼容变更递增」。
 前者无可断言的外部行为；后者需先发生一次不兼容变更才可观测。
@@ -100,7 +100,12 @@ HTTP 并用网页展示工具清单、调用结果与原始 JSON-RPC 流量；�
    SDK 高层封装的默认行为会覆盖未注册工具的错误文案。属实现取舍，不改规范（design D 级决策）。
 2. **未握手调用的拒绝由本壳层实现**：实测 SDK 2.4.0 不拦截未握手的工具调用，
    故壳层显式判定会话状态，未握手时以 JSON-RPC 错误（非法请求）拒绝。
-3. **终止信号路径的平台差异**：Windows 不向子进程投递 POSIX 信号，
-   该用例按平台跳过；客户端断开（标准输入 EOF）触发的退出路径在所有平台生效并已覆盖。
+3. **终止信号路径的平台差异**：Windows 父进程无法给子进程投递可被 JS 处理的信号
+   （`child.kill('SIGTERM')` 与 `SIGBREAK` 均为强杀），故该需求的**端到端**形态
+   （真起子进程、真发信号）在 dev 与 CI（均为 Windows）上永远跑不到。
+   处理方式：**删除那条永远跑不到的用例，不留长期跳过项**（本仓 C# / Rust 两侧
+   实测口径本就是 0 跳过）；收尾逻辑本身（写诊断、以 0 退出、退出前不写标准输出）
+   与信号注册由 `shutdown.test.ts` 在所有平台直接断言。规范与代码**不删**——
+   Windows 控制台的 Ctrl+C 走 `SIGINT`，处理器照常生效，需求在 Windows 上成立。
 4. **工程版本字段留空**：`mcp/package.json` 的 `version` 为空串，本刀不发布，
    如实留空比编造版本号诚实；`serverVersion` 由 `version.ts` 回读清单得到，故握手返回空串。

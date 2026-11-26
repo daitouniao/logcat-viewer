@@ -127,28 +127,6 @@ describe('进程退出', () => {
   });
 });
 
-describe('终止信号', () => {
-  // Windows 上父进程无法给子进程投递可被 JS 处理的信号（child.kill('SIGTERM')
-  // 是强杀，SIGBREAK 同样落到 TerminateProcess），故这条端到端路径只在
-  // 类 Unix 平台跑。收尾逻辑本身（写诊断、退出、不写标准输出）由
-  // shutdown.test.ts 在所有平台直接断言。
-  it('收到终止信号后退出，且退出前未向标准输出写入非协议内容', { skip: process.platform === 'win32' }, async () => {
-    const server = startServer();
-    try {
-      await initialize(server, 1);
-      server.child.kill('SIGTERM');
-      await server.waitForExit(5000);
-
-      assert.match(server.stderrText(), /received SIGTERM/);
-      for (const line of server.stdoutLines) {
-        assert.equal((JSON.parse(line) as Record<string, unknown>).jsonrpc, '2.0');
-      }
-    } finally {
-      server.kill();
-    }
-  });
-});
-
 describe('引擎无关性', () => {
   it('在没有日志引擎的环境中仍可完成握手与列举', async () => {
     const server = startServer({
