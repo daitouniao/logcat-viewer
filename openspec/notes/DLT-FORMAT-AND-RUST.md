@@ -22,7 +22,7 @@ DLT 以**格式**身份进入 Rust core 的源获取契约：core 在 plan 阶�
 | --- | --- | --- |
 | 原 `DLT-INTEGRATION.md`（2026-11-06 重构 / 2026-11-12 复核） | 格式事实、字段映射、已关闭决策、风险许可 | 主体并入本文 |
 | 原 `DLT-INTEGRATION.md` §3.3 / §3.5（C# 期落地改动：`ParseLine` 分支、`HeaderBytes` 接受 `/`、`LogListView` 静态列集改运行时） | — | **整条删除**（维护者 2026-11-12 口径）：判定与索引均归 Rust，列集由 `columns[]` 下发，C# 侧不再有 DLT 分支 |
-| `RUST-CORE-EVALUATION.md` C3（解码归属三选项） | 选项框架 | 改写为 §5.1（旧倾向「丙」被 D1 取代） |
+| 已归档笔记 RUST-CORE-EVALUATION 的 C3（解码归属三选项） | 选项框架 | 改写为 §5.1（旧倾向「丙」被 D1 取代） |
 | `RUST-CORE-REWRITE-SLICING.md` 的「DLT 解码不进内核」 | — | **作废**：与 D1「log 文件操作完全归 Rust」冲突；其活性锁雷保留并转入 §5.6（Rust 侧已用 `share_mode(0)` 收口，见该笔记 §6.3） |
 | `2026-11-15-SOURCE-ACQUIRE-CONTRACT.md`（已归档）§2.5 / A2 / A4 / A8 / S9 | 契约面、判定顺序、列集下发 | 并入 §4，且以已归档 change `source-acquire-contract` 的 design 定稿与主规范 `logcore/source-acquire` 为准 |
 | `BACKLOG-MCP-AND-FORMATS.md` B3 / D2 / D7 | MCP 侧切片位置 | 压到 §9 |
@@ -361,7 +361,7 @@ plan(format=Dlt) ──► commit: .dlt ─►[decode]─► 规范文本(临时
 ## 12 关联
 
 - `openspec/notes/RUST-CORE-REWRITE-SLICING.md`：Rust 七刀 / 三轨、crate 布局、FFI 契约、panic 边界、活性锁雷（本文 §5.6 的来源，见其 §6.3）。
-- `openspec/notes/RUST-CORE-EVALUATION.md`：语言决策与对拍契约（其 C3 被本文 §5.1 改写）。
+- 已归档笔记 `openspec/notes/archive/2026-11-26-RUST-CORE-EVALUATION.md`：语言决策与对拍契约（其 C3 被本文 §5.1 改写）。
 - `openspec/notes/archive/2026-11-15-SOURCE-ACQUIRE-CONTRACT.md`：获取契约的完整定案（本文 §4 的上位来源，已归档）。
 - `openspec/notes/BACKLOG-MCP-AND-FORMATS.md`：MCP 卡（B3），DLT 的切片序位（§9）。
 - `openspec/notes/MCP-FUNCTIONALITY.md`、`openspec/notes/MCP-LOG-ANALYSIS-API.md`：MCP 侧两套未拍板口径。
