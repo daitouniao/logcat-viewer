@@ -82,11 +82,14 @@
 - **选项**：**甲（推荐）固定英文 JSON 契约，MCP 不引 `Loc`**；乙 跟随系统区域；丙 加 `lang` 参数由客户端指定。
 - **倾向**：甲。字段名、枚举值、错误信息全部英文且进 spec 场景；本地化只属于 GUI。
 
-### D4 正则过滤的作用面与方言（阻塞 Core 能力设计）
+### D4 正则过滤的作用面与方言（**已定，2026-11-25**，由 `rust-core-msg-regex` 承接）
 
 - **为什么必须定**：范围表只写了「MCP 正则过滤」，没写匹配哪一段文本、方言边界在哪；这决定 `FilterSpec` 的扩展字段与测试面。
 - **选项（作用面）**：**甲（推荐）仅 message 体**；乙 整行（含时间/pid/tag 头）；丙 tag + msg 两段分别可配。
 - **倾向**：甲 + 大小写开关 + 排除开关。**引擎已定（2026-11-15）：Rust `regex` 方言**，由 core 执行——线性时间、无灾难性回溯，不支持反向引用与环视；不支持的语法编译期拒绝。原「.NET `Regex` + 200 ms 匹配超时」作废。整行匹配可等实际需求再加。详见 `openspec/notes/FILTER-PREFILTER-AND-RUST.md`。
+
+- **修订（2026-11-25）**：本项由 change `rust-core-msg-regex` 落地——作用面甲（仅正文）、`msg.mode` 放行 `regex`、方言边界与不可信 pattern 上限（单条 2000 字符 / 16 条 / 编译规模收紧）进 `logcore/filter`，正则非法走 `REGEX_INVALID`（17）+ `reason` 分因；tag 段（丙）仍不开，整行匹配同样不做。
+- **遗留缺口（本卡后续处理）**：正则档有三重上限，而**子串档的 `msg.values` 至今无条数与长度上限**，且子串档是「每词一轮全量扫描」，同样的乘积面敞口更大。该 change 有意不动已归档的「条件模型与组合」；子串档上限宜与 MCP 侧调用约束（返回条数与 `params` 尺寸，见 D5/D9）同批治理，否则一次调用即可用上千个子串词打满扫描。
 
 ### D5 MCP v1 工具语义（阻塞 tool schema）
 
@@ -98,6 +101,19 @@
   2. `get_context`：**推荐按行窗口**（前后 N 行，N 有上限），可选「同 tag / 同 pid / 同 tid」邻近模式；
   3. `crashes`：**推荐直接复用** `CrashEvent`（`Row` / `ExcId` / `PkgId` / `Pid` / `Tid` / `Kind` / `LineCount`）+ `CrashAggregator` 分组，不新增崩溃识别逻辑；
   4. `list`：返回已打开文档与元信息，还是接受路径现场打开？**推荐 v1 允许显式路径 + 进程内文档缓存**（与 D9 白名单口径联动）。
+
+- **正则方言的可粘贴说明（2026-11-26 由 `rust-core-msg-regex` 产出）**：core 只回错误码、不解释"为什么被拒"，工具说明必须前置这段规则，否则 AI 会反复生成被拒的 pattern。数字与 `reason` 取值以 `logcore/filter` 主规范为准，本节只作 MCP 侧文案素材。
+
+```text
+Pattern syntax: Rust `regex` crate (RE2-style). No lookaround, no backreferences,
+no atomic groups or possessive quantifiers. Supported: inline flags (?i)(?x)(?R),
+Unicode \w \d \s \b, \p{...} property classes, character-class set operations
+(&& -- ~~). Case-insensitive by default; `case: true` makes it exact, and an inline
+(?i)/(?-i) inside the pattern still applies. Limits: at most 16 patterns per message
+condition, at most 2000 characters each. Invalid or over-budget patterns are rejected
+with REGEX_INVALID and a reason (syntax / too_long / too_many / too_size) — they are
+never silently downgraded to substring matching.
+```
 
 ### D6 MCP 发布形态（阻塞发布文档）
 
