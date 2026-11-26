@@ -723,6 +723,11 @@ MCP 服务端工程 `mcp/`（OpenSpec change mcp-node-shell）是独立的 Node 
 > 端到端用例以子进程方式拉起服务端并观测真实的标准输出、标准错误与退出码，
 > 不做进程内替换；标准输出的每一行都逐行断言为合法协议消息。
 
+> **Node 版本口径**：测试运行器参数用 glob（`dist/test/*.test.js`）而非目录——
+> Node 22 的 `--test` 不接受目录参数（会当模块加载并报 `MODULE_NOT_FOUND`），
+> Node 26 才支持。CI 钉 Node 22，故必须用 glob。
+> 本机实测：**Node 22.23.5 与 Node 26.8.1 均为 41 通过 0 失败 1 跳过**。
+
 ---
 
 ## 8. 新 UI 宿主（`logcat-next/`）
