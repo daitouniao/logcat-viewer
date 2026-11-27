@@ -1,7 +1,7 @@
 using System.Text.Json.Nodes;
 using Xunit;
+using Next.App.Services;
 using Next.App.Storage;
-using Next.App.ViewModels;
 
 namespace Next.Tests;
 
@@ -22,7 +22,7 @@ public class CacheDirTests
         Path.Combine(Path.GetTempPath(), "logcat-next-tests", Guid.NewGuid().ToString("N"));
 
     static JsonNode Request(StorageRoots roots) =>
-        JsonNode.Parse(MainViewModel.BuildRequest(@"C:\logs\a.log", roots))!;
+        JsonNode.Parse(LogFileLoader.BuildRequest(@"C:\logs\a.log", roots))!;
 
     [Fact]
     public void RequestUsesPersistentCacheDir()

@@ -748,14 +748,14 @@ MCP 服务端工程 `mcp/`（OpenSpec change mcp-node-shell）是独立的 Node 
 
 | 入口 | 说明 |
 | --- | --- |
-| `dotnet test logcat-next/Next.Tests/Next.Tests.csproj` | 互操作绑定与导出缺失、页布局 v1 解码与释放恰好一次、真实 core 端到端（plan/commit/轮询/行数/分页边界/空文件）、双语目录键集合与占位符、语义 token 完整性、视口取页范围、行选择区间集与手势、指针命中、按行区间取页与复制编排、双击详情判定 |
+| `dotnet test logcat-next/Next.Tests/Next.Tests.csproj` | 互操作绑定与导出缺失、页布局 v1 解码与释放恰好一次、真实 core 端到端（plan/commit/轮询/行数/分页边界/空文件）、双语目录键集合与占位符、语义 token 完整性、视口取页范围、行选择区间集与手势、指针命中、按行区间取页与复制编排、双击详情判定、最近文件列表维护与持久化、最近文件菜单展示规则与失效条目移除、装载完成才记录最近文件的时点约束 |
 
 **前置**：同样要求先 `cargo build`（装载层按旧查看器同一探测顺序回退到
 `logcore/target/debug/logcore.dll`，另支持 `LOGCORE_DLL` 与应用目录显式定位）。
 双语目录以 JSON 文件随输出复制（`Strings\`），不用 EmbeddedResource——Avalonia
 构建任务会把 EmbeddedResource 吸进 `!AvaloniaResources`，清单不可见（实测）。
 
-本机实测（2026-11-27）：**Next.Tests 81/81**（含 `avalonia-app-storage` 新增：持久化根三分支、设置版本与原子写、日志前缀与轮转、缓存/临时目录、边界扫描；`next-log-selection-copy` 再增 28 条：区间选择与手势、命中测试、按区间取页与失败页、复制拼装与剪贴板编排、双击详情判定）；主仓 `logcat.slnx` 全量 **923/923** 未受影响
+本机实测（2026-11-27）：**Next.Tests 106/106**（含 `avalonia-app-storage` 新增：持久化根三分支、设置版本与原子写、日志前缀与轮转、缓存/临时目录、边界扫描；`next-log-selection-copy` 再增 28 条：区间选择与手势、命中测试、按区间取页与失败页、复制拼装与剪贴板编排、双击详情判定；`next-recent-files` 再增 25 条：最近文件列表维护/去重/上限/移除/持久化与会话内降级、菜单存在性过滤与中部省略、装载时点（空文件记录、失败与取消不记录））；主仓 `logcat.slnx` 全量 **923/923** 未受影响
 （新工程与旧 viewer 完全并存，互不引用）。
 
 ---

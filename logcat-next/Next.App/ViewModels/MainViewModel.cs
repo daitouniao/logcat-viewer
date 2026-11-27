@@ -1,7 +1,5 @@
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
-using System.Text.Json;
-using System.Text.Json.Nodes;
 using Avalonia.Controls;
 using Avalonia.Threading;
 using Next.App.Localization;
@@ -89,40 +87,19 @@ public sealed class MainViewModel : INotifyPropertyChanged
         var token = cts.Token;
         try
         {
-            var source = LogcoreSource.Plan(BuildRequest(path, AppStorage.Roots));
+            // 装载成功才回调记录最近文件（含 0 行文件）；失败 / 取消不记录（design D4）
+            var outcome = await LogFileLoader.LoadAsync(path, AppStorage.Roots, AppStorage.Settings.AddRecentFile, token);
             var old = _source;
-            _source = source;
+            _source = outcome.Source;
             _ = Task.Run(() => old?.Dispose());
-            source.Commit();
 
-            // 轮询事件直至终态（done / error）——第一版用拉取，不引入回调（design D7 前置）
-            while (true)
-            {
-                token.ThrowIfCancellationRequested();
-                await Task.Delay(100, token);
-                var events = source.PollEvents();
-                foreach (var e in events)
-                {
-                    if (e.Type == "error")
-                    {
-                        throw new LogcoreException(e.Code ?? LogcoreErrorCodes.Failed,
-                            new Dictionary<string, JsonElement>(StringComparer.Ordinal));
-                    }
-                    if (e.Type == "done")
-                    {
-                        goto loaded;
-                    }
-                }
-            }
-
-        loaded:
-            var rows = source.RowCount();
+            var rows = outcome.Rows;
             await Dispatcher.UIThread.InvokeAsync(() =>
             {
                 TotalRows = rows;
                 if (rows > 0)
                 {
-                    Provider = new LogPageProvider(source, rows);
+                    Provider = new LogPageProvider(outcome.Source, rows);
                     SetStatus("Status.Loaded", rows);
                 }
                 else
@@ -141,53 +118,14 @@ public sealed class MainViewModel : INotifyPropertyChanged
         }
         catch (LogcoreException e)
         {
+            // 文件原因的装载失败：移除该最近条目（design D9）；取消与组件不可用不移除
+            AppStorage.Settings.RemoveRecentFiles([path]);
             await SetErrorAsync("Error.LoadFailed", e.CodeName, e.Message);
         }
         catch (Exception e)
         {
+            AppStorage.Settings.RemoveRecentFiles([path]);
             await SetErrorAsync("Error.OpenFailed", e.Message);
-        }
-    }
-
-    /// <summary>
-    /// 组装 plan 请求：临时目录与索引缓存目录都由持久化根提供（design D8/D9）。
-    /// 目录创建交给调用方尽力而为，失败只留日志——缓存不可用必须降级而不是阻断打开。
-    /// </summary>
-    public static string BuildRequest(string path, StorageRoots roots)
-    {
-        EnsureDirectory(roots.TempDir);
-        EnsureDirectory(roots.CacheDir);
-        var root = new JsonObject
-        {
-            ["kind"] = "File",
-            ["mode"] = "Auto",
-            ["path"] = path,
-            // proxy 节对 File 源必填（core request.rs），本地直开不启动代理；
-            // proxy 存在又要求 options.sidecar，故一并给足形状
-            ["proxy"] = new JsonObject
-            {
-                ["pipeName"] = $"logcat-next-{Guid.NewGuid():N}",
-                ["launchFile"] = "logcat-next-sidecar.exe",
-                ["launchTimeoutMs"] = 3000,
-            },
-            ["options"] = new JsonObject
-            {
-                ["tempDir"] = roots.TempDir,
-                ["sidecar"] = new JsonObject { ["dir"] = roots.CacheDir },
-            },
-        };
-        return root.ToJsonString();
-    }
-
-    static void EnsureDirectory(string directory)
-    {
-        try
-        {
-            Directory.CreateDirectory(directory);
-        }
-        catch (Exception error)
-        {
-            StartupLog.Write("ERROR", $"目录不可用：{directory}", error);
         }
     }
 

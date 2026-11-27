@@ -9,6 +9,9 @@ public sealed class NextSettings
     public int? SchemaVersion { get; set; }
     public string? Lang { get; set; }
     public string? Theme { get; set; }
+
+    /// <summary>最近打开的文件路径，最近在前；缺失或为空按空列表处理。</summary>
+    public List<string>? RecentFiles { get; set; }
 }
 
 public interface INextSettingsStore
@@ -45,7 +48,12 @@ public sealed class JsonNextSettingsStore : INextSettingsStore
             }
 
             var settings = JsonSerializer.Deserialize<NextSettings>(File.ReadAllText(_path), SerializerOptions);
-            return settings?.SchemaVersion == CurrentSchemaVersion ? settings : null;
+            if (settings?.SchemaVersion != CurrentSchemaVersion)
+            {
+                return null;
+            }
+            settings.RecentFiles = RecentFilesList.Normalize(settings.RecentFiles);
+            return settings;
         }
         catch (Exception)
         {
@@ -60,6 +68,7 @@ public sealed class JsonNextSettingsStore : INextSettingsStore
             SchemaVersion = CurrentSchemaVersion,
             Lang = settings.Lang,
             Theme = settings.Theme,
+            RecentFiles = RecentFilesList.Normalize(settings.RecentFiles),
         };
         var temp = _path + ".tmp";
         try
