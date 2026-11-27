@@ -13,6 +13,7 @@
     <Menu DockPanel.Dock="Top">
       <MenuItem Header="{loc:Loc Key=Menu.File}">
         <MenuItem Header="{loc:Loc Key=Menu.Open}" Click="OnOpenClick" />
+        <MenuItem x:Name="RecentFilesSubmenu" Header="{loc:Loc Key=Menu.RecentFiles}" IsEnabled="False" />
       </MenuItem>
       <MenuItem Header="{loc:Loc Key=Menu.Language}">
         <MenuItem Header="{loc:Loc Key=Lang.Zh}" Tag="zh-CN" Click="OnLanguageClick" />

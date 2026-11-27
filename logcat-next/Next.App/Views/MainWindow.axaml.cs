@@ -42,6 +42,8 @@ public partial class MainWindow : Window
         KeyDown += OnKeyDown;
         LocalizationService.Instance.PropertyChanged += OnLanguageChanged;
         _vm.PropertyChanged += OnViewModelPropertyChanged;
+        AppStorage.Settings.RecentFilesChanged += OnRecentFilesChanged;
+        RebuildRecentMenu();
     }
 
     /// <summary>表头位置与自绘列起点同源，避免两套常量漂移（列宽见 LogCanvas.ColumnStarts）。</summary>
@@ -236,6 +238,39 @@ public partial class MainWindow : Window
     }
 
     async void OnOpenClick(object? sender, RoutedEventArgs e) => await _vm.OpenFileAsync(this);
+
+    /// <summary>
+    /// 重建「最近打开」子菜单（design D5/D10）：可见性、省略与禁用都由无 UI 依赖的
+    /// 构建函数决定；本地缺失条目上报后从记录中移除，网络路径不探测存在性。
+    /// </summary>
+    void RebuildRecentMenu()
+    {
+        var model = RecentFilesMenu.Build(AppStorage.Settings.RecentFiles, File.Exists);
+        if (model.MissingLocalPaths.Count > 0)
+        {
+            AppStorage.Settings.RemoveRecentFiles(model.MissingLocalPaths);   // 事件会触发下一次重建
+        }
+        RecentFilesSubmenu.Items.Clear();
+        RecentFilesSubmenu.IsEnabled = model.IsEnabled;
+        foreach (var entry in model.Entries)
+        {
+            var item = new MenuItem { Header = entry.DisplayText, Tag = entry.FullPath };
+            ToolTip.SetTip(item, entry.FullPath);
+            item.Click += OnRecentFileClick;
+            RecentFilesSubmenu.Items.Add(item);
+        }
+    }
+
+    async void OnRecentFileClick(object? sender, RoutedEventArgs e)
+    {
+        if ((e.Source as Control)?.Tag is string path)
+        {
+            await _vm.LoadFileAsync(path);   // 打开失败沿用状态栏错误通道，不改记录（design D9）
+        }
+    }
+
+    void OnRecentFilesChanged(object? sender, EventArgs e) =>
+        Dispatcher.UIThread.Post(RebuildRecentMenu);
 
     void OnLanguageChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
     {

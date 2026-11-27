@@ -2,6 +2,7 @@
   "App.Title": "logcat Next",
   "Menu.File": "文件",
   "Menu.Open": "打开文件…",
+  "Menu.RecentFiles": "最近打开",
   "Menu.Language": "语言",
   "Menu.Theme": "主题",
   "Theme.Light": "浅色",

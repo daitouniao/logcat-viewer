@@ -150,4 +150,60 @@ public class SettingsStoreTests
         Assert.Equal("en", service.Lang);
         Assert.Equal("dark", service.Theme);
     }
+
+    // ── 最近文件键（spec next/recent-files / next/app-storage）──
+
+    [Fact]
+    public void SavesAndLoadsRecentFiles()
+    {
+        var path = Path.Combine(TempDirectory(), "next-settings.json");
+        var store = new JsonNextSettingsStore(path);
+        string[] recent = [@"C:\logs\a.log", @"\\server\share\b.log"];
+
+        store.Save(new NextSettings { Lang = "en", Theme = "dark", RecentFiles = [.. recent] });
+        var loaded = store.Load();
+
+        Assert.Equal<IEnumerable<string>>(recent, loaded!.RecentFiles!);
+    }
+
+    [Fact]
+    public void MissingRecentFilesKeyYieldsEmpty()
+    {
+        var path = Path.Combine(TempDirectory(), "next-settings.json");
+        File.WriteAllText(path, """{ "SchemaVersion": 1, "Lang": "en", "Theme": "dark" }""");
+
+        var loaded = new JsonNextSettingsStore(path).Load();
+
+        Assert.NotNull(loaded);
+        Assert.Empty(loaded!.RecentFiles!);
+    }
+
+    [Fact]
+    public void TruncatesOverlongRecentFilesOnLoad()
+    {
+        var path = Path.Combine(TempDirectory(), "next-settings.json");
+        var entries = string.Join(",", Enumerable.Range(0, 12).Select(i => $"\"C:\\\\logs\\\\{i}.log\""));
+        File.WriteAllText(path, $$"""{ "SchemaVersion": 1, "RecentFiles": [{{entries}}] }""");
+
+        var loaded = new JsonNextSettingsStore(path).Load();
+
+        Assert.Equal(10, loaded!.RecentFiles!.Count);
+        Assert.Equal(@"C:\logs\0.log", loaded.RecentFiles[0]);
+        Assert.Equal(@"C:\logs\9.log", loaded.RecentFiles[9]);
+    }
+
+    [Fact]
+    public void SaveDropsUnknownKeys()
+    {
+        var path = Path.Combine(TempDirectory(), "next-settings.json");
+        File.WriteAllText(path,
+            """{ "SchemaVersion": 1, "Lang": "en", "Theme": "dark", "FutureKey": 42 }""");
+        var store = new JsonNextSettingsStore(path);
+
+        store.Save(store.Load()!);
+
+        var text = File.ReadAllText(path);
+        Assert.DoesNotContain("FutureKey", text);
+        Assert.Contains("\"Lang\"", text);
+    }
 }

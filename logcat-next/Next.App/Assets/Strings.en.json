@@ -2,6 +2,7 @@
   "App.Title": "logcat Next",
   "Menu.File": "File",
   "Menu.Open": "Open File…",
+  "Menu.RecentFiles": "Recent Files",
   "Menu.Language": "Language",
   "Menu.Theme": "Theme",
   "Theme.Light": "Light",
