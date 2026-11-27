@@ -4,6 +4,7 @@ using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Styling;
+using Next.App.Selection;
 using Next.App.Services;
 
 namespace Next.App.Controls;
@@ -38,6 +39,9 @@ public class LogCanvas : Control
     public static readonly StyledProperty<double> ViewportHeightProperty =
         AvaloniaProperty.Register<LogCanvas, double>(nameof(ViewportHeight));
 
+    public static readonly StyledProperty<IRowSelection?> SelectionProperty =
+        AvaloniaProperty.Register<LogCanvas, IRowSelection?>(nameof(Selection));
+
     public LogPageProvider? Provider
     {
         get => GetValue(ProviderProperty);
@@ -56,14 +60,37 @@ public class LogCanvas : Control
         set => SetValue(ViewportHeightProperty, value);
     }
 
+    /// <summary>选中判定（只读）：选择集合原地变化时重绘（design D3）。</summary>
+    public IRowSelection? Selection
+    {
+        get => GetValue(SelectionProperty);
+        set => SetValue(SelectionProperty, value);
+    }
+
     readonly Action _providerDataChanged;
+    readonly Action _selectionChanged;
 
     public LogCanvas()
     {
         // 自绘不在样式系统内：订阅主题变更手动重绘（design D3）
         ActualThemeVariantChanged += (_, _) => InvalidateVisual();
         _providerDataChanged = () => InvalidateVisual();
+        _selectionChanged = () => InvalidateVisual();
         ProviderProperty.Changed.AddClassHandler<LogCanvas>((c, e) => c.HandleProviderChanged(e));
+        SelectionProperty.Changed.AddClassHandler<LogCanvas>((c, e) => c.HandleSelectionChanged(e));
+    }
+
+    void HandleSelectionChanged(AvaloniaPropertyChangedEventArgs e)
+    {
+        if (e.GetOldValue<IRowSelection?>() is { } old)
+        {
+            old.Changed -= _selectionChanged;
+        }
+        if (e.GetNewValue<IRowSelection?>() is { } fresh)
+        {
+            fresh.Changed += _selectionChanged;
+        }
+        InvalidateVisual();
     }
 
     void HandleProviderChanged(AvaloniaPropertyChangedEventArgs e)
@@ -112,6 +139,8 @@ public class LogCanvas : Control
 
         var muted = TryBrush("Text.Muted");
         var primary = TryBrush("Text.Primary") ?? muted;
+        var selectionBrush = TryBrush("Surface.Selection");
+        var selection = Selection;
         var firstRow = Math.Max(0, (long)(OffsetY / RowHeight));
         var visible = (int)(ViewportHeight / RowHeight) + 2;
         var total = (long)provider.TotalRows;
@@ -124,6 +153,11 @@ public class LogCanvas : Control
                 break;
             }
             var y = index * RowHeight - OffsetY;
+            if (selectionBrush is not null && selection?.Contains(index) == true)
+            {
+                // 选中底色铺满整行（含 Message 右侧留白），文字颜色不变（design D5）
+                context.FillRectangle(selectionBrush, new Rect(0, y, Bounds.Width, RowHeight));
+            }
             var row = provider.TryGetRow(index);
             if (row is null)
             {

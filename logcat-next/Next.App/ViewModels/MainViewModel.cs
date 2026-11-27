@@ -203,6 +203,15 @@ public sealed class MainViewModel : INotifyPropertyChanged
         Raise(nameof(StatusText));
     }
 
+    /// <summary>复制成功：状态栏「已复制 N 行」（选中记录数，当前区域千分位）。</summary>
+    public void ShowCopied(long rows) => SetStatus("Status.Copied", rows);
+
+    /// <summary>选区内有页取数失败：整体失败，不写剪贴板。</summary>
+    public void ShowCopyFetchFailed() => SetStatus("Status.CopyFetchFailed");
+
+    /// <summary>剪贴板写入失败：应用保持可用。</summary>
+    public void ShowCopyClipboardFailed() => SetStatus("Status.CopyClipboardFailed");
+
     void Raise([CallerMemberName] string? name = null) =>
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
 

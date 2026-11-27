@@ -13,6 +13,11 @@
   "Status.Loading": "正在加载 {0}…",
   "Status.Loaded": "已加载 {0:N0} 行",
   "Status.Empty": "文件为空",
+  "Status.Copied": "已复制 {0:N0} 行",
+  "Status.CopyFetchFailed": "复制失败：读取日志行失败",
+  "Status.CopyClipboardFailed": "复制失败：无法写入剪贴板",
+  "Detail.Title": "记录 #{0}",
+  "Detail.Close": "关闭",
   "Error.OpenFailed": "打开失败：{0}",
   "Error.LoadFailed": "加载失败（{0}）：{1}",
   "Error.LogcoreMissing": "日志数据组件不可用：{0}"

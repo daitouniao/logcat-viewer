@@ -58,7 +58,7 @@ public class ThemeTokenTests
         var palettes = ThemePalettes();
         var required = new[]
         {
-            "Surface.Canvas", "Surface.Panel", "Surface.HeaderRow", "Surface.Border",
+            "Surface.Canvas", "Surface.Panel", "Surface.HeaderRow", "Surface.Border", "Surface.Selection",
             "Text.Primary", "Text.Muted", "Accent",
             "Level.Verbose", "Level.Debug", "Level.Info", "Level.Warn",
             "Level.Error", "Level.Fatal", "Level.Assert", "Level.Unknown",
