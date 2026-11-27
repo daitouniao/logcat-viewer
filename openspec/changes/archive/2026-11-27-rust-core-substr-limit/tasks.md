@@ -38,8 +38,8 @@
 
 ## 8. 收口
 
-- [ ] 8.1 wt 合入目标分支：`git merge wt/rust-core-substr-limit` 合入 **`master`**；验证：`git log master` 出现该合并、`git status` 干净；worktree 清除随归档执行（本任务只记合入完成）
-- [ ] 8.2 交付验收材料（本卡无 UI 面，不做 GUI 手测）：汇总 7.1/7.2 口径数字，交用户验收；验证：AI 不自行判定「验收通过」，等用户明示
+- [x] 8.1 wt 合入目标分支：`git merge wt/rust-core-substr-limit` 合入 **`master`**；验证：`git log master` 出现该合并、`git status` 干净；worktree 清除随归档执行（本任务只记合入完成）
+- [x] 8.2 交付验收材料（本卡无 UI 面，不做 GUI 手测）：汇总 7.1/7.2 口径数字，交用户验收；验证：AI 不自行判定「验收通过」，等用户明示
 
 ## Workflow follow-up
 
