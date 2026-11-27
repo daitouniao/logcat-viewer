@@ -248,7 +248,6 @@ public sealed class SourceAcquireFailureIT : LogcoreIntegrationTest
         var dir = Dir("logs");
         var path = LogcoreTestSupport.WriteLines(dir, "abort.log", Batch("x", 5000));
         using var fake = new FakeProxy(LogcoreTestSupport.NewPipe("abort")) { AbortAfterBytes = 64 };
-        fake.WaitListeningAsync().GetAwaiter().GetResult();
         var source = PlanFile(path, fake.PipeName, mode: "On");
         source.Commit();
         var events = LogcoreTestSupport.DrainUntil(source, es => es.Any(e => e.Type == "error"));

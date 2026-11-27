@@ -8,7 +8,6 @@ using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
 using logcat.Services;
-using Xunit;
 
 namespace logcat.Tests;
 
@@ -64,38 +63,27 @@ sealed class FakeProxy : IAsyncDisposable, IDisposable
     readonly CancellationTokenSource _cts = new();
     readonly List<Task> _connTasks = new();
     readonly Task _acceptLoop;
+    readonly NamedPipeServerStream _initialServer;
 
     public FakeProxy(string? pipeName = null)
     {
         _pipeName = pipeName ?? "logcat-test-" + Guid.NewGuid().ToString("N");
+        // 首实例同步创建：连接会先被管道缓冲，接受循环稍后接入即可。
+        // 若放进接受循环里创建，轮询等待会依赖线程池调度，2 核 CI 上并行用例占满线程池即误报超时。
+        _initialServer = NewServer();
         _acceptLoop = Task.Run(AcceptLoopAsync);
     }
 
     public string PipeName => _pipeName;
 
-    public static async Task<FakeProxy> StartAsync(string? pipeName = null)
-    {
-        var p = new FakeProxy(pipeName);
-        await p.WaitListeningAsync().ConfigureAwait(false);
-        return p;
-    }
+    public static Task<FakeProxy> StartAsync(string? pipeName = null) =>
+        Task.FromResult(new FakeProxy(pipeName));
 
-    /// <summary>等到管道实例就绪（首个 server stream 已创建并开始等待连接）。</summary>
-    public async Task WaitListeningAsync()
-    {
-        // 首实例在 AcceptLoopAsync 入口同步创建；给它一个调度窗口
-        for (int i = 0; i < 100 && !_firstServerCreated; i++)
-            await Task.Delay(10).ConfigureAwait(false);
-        Assert.True(_firstServerCreated, "模拟代理未能在 1s 内进入监听状态");
-    }
-
-    volatile bool _firstServerCreated;
     long _totalSent;
 
     async Task AcceptLoopAsync()
     {
-        var server = NewServer();
-        _firstServerCreated = true;
+        var server = _initialServer;
         while (!_cts.IsCancellationRequested)
         {
             try
@@ -108,7 +96,6 @@ sealed class FakeProxy : IAsyncDisposable, IDisposable
 
             var conn = server;
             server = NewServer();             // 立刻补一个监听实例，避免第二个客户端撞上「无实例」窗口
-            _firstServerCreated = true;
             var task = Task.Run(() => HandleConnAsync(conn));
             lock (_connTasks) _connTasks.Add(task);
         }

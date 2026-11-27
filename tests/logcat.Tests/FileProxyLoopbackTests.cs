@@ -261,7 +261,6 @@ public class FileProxyLoopbackTests
     public void 协议版本不匹配判连接失败并附代理自描述()
     {
         using var bad = new FakeProxy { Proto = 2, ProxyName = "other-proxy/9.9" };
-        bad.WaitListeningAsync().GetAwaiter().GetResult();
         var ex = Trap<FileProxyException>(() => Connect(bad), out _);
         Assert.Equal(FileProxyErrorCode.ProtoMismatch, ex.Code);
         Assert.Contains("other-proxy/9.9", ex.Message);   // 附代理自描述
@@ -376,7 +375,6 @@ public class FileProxyLoopbackTests
         // FakeProxy 每次 read 精确读满（不做短读模拟）：第一块 8MB 送完即暴力断线，
         // 第二块 read 时流已结束 → 客户端实收 8MB != open.size 16MB → 短读
         using var proxy = new FakeProxy { AbortAfterBytes = Chunk };
-        proxy.WaitListeningAsync().GetAwaiter().GetResult();
         using var client = Connect(proxy);
 
         var sessionDir = System.IO.Path.Combine(TempRoot.Dir, "spool-" + Guid.NewGuid().ToString("N"));
@@ -399,7 +397,6 @@ public class FileProxyLoopbackTests
         var content = Pattern(1024);
         using var file = new TempBinary(content);
         using var proxy = new FakeProxy { ServeMaxBytes = 512 };
-        proxy.WaitListeningAsync().GetAwaiter().GetResult();
         using var client = Connect(proxy);
 
         var sessionDir = System.IO.Path.Combine(TempRoot.Dir, "spool-" + Guid.NewGuid().ToString("N"));
@@ -427,7 +424,6 @@ public class FileProxyLoopbackTests
         {
             using var file = new TempBinary(Pattern(64));
             using var proxy = new FakeProxy { FakeReadN = fakeN };
-            proxy.WaitListeningAsync().GetAwaiter().GetResult();
             using var client = Connect(proxy);
             var (h, _) = client.OpenAsync(file.Path).GetAwaiter().GetResult();
 
@@ -449,7 +445,6 @@ public class FileProxyLoopbackTests
     public void 响应ID与请求不匹配_报Io拒绝()
     {
         using var proxy = new FakeProxy { IdOffset = 100 };
-        proxy.WaitListeningAsync().GetAwaiter().GetResult();
         var ex = Trap<FileProxyException>(() => Connect(proxy), out _);
         Assert.NotNull(ex);
         Assert.Equal(FileProxyErrorCode.Io, ex.Code);
