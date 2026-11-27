@@ -40,7 +40,7 @@
 
 ## 7. 收口
 
-- [ ] 7.1 wt 合入目标分支：`git merge wt/next-log-selection-copy` 合入 **`master`**；验证：`git log master` 出现该合并、`git status` 干净
+- [x] 7.1 wt 合入目标分支：`git merge wt/next-log-selection-copy` 合入 **`master`**（合并提交 2003576）；验证：`git log master` 出现该合并、`git status` 干净
 
 ## Workflow follow-up
 
