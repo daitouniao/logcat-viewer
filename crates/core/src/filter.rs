@@ -12,7 +12,8 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use crate::error::{
-    io_error, CoreError, CoreResult, REGEX_ERROR_INDEX_KEY, REGEX_INVALID,
+    io_error, CoreError, CoreResult, REGEX_ERROR_INDEX_KEY, REGEX_INVALID, SUBSTR_ERROR_INDEX_KEY,
+    SUBSTR_INVALID,
 };
 use crate::identity::read_exact_at;
 use crate::result::ResultSet;
@@ -22,6 +23,8 @@ pub const DEFAULT_CHUNK_BYTES: usize = 256 * 1024;
 
 const REGEX_MAX_VALUES: usize = 16;
 const REGEX_MAX_CHARS: usize = 2000;
+const SUBSTR_MAX_VALUES: usize = 16;
+const SUBSTR_MAX_CHARS: usize = 2000;
 const REGEX_SIZE_LIMIT_SINGLE: usize = 1024 * 1024;
 const REGEX_SIZE_LIMIT_GROUP: usize = 4 * 1024 * 1024;
 
@@ -337,7 +340,15 @@ impl CompiledTag {
 }
 
 impl CompiledMsg {
-    fn new_substring(values: &[String], op: BoolOp, case: bool, exclude: bool) -> Self {
+    fn new_substring(values: &[String], op: BoolOp, case: bool, exclude: bool) -> CoreResult<Self> {
+        if values.len() > SUBSTR_MAX_VALUES {
+            return Err(substr_invalid("too_many", None));
+        }
+        for (index, value) in values.iter().enumerate() {
+            if value.chars().count() > SUBSTR_MAX_CHARS {
+                return Err(substr_invalid("too_long", Some(index)));
+            }
+        }
         let needles: Vec<Vec<u8>> = values
             .iter()
             .map(|value| {
@@ -354,7 +365,7 @@ impl CompiledMsg {
             BoolOp::Or => has_empty,
             BoolOp::And => all_empty,
         };
-        Self {
+        Ok(Self {
             needles,
             op,
             case,
@@ -362,7 +373,7 @@ impl CompiledMsg {
             always_true,
             set: None,
             routes: Vec::new(),
-        }
+        })
     }
 
     fn new_regex(values: &[String], op: BoolOp, case: bool, exclude: bool) -> CoreResult<Self> {
@@ -482,6 +493,14 @@ fn regex_invalid(reason: &str, index: Option<usize>) -> CoreError {
     }
 }
 
+fn substr_invalid(reason: &str, index: Option<usize>) -> CoreError {
+    let error = CoreError::new(SUBSTR_INVALID).with("reason", Value::from(reason));
+    match index {
+        Some(index) => error.with(SUBSTR_ERROR_INDEX_KEY, Value::from(index as u64)),
+        None => error,
+    }
+}
+
 fn parse_match_mode(value: Option<&str>) -> MatchMode {
     match value {
         Some("exact") => MatchMode::Exact,
@@ -494,12 +513,12 @@ fn compile_msg(msg: &MsgFilter) -> CoreResult<CompiledMsg> {
     if msg.mode.as_deref() == Some("regex") {
         CompiledMsg::new_regex(&msg.values, op, msg.case, msg.exclude)
     } else {
-        Ok(CompiledMsg::new_substring(
+        CompiledMsg::new_substring(
             &msg.values,
             op,
             msg.case,
             msg.exclude,
-        ))
+        )
     }
 }
 
@@ -1941,4 +1960,7 @@ mod tests {
 
     #[path = "../../filter_regex_tests.rs"]
     mod regex_tests;
+
+    #[path = "../../filter_substr_tests.rs"]
+    mod substr_tests;
 }

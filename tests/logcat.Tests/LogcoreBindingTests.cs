@@ -92,6 +92,8 @@ public sealed class BindingErrorCodeMappingTests
         Assert.Equal("PROXY_LAUNCH_FAILED", LogcoreErrorCodes.Name(16));
         Assert.Equal("REGEX_INVALID", LogcoreErrorCodes.Name(17));
         Assert.Equal(LogcoreErrorCodes.RegexInvalid, 17);
+        Assert.Equal("SUBSTR_INVALID", LogcoreErrorCodes.Name(18));
+        Assert.Equal(LogcoreErrorCodes.SubstrInvalid, 18);
         Assert.Equal(LogcoreErrorCodes.MaxFeedLines, 65536);
     }
 
