@@ -65,6 +65,14 @@ jobs:
           dotnet test tests/logcat.Tests/logcat.Tests.csproj
           -c Release --no-build -v normal --logger "console;verbosity=detailed"
 
+      # 新 UI 宿主（logcat-next/）的独立测试工程：net10.0、不依赖桌面框架与界面语言，
+      # 装载层复用上面 cargo build 的 logcore.dll。与主仓用例数互不相加。
+      - name: Build Next.Tests
+        run: dotnet build logcat-next/Next.Tests/Next.Tests.csproj -c Release -v normal
+
+      - name: Test Next.Tests
+        run: dotnet test logcat-next/Next.Tests/Next.Tests.csproj -c Release --no-build -v normal
+
       # 测试失败时把完整日志也吐出来，便于在网页上直接看到失败用例名。
       - name: Upload test logs on failure
         if: failure()
@@ -75,6 +83,19 @@ jobs:
             Where-Object { $_.DirectoryName -like "*tmp*" } |
             Select-Object -First 20 |
             ForEach-Object { Write-Host "=== $($_.FullName) ==="; Get-Content $_.FullName -TotalCount 50 }
+
+  # Rust core 的 UT（crates/core + crates/cabi），与上面 C# 作业的覆盖互不相加。
+  # 必须串行：代理实例注册表与 shutdown 是进程全局状态，默认并行互踩（实测 9 条伪失败）。
+  # 工具链由仓库根 rust-toolchain.toml 钉住，rustup 自动安装；Cargo.lock 已入库。
+  rust:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Rust UT (serial)
+        run: cargo test --workspace -- --test-threads=1
 
   # MCP 服务端（Node，mcp/）：独立的 stdio 服务端工程，与 .NET 主工程无耦合，
   # 故单开一个作业——Node 装好就能跑，不必等 .NET 那一摊。
