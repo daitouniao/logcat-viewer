@@ -8,6 +8,7 @@
 
 - 日志视图增加行选择：单击选中一行；`Ctrl+单击` 切换该行选中状态；`Shift+单击` 以最近一次普通/Ctrl 单击的行（或已选范围边界）为锚点，按行区间选择。
 - 增加 `Ctrl+C` 复制：把当前选中行按结果集行序、用换行符连接后写入剪贴板；无选中时不动作。
+- 无修饰键双击任意一行打开「完整记录」窗口：只读展示该行的原始文本（保留原始换行），便于查看异常堆栈。
 - 复制后状态栏给出「已复制 N 行」反馈；文案走既有本地化目录。
 - 选择状态只存在于界面层，不进入 Rust core、不改 C ABI、不影响分页取数。
 - **BREAKING**：无。
@@ -20,7 +21,8 @@
 
 **非目标（out of scope）**
 
-- 框选 / 拖动选择、右键菜单、`Ctrl+A` 全选、复制为表格行（制表符分隔版）。
+- 框选 / 拖动选择、键盘选择（Shift+方向键等）、右键菜单、`Ctrl+A` 全选、复制为表格行（制表符分隔版）。
+- 详情窗口不做结构化字段拆分视图、不做「把字面的 \n 拆成真实换行」开关、不加独立复制按钮（文本框自身支持选择与 Ctrl+C）；不做标记。
 - 标记（mark）与标记持久化、导出、过滤/搜索、ADB 采集。
 - 大段复制的后台化或进度提示：第一版在 UI 线程按页缓存逐行取原文，选中规模按视口与 Shift 区间自然受限。
 - 不改 `crates/`、不改 `Next.Interop` 的导出面、不改旧 `logcat-viewer`。
@@ -37,8 +39,8 @@
 
 ## Impact
 
-- 代码：`logcat-next/Next.App/Controls/LogCanvas.cs`（命中行、绘制选中态）、`logcat-next/Next.App/Views/MainWindow.axaml.cs`（指针与键盘事件、剪贴板）、可能新增选择状态类型；`logcat-next/Next.Tests` 增选择逻辑用例。
+- 代码：`logcat-next/Next.App/Controls/LogCanvas.cs`（命中行、绘制选中态）、`logcat-next/Next.App/Views/MainWindow.axaml.cs`（指针与键盘事件、剪贴板、双击打开详情）、新增详情窗口（`logcat-next/Next.App/Views/`）与选择状态类型；`logcat-next/Next.Tests` 增选择与详情用例。
 - 依赖：使用 Avalonia 内置剪贴板（`TopLevel.Clipboard`），不新增包。
 - 规范：仅修改 `openspec/specs/next/log-view-rendering/spec.md`，分类与目录不变。
 - 测试口径：`Next.Tests` 增用例，主仓 923 基线不受影响；`docs/TESTING.md` 的数字在 apply 阶段按联动更新。
-- 文档：不需要新增探索笔记；旧查看器的复制口径在本 proposal 与本 change 的 design 内自包含写明。
+- 文档：不需要新增探索笔记；旧查看器的复制口径在本 proposal 与本 change 的 design 内自包含写明。README 不更新（新壳未发布，README 仍描述旧版），`docs/IMPLEMENTATION-TRACKER.md` 不更新（不在 AGENTS 活文档清单内）。
