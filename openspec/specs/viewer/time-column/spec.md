@@ -1,4 +1,4 @@
-# time-column Specification
+# viewer/time-column Specification
 
 ## Purpose
 定义记录时间在文档索引、过滤与界面呈现上的契约：分钟列的存储与分钟过滤语义、Time 列的行首原文渲染（含 `-v long` 前缀识别）、崩溃事件时间的行序与原文呈现。本能力不依赖任何绝对时间换算，也不承诺未来的小时 / 日期过滤形态。

@@ -1,4 +1,4 @@
-# app-shutdown Specification
+# viewer/app-shutdown Specification
 
 ## Purpose
 

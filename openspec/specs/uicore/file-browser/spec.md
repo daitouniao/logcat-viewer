@@ -1,4 +1,4 @@
-# file-browser Specification
+# uicore/file-browser Specification
 
 ## Purpose
 

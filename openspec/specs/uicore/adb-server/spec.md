@@ -1,4 +1,4 @@
-# adb-server Specification
+# uicore/adb-server Specification
 
 ## Purpose
 管理 adb server 的生命周期可用性：用户刷新设备时确保 server 在运行（未运行则自动拉起）；server 不可用且应用无法代为拉起时明确提示手动处理，不把「adb 不可用」误报为「无设备」。

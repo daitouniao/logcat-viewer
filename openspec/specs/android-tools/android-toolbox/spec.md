@@ -1,4 +1,4 @@
-# android-toolbox Specification
+# android-tools/android-toolbox Specification
 
 ## Purpose
 安卓工具箱作为独立于日志查看器的应用存在时的行为契约：独立进程与单实例语义、从日志查看器拉起/前置的入口语义、设备选择与 adb 自愈、窗口几何持久化。工具页签（文件浏览、APK 安装/卸载、截图录屏、命令等）的逐项功能契约本次不展开，以「工具能力与拆分前一致」为总括约束。

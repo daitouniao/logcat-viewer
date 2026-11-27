@@ -1,4 +1,4 @@
-# settings-storage Specification
+# uicore/settings-storage Specification
 
 ## Purpose
 两应用（日志查看器与安卓工具箱）配置文件的拆分布局、自动迁移与写入隔离契约：配置按归属拆分、各带 schema 版本、旧布局自动迁移、并存写入互不覆盖。

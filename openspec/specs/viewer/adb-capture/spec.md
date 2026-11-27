@@ -1,4 +1,4 @@
-# adb-capture Specification
+# viewer/adb-capture Specification
 
 ## Purpose
 定义设备日志实时采集的缓冲区语义与缓冲区清除入口：采集保留设备缓冲区现有内容（保护采集前发生的崩溃情报），清除缓冲区为用户显式动作，可用性跟随设备连接与采集状态。

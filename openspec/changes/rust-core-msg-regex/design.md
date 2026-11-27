@@ -204,11 +204,11 @@ on unless you mean it.
 
 ### D12 查询开启面连带（查漏所得）
 
-`logcore/query` 的「查询开启与结果集」把"过滤表达式非法"一律钉为**参数错误**。正则非法改走 `REGEX_INVALID`（17）后该句不再自洽，故本 change 同时 MODIFIED 该条：改为"按过滤契约的对应错误口径拒绝"，并补「非法正则不产生查询」场景。`openspec/specs/old/message-filter` 未出现正则口径，无需连带；`tags.match` 与时间区间/标记的拒绝面保持不变。
+`logcore/query` 的「查询开启与结果集」把"过滤表达式非法"一律钉为**参数错误**。正则非法改走 `REGEX_INVALID`（17）后该句不再自洽，故本 change 同时 MODIFIED 该条：改为"按过滤契约的对应错误口径拒绝"，并补「非法正则不产生查询」场景。`openspec/specs/viewer/message-filter` 未出现正则口径，无需连带；`tags.match` 与时间区间/标记的拒绝面保持不变。
 
 ### D13 delta 形态：原「无效条件被拒绝」走 REMOVED + ADDED，而非 MODIFIED
 
-openspec 对 MODIFIED 有防丢场景门禁——MODIFIED 整块替换需求，若少了主规范已有的场景即判 ERROR，且 REMOVED 与 ADDED 同名单也会判冲突。本 change 需要删掉该条里的「正则模式被拒」场景，因此整条 REMOVED（附 Reason/Migration）并以「参数类无效条件被拒绝」重建（**改名已定**），其余 8 个场景逐条原样保留。归档后主规范只有新名单的条目，无重复内容；改名带来的连带是 `openspec/specs/old/message-filter` 与文档中不存在对该条目名的引用，故无需回改其他文件。
+openspec 对 MODIFIED 有防丢场景门禁——MODIFIED 整块替换需求，若少了主规范已有的场景即判 ERROR，且 REMOVED 与 ADDED 同名单也会判冲突。本 change 需要删掉该条里的「正则模式被拒」场景，因此整条 REMOVED（附 Reason/Migration）并以「参数类无效条件被拒绝」重建（**改名已定**），其余 8 个场景逐条原样保留。归档后主规范只有新名单的条目，无重复内容；改名带来的连带是 `openspec/specs/viewer/message-filter` 与文档中不存在对该条目名的引用，故无需回改其他文件。
 
 ### D15 规模闸口：逐条预检 + 整组兜底（已定）
 

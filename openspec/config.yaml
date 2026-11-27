@@ -3,15 +3,13 @@ schema: spec-driven
 context: |
   语言：所有产物（proposal / design / tasks / specs）用简体中文撰写。
   项目：logcat —— C# / .NET 10 WinForms 桌面日志查看器，主打 Android logcat 格式。
-  测试口径：本机 dotnet test 已可直接运行（2026-10-22 实测 655/655；旧的 testhost 0x80070005 不复现），且它会 await async Task 用例——tstrun 反射 runner 不 await，仓库既有 3 个 async 用例在 tstrun 下从未真跑过，故优先用 dotnet test。tstrun 仍用于覆盖率采集兜底与类名过滤。基线数字以 docs/TESTING.md 为唯一权威源。任何「测试通过」的声明必须带口径数字，禁止声称未经验证的通过。
-  CI 语言环境：界面语言由 logcat-uicore/Services/Loc.cs 静态构造期按 CurrentUICulture 探测，无 settings.json 时完全由系统区域决定（本地 zh-CN / runner en-US）。故「Loc.* 输出 + 硬编码中文断言」= 本地全绿、CI 必红（历史翻车 4 次）。写这类断言必须用 LangScope.InZh/InEn 双语各「生成+断言」一遍；本地复现 CI 环境用 bash scripts/run-tests-en-us.sh。详见 docs/TESTING.md §3.4。
-  文档红线（公开仓库，双站推送）：产物不得硬编码本机绝对路径或用户名；openspec/ 与 docs/ 公开内容一律视为对克隆者可见；docs/private/** 的内容不进任何产物。
+  文档红线：公开仓库、双站推送。产物不得硬编码本机绝对路径或用户名；openspec/ 与 docs/ 公开内容一律视为对克隆者可见；docs/private/** 的内容不进任何产物。
   规范定位：openspec/specs/ 是系统行为的权威描述——只写行为契约（需求 + GIVEN/WHEN/THEN 场景），不写实现细节；类名、库选择、算法取舍归属 design.md。
-  规范冻结粒度：规范只写行为契约——任何后续变更都要遵守的骨架（结果形状、错误通道、输出通道分工、生命周期）写进规范；取值本身可被调用方分支的对外契约（如错误码值）亦写进规范；当前实现状态（当前能力集内容、当前工具清单与字段清单、当前实现取舍）不写进规范，归 design.md。分类名须先登记在「规范分层」段的当前分类清单与 rules 段的当前分类列表两处，缺一视为未登记。本条对全仓各分类一致适用，不追溯已归档的规范。
-  规范分层（2026-11-10 定）：`openspec/specs/` 按实现代际分层，落位形如 `specs/<分类>/<capability>/spec.md`；当前分类：`old`（既有 C# 实现承载的全部契约）、`logcore`（Rust core 宿主承接的契约，2026-11-11 登记，首个 capability 为 source-acquire）、`next`（新 UI 宿主承接的契约，2026-11-24 登记，首批 capability 为 ui-theme / ui-localization / log-view-rendering）、`mcp`（MCP 服务端宿主承接的契约，2026-11-26 登记，首个 capability 为 server-shell）。新宿主接管某能力时新建分类（如 `logcore` 承接 Rust 重写），分类名须先登记在本段，不得随手新建，也不得为「预留」建空目录（git 不跟踪空目录）。落位判据是「这段契约由谁的代码执行」，不是谁先写的。迁移规则「动谁迁谁」：一次 change 若要修改的能力已归或即将归新分类的宿主执行，须在同一 change 内把该 capability **整条**迁入新分类，不得在 `old/` 下原地 MODIFY；同一 capability 名不得在两个分类下并存；迁移完成后 `old/` 下不得残留旧副本。整条 capability 只有部分行为归新宿主时，迁移前须先按宿主边界把它拆成两条 capability（留在 `old` 的那条须改名以体现其边界），再把承接新宿主的那条整条迁出。目录搬运不在 openspec CLI 能力内（`openspec spec` 只有 show / list / validate），一律手工 `git mv` 并写进 change 的 tasks。
-  文档口径：docs/FEATURES.md 不再维护（之后统一删除），archive 时不再更新它；docs/archive/、docs/bugfixes/、docs/design/、docs/private/** 均不再维护（之后统一删除），不需要更新和关注，存量内容仅作历史参考、不作为依据。
-  工作流门禁（AGENTS.md §2.2）：openspec 阶段 explore → propose → apply → archive 仅凭用户明确指令进入与推进，不跳阶段、不自动推进；propose 写完即停、等 apply 指令。探索产物落 openspec/notes/（公开），change 归档时同批将关联探索笔记归档至 openspec/notes/archive/ 并冻结不再维护，新探索生成新笔记。apply 在 change 专属的独立 git worktree 中实施，worktree 标识（分支 wt/<change-name>）记入 tasks.md 首条防断链，禁写本机绝对路径。归档门禁：tasks 必须全部关闭（含「wt 合入目标分支」任务，任务中写明目标分支名），且 wt/<change-name> 已合入该目标分支，才可执行 openspec archive；用户「可以归档 <name>」一并授权该次 wt 合入、归档与 worktree 清除。
-  探索规范（AGENTS.md §2.4）：探索阶段结果生成文档，放到 openspec/notes/，以代码或 Log 为事实，可以跑探针测试，不猜测；有猜测的内容显式标注为猜测；需要澄清的问题写清——为什么需要澄清、有哪些方案、当前偏向哪个。
+  规范冻结粒度：只写行为契约。任何后续变更都要遵守的骨架（结果形状、错误通道、输出通道分工、生命周期）写进规范；取值本身可被调用方分支的对外契约（如错误码值）亦写进规范；当前实现状态（当前能力集内容、当前工具清单与字段清单、当前实现取舍）不写进规范，归 design.md。
+  规范分层（按模块）：落位形如 `specs/<模块>/<capability>/spec.md`。模块固定为 viewer（C# WinForms 日志查看器）、uicore（两应用共享的 C# UI 库）、android-tools（安卓工具箱 exe）、next（Avalonia 新界面宿主）、logcore（Rust core 宿主）、mcp（MCP 服务端宿主）。capability 名全局唯一：同一 capability 名不得在两个模块下并存。落位判据是「这段契约由谁的代码执行」，不是谁先写的。新增模块须先在本段登记，不得为「预留」建空目录。
+  规范迁移：动谁迁谁。一次 change 要修改的 capability 若已归或即将归另一模块执行，须在同一 change 内把该 capability 整条迁入目标模块，不得原地 MODIFY；迁移完成后源模块下不得残留旧副本。capability 只有部分行为归新宿主时，先按宿主边界拆成两条（留在原模块的那条须改名以体现边界），再迁出承接新宿主的那条。目录搬运不在 openspec CLI 能力内（openspec spec 只有 show / list / validate），一律手工 git mv 并写进 change 的 tasks。无契约内容变化的整目录重命名 / 分层重组同样走 change：建 `skip_specs: true` 的 change 记录 git mv，随其 archive 归档，archive 不改需求内容。
+  文档口径：docs/archive/、docs/bugfixes/、docs/design/、docs/private/**、docs/FEATURES.md 不再维护（待删除），不更新、不作依据、不新建链接。
+  探索规范：探索结果生成文档放 openspec/notes/；以代码或 Log 为事实，可跑探针测试取证，不猜测；猜测内容显式标注为猜测；待澄清问题写清——为什么需要澄清、有哪些方案、当前偏向哪个。
   易错行为规则（如横幅行不是记录、空行续行处理、索引块起点顺序推进）随相关改动沉淀进 specs/ 对应 capability，不依赖私有文档传递。
 
 rules:
@@ -21,7 +19,9 @@ rules:
   specs:
     - 每条需求至少一个 GIVEN/WHEN/THEN 场景
     - 禁止出现类名、文件路径等实现细节
-    - 落位形如 `specs/<分类>/<capability>/spec.md`；当前分类：`old`、`logcore`、`next`、`mcp`。分层与迁移规则见 `context` 的「规范分层」。
+    - 落位形如 `specs/<模块>/<capability>/spec.md`；模块：viewer / uicore / android-tools / next / logcore / mcp。分层与迁移规则见 context 的「规范分层」与「规范迁移」
+    - capability 名全局唯一，不得在两个模块下并存同名 capability
+    - spec.md 首行标题为 `<模块>/<capability> Specification`，与 spec id 一致
   design:
     - 关键技术决策必须附理由；优先引用项目现有模式，不发明新模式
   tasks:
@@ -34,11 +34,11 @@ operations:
   apply:
     guidance:
       - 严格按 tasks.md 逐条实现，不夹带任务外改动
-      - 每完成一批任务跑一次 dotnet test 并报告口径数字（必要时补跑 tstrun 交叉验证）
-      - 仅在收到用户明确 apply 指令后开始（AGENTS.md §2.2 阶段门禁）；在 change 专属的独立 git worktree 中实施（git worktree add 需当轮授权），worktree 标识记入 tasks.md 首条
+      - 每完成一批任务跑一次测试并报告口径数字（测试口径见 docs/TESTING.md）
+      - 仅在收到用户明确 apply 指令后开始；在 change 专属的独立 git worktree 中实施（git worktree add 需当轮授权），worktree 标识记入 tasks.md 首条
   archive:
     guidance:
       - 归档前确认 tasks 全部关闭（含「wt 合入目标分支」任务），且 wt/<change-name> 已合入 tasks 指定的目标分支
-      - 归档前确认 dotnet test 全过（相对基线无新增失败）
+      - 归档前确认测试全过（相对基线无新增失败；口径见 docs/TESTING.md）
       - 归档时同批将关联探索笔记移入 openspec/notes/archive/（git mv + 归档日期前缀），此后不再维护
-      - 归档时同步清除该 change 的 git worktree（git worktree remove）；用户「可以归档」一并授权该次 wt 合入、归档与 worktree 清除（AGENTS.md §2.3）
+      - 归档时同步清除该 change 的 git worktree（git worktree remove）；用户「可以归档」一并授权该次 wt 合入、归档与 worktree 清除

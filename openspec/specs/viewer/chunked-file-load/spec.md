@@ -1,4 +1,4 @@
-# chunked-file-load Specification
+# viewer/chunked-file-load Specification
 
 ## Purpose
 本地日志文件的分块流式加载行为契约：渐进发布、加载期过滤与取消、加载期功能边界，以及与整份加载的结果等价性。

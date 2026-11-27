@@ -1,4 +1,4 @@
-# message-filter Specification
+# viewer/message-filter Specification
 
 ## Purpose
 定义 message 正文过滤的判定契约：匹配的作用域、大小写等价规则、多关键词组合语义与排除语义。本能力只描述「哪些记录命中过滤条件」这一可观测结论，不约束达成结论的实现方式。本能力同时覆盖元数据类过滤下的记录可见性口径。

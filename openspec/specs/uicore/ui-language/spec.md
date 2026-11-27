@@ -1,4 +1,4 @@
-# ui-language Specification
+# uicore/ui-language Specification
 
 ## Purpose
 界面语言的持久化位置与跨进程跟随契约：语言存于两应用共享的配置文件，任一应用切换后另一应用重启生效，不做实时通知。

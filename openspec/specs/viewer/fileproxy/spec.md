@@ -1,4 +1,4 @@
-# fileproxy Specification
+# viewer/fileproxy Specification
 
 ## Purpose
 让应用能够读取本机无法直接打开的日志文件：由用户自备的外部代理经命名管道提供字节流，应用暂存到本地临时文件后纳入既有装载链路，并在此全过程中保持原路径显示、失败可分类、状态可感知。

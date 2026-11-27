@@ -1,4 +1,4 @@
-# device-file-transfer Specification
+# uicore/device-file-transfer Specification
 
 ## Purpose
 定义设备与本机之间文件传输时的进度可观测性约定：传输期间以真实字节百分比呈现进展、无字节概念的准备与收尾阶段以不确定态呈现、传输完成后目标目录与落点对用户保持一致。

@@ -1,4 +1,4 @@
-# sidecar-index-cache Specification
+# viewer/sidecar-index-cache Specification
 
 ## Purpose
 已解析日志索引的落盘缓存行为契约：同一本地文件首次解析后缓存索引，重开时校验缓存身份并直接装载，实现亚秒级重开；同时约定失效判定、容量治理、静态文件边界与静默降级。
