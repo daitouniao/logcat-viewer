@@ -3,7 +3,7 @@
 ## 1. 前置与 worktree
 
 - [ ] 1.1 在独立 git worktree 中实施本 change：worktree 标识 = 分支 `wt/mcp-proxy`（路径以 `git worktree list` 定位，禁写本机绝对路径），目标分支 `master`；验证：`git worktree list` 列出该分支，主工作树 `git status` 保持干净
-- [ ] 1.2 复核已定口径与本 change 一致（Node 工程独立于 `mcp/`、SDK v2 双包、`server__tool` 前缀命名空间、路由走对应表、仅 stdio 上游、下游仅 stdio、页面可增删改上游、回环 + 令牌 + Host 校验、管理端口默认随机、下游名合规化而上游名不设门槛）；验证：`design.md` D1–D19 无「待拍」标记，Open Questions 无待决项
+- [ ] 1.2 复核已定口径与本 change 一致（Node 工程独立于 `mcp/`、SDK v2 双包、`server__tool` 前缀命名空间、路由走对应表、仅 stdio 上游、下游仅 stdio、页面可增删改上游、回环 + 令牌 + Host 校验、管理端口默认随机、下游名合规化而上游名不设门槛、一实例对一下游客户端、调用 60 秒时限、就绪 10 秒时限）；验证：`design.md` D1–D22 无「待拍」标记，Open Questions 无待决项
 
 ## 2. 工程骨架
 
@@ -19,18 +19,20 @@
 
 ## 4. 上游生命周期
 
-- [ ] 4.1 上游实例：以 stdio 子进程拉起配置中的每个已启用条目，建立客户端会话并列举其工具；单个上游拉起失败不影响其他上游，失败原因被记录；验证：`UpstreamLifecycleTests.StartsEnabledUpstreams`、`FailedUpstreamDoesNotBlockOthers`、`RecordsFailureReason`
+- [ ] 4.1 上游实例：以 stdio 子进程拉起配置中的每个已启用条目，建立客户端会话并列举其工具；单个上游拉起失败不影响其他上游，失败原因被记录；**就绪时限默认 10 秒**（可在条目中配），超时未完成握手即判该上游不可用；验证：`UpstreamLifecycleTests.StartsEnabledUpstreams`、`FailedUpstreamDoesNotBlockOthers`、`RecordsFailureReason`、`TimesOutUnreadyUpstream`
 - [ ] 4.2 状态上报：每个上游维护标识、运行状态、工具数量、最近失败原因、最近诊断输出尾部（环形缓冲，默认 200 行）；验证：`UpstreamStateTests.ReportsToolCount`、`KeepsBoundedDiagnosticTail`
 - [ ] 4.3 停止与重启：停止终止子进程并从工具集合中移除其工具；重启销毁并重建会话、重新列举工具；验证：`UpstreamLifecycleTests.RestartRefreshesToolSet`、`StopRemovesTools`
 - [ ] 4.4 并发拉起：上游拉起并发执行，单个慢上游不阻塞代理进入可服务状态；验证：`UpstreamLifecycleTests.SlowUpstreamDoesNotDelayServiceStart`
 - [ ] 4.5 通道纪律：代理只向上游 stdout 写协议帧，不混入任何非协议内容；上游 stderr 收进诊断缓冲；验证：`UpstreamChannelTests.NoNonProtocolBytesOnUpstreamStdout`
+- [ ] 4.6 进程树清理：上游子进程以进程组 / 作业对象方式拉起，代理退出时连同子进程树整体终止（Windows 以 `taskkill /T /F` 兜底）；验证：`UpstreamLifecycleTests.ExitTerminatesWholeProcessTree`
 
 ## 5. 聚合与路由
 
 - [ ] 5.1 命名空间聚合：下游工具名 = `<id>__<tool>`；不同上游的同名工具可无歧义区分；工具描述中可辨识来源上游；上游工具的输入模式原样保留；验证：`AggregationTests.NamespacesToolNames`、`DisambiguatesSameNamedTools`、`KeepsUpstreamInputSchema`
 - [ ] 5.2 路由走对应表：代理持有「下游工具名 → (上游 id, 上游工具名)」注册表，调用时按表路由并转发，**不按分隔符切分名称反解**，产出原样回填；两个上游拼出同名下游工具时先注册者保留、后注册者判不可用并记冲突原因；验证：`RoutingTests.UsesRegistryNotStringSplit`、`RoutesToMatchingUpstream`、`ReturnsUpstreamResultUnchanged`、`ResolveAmbiguousIdAndToolNames`、`LaterUpstreamMarkedUnavailableOnNameCollision`
 - [ ] 5.3 下游名合规化：代理对外暴露的工具名须满足 `^[a-zA-Z0-9_-]+$`、总长 ≤ 64、不含 `__`、不与内置工具名撞名；**上游原始名不设门槛**，不合规则受控规范化（非法字符替换 `_`、连续双划线压为单下划线、超长按「id 段完整、工具名段截断」），原始名写入工具描述，调用仍路由到原始工具；验证：`AggregationTests.NormalizesIllegalUpstreamToolName`、`KeepsOriginalNameInDescription`、`CallsThroughToOriginalTool`、`TruncatesOverlongNameKeepingIdSegment`
-- [ ] 5.4 错误语义：按 spec 锁定的四个码值返回带错误标记的结果——前缀无对应上游或上游不提供该工具 → `TOOL_NOT_FOUND`、入参不符 → `TOOL_FAILED`、上游处理失败 → `UPSTREAM_TOOL_FAILED`、上游不可用 → `UPSTREAM_UNAVAILABLE`；描述指出上游标识；参数不符时请求不转发到上游；验证：`RoutingTests.UnknownNamespaceReportsToolNotFound`、`InvalidArgumentsRejectedLocally`、`UpstreamFailureReportsUpstreamToolFailed`、`UnavailableUpstreamReportsUpstreamUnavailable`
+- [ ] 5.4 错误语义：按 spec 锁定的四个码值返回带错误标记的结果——前缀无对应上游或上游不提供该工具 → `TOOL_NOT_FOUND`、入参不符 → `TOOL_FAILED`、上游处理失败 → `UPSTREAM_TOOL_FAILED`、上游不可用 → `UPSTREAM_UNAVAILABLE`；描述指出上游标识并**保留上游返回的原始错误文本**；参数不符时请求不转发到上游；验证：`RoutingTests.UnknownNamespaceReportsToolNotFound`、`InvalidArgumentsRejectedLocally`、`UpstreamFailureReportsUpstreamToolFailed`、`UnavailableUpstreamReportsUpstreamUnavailable`、`KeepsUpstreamErrorText`
+- [ ] 5.6 调用时限与取消：每次上游调用默认 60 秒时限（可按上游配）；超时按 `UPSTREAM_UNAVAILABLE` 返回且描述标明超时；客户端取消时中止转发且不返回结果；验证：`RoutingTests.TimesOutLongRunningUpstreamCall`、`ReturnsTimeoutErrorCode`、`ClientCancellationAbortsWithoutResult`
 - [ ] 5.5 内置管理工具：`proxy_servers`（列上游状态、工具数、最近错误）与 `proxy_restart`（重启指定上游）；两者不与任何上游命名空间撞名，且均出现在下游工具列举结果中；验证：`BuiltinToolsTests.ListUpstreams`、`RestartUpstreamById`、`DoNotCollideWithUpstreamNamespace`、`AppearInToolListing`、`RestartUnknownUpstreamReportsToolNotFound`
 
 ## 6. 管理面
@@ -42,7 +44,7 @@
 
 ## 7. 下游服务端
 
-- [ ] 7.1 代理对下游以 stdio 承载 MCP 服务端：握手、能力声明、工具列举、工具调用；未握手即调用被拒；**能力集不声明任何网络传输形态**；复用 `mcp/server-shell` 的信封与错误码族口径；验证：`DownstreamServerTests.HandshakeThenListTools`、`RejectsCallBeforeInitialize`、`DeclaresNoNetworkTransport`
+- [ ] 7.1 代理对下游以 stdio 承载 MCP 服务端：握手、能力声明、工具列举、工具调用；未握手即调用被拒；**能力集不声明任何网络传输形态**；**同一实例同时只与一个下游客户端建立会话**；复用 `mcp/server-shell` 的信封与错误码族口径；验证：`DownstreamServerTests.HandshakeThenListTools`、`RejectsCallBeforeInitialize`、`DeclaresNoNetworkTransport`、`ServesSingleDownstreamClient`
 - [ ] 7.2 通道纪律：代理诊断与页面令牌只走 stderr，stdout 每一行均为合法协议消息；验证：`DownstreamServerTests.DiagnosticsNeverReachStdout`
 - [ ] 7.3 退出纪律：代理退出时终止全部上游进程，不残留孤儿；验证：`DownstreamServerTests.ExitTerminatesUpstreams`
 
@@ -54,8 +56,8 @@
 ## 9. 文档联动
 
 - [ ] 9.1 `docs/TESTING.md` 新增 §8「MCP 代理（Node，`mcp/proxy/`）」，用例数**单独记录、不并入**既有合计口径（与 §7 `mcp/` 同款写法）；验证：文档数字与 8.2 实测一致
-- [ ] 9.2 `docs/BUILDING.md` 增补代理工程的安装 / 构建 / 运行动作，并写明与 `mcp/` 既有 `npm run harness` 的分工：harness 是开发期调试单服务端，代理是运行期聚合多上游；验证：文档命令与实际可执行
-- [ ] 9.3 探索笔记 `openspec/notes/MCP-PROXY-V0.md` 收口：按 D18 定案结论回填口径表与「已否决的选项与理由」一节；验证：笔记与 design D1–D19、spec 条款三者口径一致
+- [ ] 9.2 `docs/BUILDING.md` 增补代理工程的安装 / 构建 / 运行动作，并写明与 `mcp/` 既有 `npm run harness` 的分工：harness 是开发期调试单服务端，代理是运行期聚合多上游；**同时写明 v0 的多 Agent 用法**：每个 Agent 各起一个代理实例、共享同一份配置文件路径，页面上的启停只作用于本实例（依据 design D20）；验证：文档命令与实际可执行
+- [ ] 9.3 探索笔记 `openspec/notes/MCP-PROXY-V0.md` 收口：按 D18 定案结论回填口径表与「已否决的选项与理由」一节；验证：笔记与 design D1–D22、spec 条款三者口径一致
 
 ## 10. 收口
 
