@@ -21,6 +21,7 @@ public static class LogcoreErrorCodes
     public const int IoError = 15;
     public const int ProxyLaunchFailed = 16;
     public const int RegexInvalid = 17;
+    public const int SubstrInvalid = 18;
 
     /// <summary>单页行数上限（与 core 的 MAX_PAGE_ROWS 一致）。</summary>
     public const int MaxPageRows = 4096;
@@ -43,6 +44,7 @@ public static class LogcoreErrorCodes
         IoError => "IO_ERROR",
         ProxyLaunchFailed => "PROXY_LAUNCH_FAILED",
         RegexInvalid => "REGEX_INVALID",
+        SubstrInvalid => "SUBSTR_INVALID",
         _ => $"UNKNOWN_{code}",
     };
 }

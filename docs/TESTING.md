@@ -670,9 +670,14 @@ Rust core 的测试分两层，**口径与上表的 C# 数字互不相加**：
 
 **必须串行**：代理实例注册表与 `shutdown` 是进程全局状态，默认并行跑会出现互踩的伪失败
 （实测默认并行 9 条代理/装载用例失败，`--test-threads=1` 后全过）。报告 Rust 结果时写明
-「串行口径 N 条」。本机实测：Rust UT **478/478**（串行，2026-11-27；`--workspace` 口径：core 445 + cabi 33）；
+「串行口径 N 条」。本机实测：Rust UT **490/490**（串行，2026-11-27；`--workspace` 口径：core 457 + cabi 33）；
 C# 侧绑定 UT + 经 FFI 的 IT 合计 **71/71**。
 
+> 2026-11-27 **rust-core-substr-limit**：Rust UT 478 → **490**（+12：core +12——子串规模闸拒绝与归因
+> 6 条、不回归与分档隔离 4 条（两组同挂 `filter::tests::substr_tests`，共 10 条）、查询开启面子串
+> 超限 2 条；cabi 不变，子串错误码 18 只加 C# 侧两处镜像表断言）；C# 侧用例数不变，仍 **923/923**
+> （`LogcoreBindingTests` 的 `Code_names_match_d15_table` 扩了 18 的两条断言，不新增用例）。
+>
 > 2026-11-27 **rust-core-msg-regex**：Rust UT 425 → **478**（+53：core +53——正则档校验与拒绝归因
 > 15 条、扫描与正文语义 23 条、方言边界 14 条（三组同挂 `filter::tests::regex_tests`，共 52 条），
 > 查询开启面 2 条，另删 1 条与既有无效条件用例重复的 `filter_expr_rejects_regex_mode`；cabi 不变，

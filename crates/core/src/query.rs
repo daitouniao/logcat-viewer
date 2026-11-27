@@ -114,7 +114,9 @@ impl QueryHandle {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::error::{CLOSED, INVALID_ARG, INVALID_STATE, REGEX_INVALID};
+    use crate::error::{
+        CLOSED, INVALID_ARG, INVALID_STATE, REGEX_INVALID, SUBSTR_INVALID,
+    };
     use crate::state::State;
     use crate::testutil::{file_request, temp_dir, text_file, unique_pipe, wait_until};
     use std::path::PathBuf;
@@ -249,6 +251,29 @@ mod tests {
         assert_eq!(err.code, REGEX_INVALID, "句柄状态不因一次拒绝而变");
         let after = open(&f.source, r#"{"msg":{"mode":"regex","values":["o"]}}"#).unwrap();
         assert_eq!(after.row_count(), 2);
+    }
+
+    #[test]
+    fn query_open_over_limit_substr_reports_substr_invalid() {
+        let f = Fixture::new("q-substr-over-limit", &lines());
+        let values: Vec<String> = (0..17).map(|i| format!("\"p{i}\"")).collect();
+        let json = format!(r#"{{"msg":{{"values":[{}]}}}}"#, values.join(","));
+        let err = open(&f.source, &json).err().expect("期望子串无效");
+        assert_eq!(err.code, SUBSTR_INVALID);
+        assert_eq!(
+            err.params.get("reason").and_then(|v| v.as_str()),
+            Some("too_many")
+        );
+        assert!(err.params.get("field").is_none(), "规模拒绝不带 field");
+        let after = open(&f.source, r#"{"msg":{"values":["one"]}}"#).unwrap();
+        assert_eq!(after.row_count(), 1, "句柄状态不因一次拒绝而变");
+    }
+
+    #[test]
+    fn query_open_within_substr_limit_builds_result() {
+        let f = Fixture::new("q-substr-within-limit", &lines());
+        let query = open(&f.source, r#"{"msg":{"values":["one","two"],"op":"or"}}"#).unwrap();
+        assert_eq!(query.row_count(), 2);
     }
 
     #[test]
