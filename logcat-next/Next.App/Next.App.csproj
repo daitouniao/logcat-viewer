@@ -22,6 +22,11 @@
     <ProjectReference Include="..\Next.Interop\Next.Interop.csproj" />
   </ItemGroup>
 
+  <!-- 选择 / 复制 / 命中的纯逻辑类型保持 internal，仅测试工程可见（design D1） -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="Next.Tests" />
+  </ItemGroup>
+
   <!--
     双语目录随输出复制（Avalonia 构建任务会把 EmbeddedResource 吸进 !AvaloniaResources
     大包导致清单里拿不到，故不用 EmbeddedResource）；键集合一致性由 Next.Tests 把关。

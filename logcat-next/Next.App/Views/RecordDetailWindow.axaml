@@ -1,0 +1,28 @@
+﻿<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:loc="clr-namespace:Next.App.Localization;assembly=Next.App"
+        x:Class="Next.App.Views.RecordDetailWindow"
+        Width="1000" Height="620"
+        WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="False"
+        FontFamily="Microsoft YaHei UI, Segoe UI"
+        FontSize="12">
+
+  <DockPanel>
+
+    <Border DockPanel.Dock="Bottom" Background="{DynamicResource Surface.Panel}"
+            BorderBrush="{DynamicResource Surface.Border}" BorderThickness="0,1,0,0">
+      <Button Content="{loc:Loc Key=Detail.Close}" Click="OnCloseClick"
+              HorizontalAlignment="Right" Margin="8" Padding="16,4" />
+    </Border>
+
+    <!-- 只读原文：等宽字体、不自动换行、双向滚动；选择与 Ctrl+C 由 TextBox 自身提供 -->
+    <TextBox x:Name="Body" IsReadOnly="True" AcceptsReturn="True" TextWrapping="NoWrap"
+             FontFamily="Consolas, Cascadia Mono, monospace"
+             ScrollViewer.VerticalScrollBarVisibility="Auto"
+             ScrollViewer.HorizontalScrollBarVisibility="Auto"
+             BorderThickness="0" CornerRadius="0" />
+
+  </DockPanel>
+
+</Window>

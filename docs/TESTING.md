@@ -1,6 +1,6 @@
 # 单元测试与覆盖率实操指南
 
-> 最后更新：2026-11-26
+> 最后更新：2026-11-27
 > 本文是「怎么把测试跑起来、覆盖率怎么出」的**唯一操作入口**。
 > 有效性审计（变异测试）见 [`UT-AUDIT.md`](UT-AUDIT.md)。
 > **CI 语言环境陷阱**（本地全绿、推送就红）见 §3.4。
@@ -748,14 +748,14 @@ MCP 服务端工程 `mcp/`（OpenSpec change mcp-node-shell）是独立的 Node 
 
 | 入口 | 说明 |
 | --- | --- |
-| `dotnet test logcat-next/Next.Tests/Next.Tests.csproj` | 互操作绑定与导出缺失、页布局 v1 解码与释放恰好一次、真实 core 端到端（plan/commit/轮询/行数/分页边界/空文件）、双语目录键集合与占位符、语义 token 完整性、视口取页范围 |
+| `dotnet test logcat-next/Next.Tests/Next.Tests.csproj` | 互操作绑定与导出缺失、页布局 v1 解码与释放恰好一次、真实 core 端到端（plan/commit/轮询/行数/分页边界/空文件）、双语目录键集合与占位符、语义 token 完整性、视口取页范围、行选择区间集与手势、指针命中、按行区间取页与复制编排、双击详情判定 |
 
 **前置**：同样要求先 `cargo build`（装载层按旧查看器同一探测顺序回退到
 `logcore/target/debug/logcore.dll`，另支持 `LOGCORE_DLL` 与应用目录显式定位）。
 双语目录以 JSON 文件随输出复制（`Strings\`），不用 EmbeddedResource——Avalonia
 构建任务会把 EmbeddedResource 吸进 `!AvaloniaResources`，清单不可见（实测）。
 
-本机实测（2026-11-26）：**Next.Tests 53/53**（含 `avalonia-app-storage` 新增：持久化根三分支、设置版本与原子写、日志前缀与轮转、缓存/临时目录、边界扫描）；主仓 `logcat.slnx` 全量 **915/915** 未受影响
+本机实测（2026-11-27）：**Next.Tests 81/81**（含 `avalonia-app-storage` 新增：持久化根三分支、设置版本与原子写、日志前缀与轮转、缓存/临时目录、边界扫描；`next-log-selection-copy` 再增 28 条：区间选择与手势、命中测试、按区间取页与失败页、复制拼装与剪贴板编排、双击详情判定）；主仓 `logcat.slnx` 全量 **923/923** 未受影响
 （新工程与旧 viewer 完全并存，互不引用）。
 
 ---

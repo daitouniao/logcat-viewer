@@ -45,10 +45,12 @@
       <TextBlock Margin="8,4" Text="{Binding StatusText}" Foreground="{DynamicResource Text.Primary}" />
     </Border>
 
-    <!-- 虚拟滚动：画布固定在视口自绘（不随内容平移），ScrollViewer 只提供滚动范围与滚动条 -->
+    <!-- 虚拟滚动：画布固定在视口自绘（不随内容平移），ScrollViewer 只提供滚动范围与滚动条；
+         日志区可获焦点（Ctrl+C 路由稳定），不绘制焦点框（design D6） -->
     <Panel ClipToBounds="True">
       <c:LogCanvas x:Name="Canvas" Provider="{Binding Provider}" IsHitTestVisible="False" />
-      <ScrollViewer x:Name="Scroller" Padding="0" Background="Transparent">
+      <ScrollViewer x:Name="Scroller" Padding="0" Background="Transparent"
+                    Focusable="True" FocusAdorner="{x:Null}">
         <Panel x:Name="ScrollSpace" />
       </ScrollViewer>
     </Panel>

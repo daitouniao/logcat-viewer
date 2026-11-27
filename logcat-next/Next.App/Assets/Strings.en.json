@@ -13,6 +13,11 @@
   "Status.Loading": "Loading {0}…",
   "Status.Loaded": "Loaded {0:N0} rows",
   "Status.Empty": "File is empty",
+  "Status.Copied": "Copied {0:N0} rows",
+  "Status.CopyFetchFailed": "Copy failed: could not read log rows",
+  "Status.CopyClipboardFailed": "Copy failed: could not write to clipboard",
+  "Detail.Title": "Record #{0}",
+  "Detail.Close": "Close",
   "Error.OpenFailed": "Open failed: {0}",
   "Error.LoadFailed": "Load failed ({0}): {1}",
   "Error.LogcoreMissing": "Log data component unavailable: {0}"
