@@ -25,4 +25,4 @@
 ## 5. 集成验证与合入
 
 - [x] 5.1 全量测试：`dotnet test`（不可用则走 tstrun 反射 runner，并声明「tstrun 口径 N 条 + 已知跳过类别」），相对基线无新增失败；同批同步 `docs/TESTING.md` 的用例数，README 测试数字如有变化一并更新；验证：测试输出全绿，文档数字与实测一致
-- [ ] 5.2 wt 合入目标分支：把 `wt/next-recent-files` 合入 `master`；验证：`git log` 在 `master` 上可见本 change 提交，`git worktree list` 仍列出该 wt，主工作树干净
+- [x] 5.2 wt 合入目标分支：把 `wt/next-recent-files` 合入 `master`；验证：`git log` 在 `master` 上可见本 change 提交，`git worktree list` 仍列出该 wt，主工作树干净
