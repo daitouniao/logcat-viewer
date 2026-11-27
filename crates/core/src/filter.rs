@@ -6,14 +6,24 @@
 use std::collections::HashSet;
 use std::fs::File;
 
+use regex::{RegexBuilder, RegexSet, RegexSetBuilder};
+use regex_syntax::hir::{Hir, HirKind};
 use serde::Deserialize;
+use serde_json::Value;
 
-use crate::error::{io_error, CoreError, CoreResult};
+use crate::error::{
+    io_error, CoreError, CoreResult, REGEX_ERROR_INDEX_KEY, REGEX_INVALID,
+};
 use crate::identity::read_exact_at;
 use crate::result::ResultSet;
 use crate::sidecar::Payload;
 
 pub const DEFAULT_CHUNK_BYTES: usize = 256 * 1024;
+
+const REGEX_MAX_VALUES: usize = 16;
+const REGEX_MAX_CHARS: usize = 2000;
+const REGEX_SIZE_LIMIT_SINGLE: usize = 1024 * 1024;
+const REGEX_SIZE_LIMIT_GROUP: usize = 4 * 1024 * 1024;
 
 #[derive(Clone, Debug, Default, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -109,6 +119,14 @@ struct CompiledMsg {
     case: bool,
     exclude: bool,
     always_true: bool,
+    set: Option<RegexSet>,
+    routes: Vec<Route>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Route {
+    Literal(usize),
+    Set(usize),
 }
 
 impl FilterExpr {
@@ -157,7 +175,7 @@ impl FilterExpr {
         }
         if let Some(msg) = &self.msg {
             if let Some(mode) = msg.mode.as_deref() {
-                if mode != "substring" {
+                if mode != "substring" && mode != "regex" {
                     return Err(CoreError::invalid_arg("msg.mode"));
                 }
             }
@@ -258,18 +276,10 @@ impl FilterExpr {
                 exclude: tags.exclude,
             })
         });
-        let msg = self.msg.as_ref().and_then(|msg| {
-            if msg.values.is_empty() {
-                None
-            } else {
-                Some(CompiledMsg::new(
-                    &msg.values,
-                    parse_bool_op(msg.op.as_deref(), BoolOp::And),
-                    msg.case,
-                    msg.exclude,
-                ))
-            }
-        });
+        let msg = match &self.msg {
+            Some(msg) if !msg.values.is_empty() => Some(compile_msg(msg)?),
+            _ => None,
+        };
         Ok(CompiledFilter {
             levels,
             minutes,
@@ -327,7 +337,7 @@ impl CompiledTag {
 }
 
 impl CompiledMsg {
-    fn new(values: &[String], op: BoolOp, case: bool, exclude: bool) -> Self {
+    fn new_substring(values: &[String], op: BoolOp, case: bool, exclude: bool) -> Self {
         let needles: Vec<Vec<u8>> = values
             .iter()
             .map(|value| {
@@ -350,12 +360,72 @@ impl CompiledMsg {
             case,
             exclude,
             always_true,
+            set: None,
+            routes: Vec::new(),
         }
+    }
+
+    fn new_regex(values: &[String], op: BoolOp, case: bool, exclude: bool) -> CoreResult<Self> {
+        if values.len() > REGEX_MAX_VALUES {
+            return Err(regex_invalid("too_many", None));
+        }
+        let mut routes: Vec<Route> = Vec::with_capacity(values.len());
+        let mut needles: Vec<Vec<u8>> = Vec::new();
+        let mut patterns: Vec<&str> = Vec::new();
+        for (index, value) in values.iter().enumerate() {
+            if value.chars().count() > REGEX_MAX_CHARS {
+                return Err(regex_invalid("too_long", Some(index)));
+            }
+            let hir = regex_syntax::parse(value)
+                .map_err(|_| regex_invalid("syntax", Some(index)))?;
+            // 折叠口径只有一套：短路档用原始字节包含，必须与「区分大小写按码点求值」同义
+            if case {
+                if let Some(literal) = pure_literal(&hir) {
+                    needles.push(literal);
+                    routes.push(Route::Literal(needles.len() - 1));
+                    continue;
+                }
+            }
+            RegexBuilder::new(value)
+                .size_limit(REGEX_SIZE_LIMIT_SINGLE)
+                .build()
+                .map_err(|_| regex_invalid("too_size", Some(index)))?;
+            routes.push(Route::Set(patterns.len()));
+            patterns.push(value.as_str());
+        }
+        let set = if patterns.is_empty() {
+            None
+        } else {
+            Some(
+                RegexSetBuilder::new(&patterns)
+                    .case_insensitive(!case)
+                    .size_limit(REGEX_SIZE_LIMIT_GROUP)
+                    .build()
+                    .map_err(|_| regex_invalid("too_size", None))?,
+            )
+        };
+        let all_literal = routes.iter().all(|route| matches!(route, Route::Literal(_)));
+        let always_true = match op {
+            BoolOp::Or => routes.iter().any(|route| is_empty_literal(route, &needles)),
+            BoolOp::And => all_literal && needles.iter().all(Vec::is_empty),
+        };
+        Ok(Self {
+            needles,
+            op,
+            case,
+            exclude,
+            always_true,
+            set,
+            routes,
+        })
     }
 
     fn matches(&self, body: &[u8]) -> bool {
         if self.always_true {
             return true;
+        }
+        if !self.routes.is_empty() {
+            return self.matches_regex(body);
         }
         match self.op {
             BoolOp::And => self
@@ -370,12 +440,66 @@ impl CompiledMsg {
                 .any(|needle| needle_matches(needle, body, self.case)),
         }
     }
+
+    fn matches_regex(&self, body: &[u8]) -> bool {
+        let text = String::from_utf8_lossy(body);
+        let matched = self.set.as_ref().map(|set| set.matches(&text));
+        let hit = |route: &Route| match route {
+            Route::Literal(index) => needle_matches(&self.needles[*index], text.as_bytes(), true),
+            Route::Set(index) => matched.as_ref().is_some_and(|hits| hits.matched(*index)),
+        };
+        match self.op {
+            BoolOp::And => self.routes.iter().all(hit),
+            BoolOp::Or => self.routes.iter().any(hit),
+        }
+    }
+}
+
+fn is_empty_literal(route: &Route, needles: &[Vec<u8>]) -> bool {
+    matches!(route, Route::Literal(index) if needles[*index].is_empty())
+}
+
+fn pure_literal(hir: &Hir) -> Option<Vec<u8>> {
+    match hir.kind() {
+        HirKind::Empty => Some(Vec::new()),
+        HirKind::Literal(literal) => Some(literal.0.to_vec()),
+        HirKind::Concat(parts) => {
+            let mut out = Vec::new();
+            for part in parts {
+                out.extend(pure_literal(part)?);
+            }
+            Some(out)
+        }
+        _ => None,
+    }
+}
+
+fn regex_invalid(reason: &str, index: Option<usize>) -> CoreError {
+    let error = CoreError::new(REGEX_INVALID).with("reason", Value::from(reason));
+    match index {
+        Some(index) => error.with(REGEX_ERROR_INDEX_KEY, Value::from(index as u64)),
+        None => error,
+    }
 }
 
 fn parse_match_mode(value: Option<&str>) -> MatchMode {
     match value {
         Some("exact") => MatchMode::Exact,
         _ => MatchMode::Substring,
+    }
+}
+
+fn compile_msg(msg: &MsgFilter) -> CoreResult<CompiledMsg> {
+    let op = parse_bool_op(msg.op.as_deref(), BoolOp::And);
+    if msg.mode.as_deref() == Some("regex") {
+        CompiledMsg::new_regex(&msg.values, op, msg.case, msg.exclude)
+    } else {
+        Ok(CompiledMsg::new_substring(
+            &msg.values,
+            op,
+            msg.case,
+            msg.exclude,
+        ))
     }
 }
 
@@ -936,11 +1060,6 @@ mod tests {
     fn filter_expr_rejects_minute_out_of_range() {
         assert_invalid(r#"{"minutes":[60]}"#, "minutes");
         assert_invalid(r#"{"minutes":[300]}"#, "minutes");
-    }
-
-    #[test]
-    fn filter_expr_rejects_regex_mode() {
-        assert_invalid(r#"{"msg":{"values":["x"],"mode":"regex"}}"#, "msg.mode");
     }
 
     #[test]
@@ -1819,4 +1938,7 @@ mod tests {
         let after = page_bytes(&set, &payload, tf.file(), 0, 4);
         assert_eq!(before, after);
     }
+
+    #[path = "../../filter_regex_tests.rs"]
+    mod regex_tests;
 }

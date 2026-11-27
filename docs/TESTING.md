@@ -669,10 +669,16 @@ Rust core 的测试分两层，**口径与上表的 C# 数字互不相加**：
 | IT | `dotnet test` 中的 `SourceAcquire*IT` | xUnit 经 C ABI 打真实 core：本地直读、sidecar、FakeProxy / `logcore-test-proxy.exe` spool、失败路径、取消、多源、启动维护、吞吐 |
 
 **必须串行**：代理实例注册表与 `shutdown` 是进程全局状态，默认并行跑会出现互踩的伪失败
-（实测默认并行 6 条代理用例失败，`--test-threads=1` 后全过）。报告 Rust 结果时写明
-「串行口径 N 条」。本机实测：Rust UT **425/425**（串行，2026-11-24；`--workspace` 口径：core 392 + cabi 33）；
+（实测默认并行 9 条代理/装载用例失败，`--test-threads=1` 后全过）。报告 Rust 结果时写明
+「串行口径 N 条」。本机实测：Rust UT **478/478**（串行，2026-11-27；`--workspace` 口径：core 445 + cabi 33）；
 C# 侧绑定 UT + 经 FFI 的 IT 合计 **71/71**。
 
+> 2026-11-27 **rust-core-msg-regex**：Rust UT 425 → **478**（+53：core +53——正则档校验与拒绝归因
+> 15 条、扫描与正文语义 23 条、方言边界 14 条（三组同挂 `filter::tests::regex_tests`，共 52 条），
+> 查询开启面 2 条，另删 1 条与既有无效条件用例重复的 `filter_expr_rejects_regex_mode`；cabi 不变，
+> 正则错误码 17 只加 C# 侧断言）；C# 侧用例数不变，仍 **923/923**
+> （`LogcoreBindingTests` 的错误码表扩了 17 的两条断言，不新增用例）。
+>
 > 2026-11-24 **rust-core-query-handle**：Rust UT 373 → **425**（+52：core +45——查询句柄开启/定位、
 > 双向分页、生命周期与一致性 38 条，结果集定位原语 6 条，状态矩阵 1 条；cabi +7——查询导出
 > 开/读/定位/双向取页/释放与失败清空）；C# 915 → **923**（+8 经 FFI 的 `LogcoreQueryIT`）。
@@ -688,10 +694,10 @@ C# 侧绑定 UT + 经 FFI 的 IT 合计 **71/71**。
 `LogcoreUnavailableException` 明确失败，而不是静默跳过。
 
 **覆盖率**：Rust 覆盖率是独立口径（`cargo llvm-cov`），不并入 C# 的 94.26% 统计。
-本机实测（2026-11-24，串行，`rust-core-query-handle` 同批重采）：行 **92.78%**（8,773 / 9,456）、
-区域 92.90%、函数 91.50%；新增 `query.rs` 行覆盖 99.52%。
-`crates/cabi/src/bin/test_proxy.rs`（测试代理入口，0%）计入分母，剔除后库本体行覆盖 **93.10%**（8,773 / 9,423）；
-库内最低是 `winserver.rs` 78.93%（监听线程的异常分支多由代理子进程侧触发，进程内测不到）。
+本机实测（2026-11-27，串行，`rust-core-msg-regex` 同批重采）：行 **92.87%**（8,896 / 9,579）、
+区域 93.00%、函数 91.61%；本刀的正则内核落在 `filter.rs`（行覆盖 97.95%），`query.rs` 行覆盖 99.55%。
+`crates/cabi/src/bin/test_proxy.rs`（测试代理入口，0%）计入分母，剔除后库本体行覆盖 **93.19%**（8,896 / 9,546）；
+库内最低是 `winserver.rs` 78.21%（监听线程的异常分支多由代理子进程侧触发，进程内测不到）。
 采集命令：`cargo llvm-cov -- --test-threads=1`（需先 `cargo install cargo-llvm-cov` 并
 `rustup component add llvm-tools-preview`）。插桩构建把测试代理建在 cargo 的 target 目录，
 `test_proxy_exe()` 在测试可执行目录旁找不到时按 `cargo metadata` 的 `target_directory` 回退。

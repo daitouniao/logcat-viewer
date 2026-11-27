@@ -18,6 +18,7 @@ pub const NOT_FOUND: i32 = 13;
 pub const UNSUPPORTED_FORMAT: i32 = 14;
 pub const IO_ERROR: i32 = 15;
 pub const PROXY_LAUNCH_FAILED: i32 = 16;
+pub const REGEX_INVALID: i32 = 17;
 
 #[derive(Debug, Clone)]
 pub struct CoreError {
@@ -67,6 +68,7 @@ pub fn code_name(code: i32) -> &'static str {
         UNSUPPORTED_FORMAT => "UNSUPPORTED_FORMAT",
         IO_ERROR => "IO_ERROR",
         PROXY_LAUNCH_FAILED => "PROXY_LAUNCH_FAILED",
+        REGEX_INVALID => "REGEX_INVALID",
         _ => "UNKNOWN",
     }
 }
@@ -83,12 +85,16 @@ pub fn param_keys(code: i32) -> &'static [&'static str] {
         UNSUPPORTED_FORMAT => &["format"],
         IO_ERROR => &["path", "osError"],
         PROXY_LAUNCH_FAILED => &["proxyPath", "osError"],
+        REGEX_INVALID => &["reason"],
         _ => &[],
     }
 }
 
 /// 附加在代理失败上的「直开也失败过」证据（D15 附注）。
 pub const DIRECT_OPEN_ERROR_KEY: &str = "directOpenError";
+
+/// 附加在正则拒绝上的「第几条 pattern 触发」索引（D17 附注）。
+pub const REGEX_ERROR_INDEX_KEY: &str = "index";
 
 /// 源文件读取失败：分页与过滤共用同一 `path` / `osError` 形状。
 pub(crate) fn io_error(path: String, e: &std::io::Error) -> CoreError {
@@ -119,15 +125,16 @@ mod tests {
             (UNSUPPORTED_FORMAT, 14),
             (IO_ERROR, 15),
             (PROXY_LAUNCH_FAILED, 16),
+            (REGEX_INVALID, 17),
         ];
         for (code, expected) in table {
             assert_eq!(code, expected, "码值漂移：{}", code_name(code));
             assert_ne!(code_name(code), "UNKNOWN");
         }
-        // 状态类 0–7、失败类 10–16，段间留空便于追加
+        // 状态类 0–7、失败类 10–17，段间留空便于追加
         assert_eq!(code_name(8), "UNKNOWN");
         assert_eq!(code_name(9), "UNKNOWN");
-        assert_eq!(code_name(17), "UNKNOWN");
+        assert_eq!(code_name(18), "UNKNOWN");
     }
 
     #[test]
@@ -148,11 +155,13 @@ mod tests {
             (UNSUPPORTED_FORMAT, &["format"]),
             (IO_ERROR, &["path", "osError"]),
             (PROXY_LAUNCH_FAILED, &["proxyPath", "osError"]),
+            (REGEX_INVALID, &["reason"]),
         ];
         for (code, keys) in expected {
             assert_eq!(param_keys(*code), *keys, "params 键集漂移：{}", code_name(*code));
         }
         assert_eq!(DIRECT_OPEN_ERROR_KEY, "directOpenError");
+        assert_eq!(REGEX_ERROR_INDEX_KEY, "index");
 
         let e = CoreError::invalid_arg("options.tempDir");
         assert_eq!(e.code, INVALID_ARG);

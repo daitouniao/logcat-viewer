@@ -114,7 +114,7 @@ impl QueryHandle {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::error::{CLOSED, INVALID_ARG, INVALID_STATE};
+    use crate::error::{CLOSED, INVALID_ARG, INVALID_STATE, REGEX_INVALID};
     use crate::state::State;
     use crate::testutil::{file_request, temp_dir, text_file, unique_pipe, wait_until};
     use std::path::PathBuf;
@@ -229,6 +229,39 @@ mod tests {
         let f = Fixture::new("q-invalid", &lines());
         assert_err(open(&f.source, r#"{"levels":[0]}"#), INVALID_ARG, "levels");
         assert_err(open(&f.source, "not json"), INVALID_ARG, "filter");
+    }
+
+    #[test]
+    fn query_open_invalid_regex_reports_regex_invalid() {
+        let f = Fixture::new("q-regex-invalid", &lines());
+        let err = open(&f.source, r#"{"msg":{"mode":"regex","values":["(abc"]}}"#)
+            .err()
+            .expect("期望正则无效");
+        assert_eq!(err.code, REGEX_INVALID);
+        assert_eq!(
+            err.params.get("reason").and_then(|v| v.as_str()),
+            Some("syntax")
+        );
+        assert!(err.params.get("field").is_none());
+        let err = open(&f.source, r#"{"msg":{"mode":"regex","values":["(abc"]}}"#)
+            .err()
+            .unwrap();
+        assert_eq!(err.code, REGEX_INVALID, "句柄状态不因一次拒绝而变");
+        let after = open(&f.source, r#"{"msg":{"mode":"regex","values":["o"]}}"#).unwrap();
+        assert_eq!(after.row_count(), 2);
+    }
+
+    #[test]
+    fn query_open_valid_regex_builds_result() {
+        let f = Fixture::new("q-regex-valid", &lines());
+        let query = open(&f.source, r#"{"msg":{"mode":"regex","values":["on|wo"]}}"#).unwrap();
+        assert_eq!(query.row_count(), 2);
+        let query = open(
+            &f.source,
+            r#"{"msg":{"mode":"regex","values":["three"],"case":true}}"#,
+        )
+        .unwrap();
+        assert_eq!(query.row_count(), 1);
     }
 
     #[test]
