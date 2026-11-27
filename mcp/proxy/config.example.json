@@ -1,0 +1,21 @@
+{
+  "upstreams": [
+    {
+      "id": "logcat",
+      "command": "node",
+      "args": ["../dist/src/index.js"],
+      "env": {},
+      "cwd": null,
+      "enabled": true
+    },
+    {
+      "id": "example",
+      "command": "node",
+      "args": ["C:\\path\\to\\some-mcp-server\\dist\\index.js"],
+      "env": {
+        "API_TOKEN": "env:MY_MCP_API_TOKEN"
+      },
+      "enabled": false
+    }
+  ]
+}

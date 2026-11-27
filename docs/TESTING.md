@@ -760,10 +760,35 @@ MCP 服务端工程 `mcp/`（OpenSpec change mcp-node-shell）是独立的 Node 
 
 ---
 
-## 9. 一句话速查
+## 9. MCP 代理（Node，`mcp/proxy/`）
+
+MCP 代理工程 `mcp/proxy/`（OpenSpec change mcp-proxy）是独立的 Node 进程：用例数与覆盖率
+**不并入**上方 C# / Rust / Next 的合计口径：
+
+| 入口 | 说明 |
+| --- | --- |
+| `npm --prefix mcp/proxy ci` | 按锁文件安装依赖（Node ≥ 22.6，与 `mcp/` 同版本线） |
+| `npm --prefix mcp/proxy run build` | TypeScript 编译，产出在 `mcp/proxy/dist/`（已忽略，不入库） |
+| `npm --prefix mcp/proxy test` | 编译后跑 `node --test "dist/test/*.test.js"` |
+| `npm --prefix mcp/proxy run test:coverage` | 同上并输出 Node 内置覆盖率（`--experimental-test-coverage`） |
+
+**前置**：端到端用例以仓库内的 `logcat-mcp`（`mcp/` 工程）为真实上游，故须先
+`npm --prefix mcp ci && npm --prefix mcp run build`——构建产物不入库，本地与 CI 都要先构建。
+
+覆盖内容：配置校验与原子落盘、命名空间聚合与名称规范化、对应表路由与四个错误码、调用时限与取消、
+上游生命周期（启停、重启、就绪时限、诊断尾部）、内置管理工具、代理进程树清理、管理面接口与访问控制
+（令牌、Host 校验、凭据掩码）、下游服务端的握手纪律与单客户端约束。
+
+本机实测（2026-11-27）：**74 条用例，74 通过 / 0 失败 / 0 跳过**（Node 26.8.1）。
+CI 的 `mcp-proxy` 作业用矩阵跑 **Node 26 + Node 22**，与 `mcp` 作业同口径。
+
+---
+
+## 10. 一句话速查
 
 - 我在终端 → §2.1（`dotnet test --collect` + `python tests/coverage-report.py`）。
 - 智能体沙箱 → §3 建 tstrun 跑测试、§2.2 用 coverlet console 出覆盖率。
 - 数字看着不对 → §5，先查分母（§5.1）。
 - 数字好看但心里没底 → [`UT-AUDIT.md`](UT-AUDIT.md) 跑变异测试。
 - MCP 服务端（Node）→ §7，`npm --prefix mcp test`。
+- MCP 代理（Node）→ §9，`npm --prefix mcp/proxy test`。

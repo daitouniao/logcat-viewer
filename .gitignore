@@ -19,6 +19,10 @@ node_modules/
 # Node 工程的编译输出与覆盖率产物（mcp/ 下 TypeScript 构建）
 mcp/dist/
 mcp/coverage/
+# 代理工程（mcp/proxy/）的构建产物与覆盖率产物：上一条锚定在仓库根，
+# 不覆盖嵌套目录，故单列。
+mcp/proxy/dist/
+mcp/proxy/coverage/
 # Rust 的 src/bin/ 是源码目录（如测试代理），不是构建产物
 !logcore/src/bin/
 !logcore/src/bin/*.rs

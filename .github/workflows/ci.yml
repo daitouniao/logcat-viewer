@@ -118,3 +118,47 @@ jobs:
 
       - name: Test
         run: npm test
+
+  # MCP 代理（Node，mcp/proxy/）：独立工程，Node 版本矩阵与 mcp 作业一致。
+  # 端到端用例以仓库内的 logcat-mcp 为真实上游，故先构建 mcp/ 再跑代理测试。
+  mcp-proxy:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: ['26', '22']
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      - name: Show environment
+        run: |
+          Write-Host "--- node ---"
+          node --version
+          Write-Host "--- npm ---"
+          npm --version
+
+      # 端到端用例的真实上游是 logcat-mcp：先按锁文件装依赖并构建它。
+      - name: Build logcat-mcp (e2e upstream)
+        working-directory: mcp
+        run: |
+          npm ci
+          npm run build
+
+      - name: Install dependencies
+        working-directory: mcp/proxy
+        run: npm ci
+
+      - name: Build
+        working-directory: mcp/proxy
+        run: npm run build
+
+      - name: Test
+        working-directory: mcp/proxy
+        run: npm test

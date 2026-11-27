@@ -1,9 +1,9 @@
 # 探索笔记：MCP 代理 v0
 
-- 状态：**待评审**（口径已定，评审待落；2026-11-27 起稿，本文的事实依据与 change `mcp-proxy` 一致，实现细节见该 change 的 `design.md`）
+- 状态：**已实施待验收**（2026-11-27 起稿并收口口径，随后按 change `mcp-proxy` 实施完毕；本文的事实依据与该 change 一致，实现细节见其 `design.md`）
 - 日期：2026-11-27 起稿并收口
-- 关联提交：无（未编码）
-- 验收结论：不适用（未实施）
+- 关联提交：实现见 `mcp/proxy/` 工程与 change `mcp-proxy` 的 apply 提交
+- 验收结论：不适用（待维护者验收）
 - 关联 change：`openspec/changes/mcp-proxy/`
 
 ## 背景与目标
@@ -59,3 +59,15 @@ http / sse 上游；**http 下游传输**（HTTP-only 的 MCP 客户端 v0 接�
 - **支持 http / sse 上游** → 引入鉴权、部署与端口占用整套负担；且形状一旦进配置字段就容易「顺手支持」，与既有「传输形态限定」的纪律相悖。
 - **上游每下游客户端独立拉起** → 进程数随连接数放大，重启语义模糊；stdio 上游本就是单例子进程，共享更贴合语义。
 - **配置放仓库内** → 条目 `env` 可能含凭据，写进仓库等于泄密。
+
+## 实施结果（2026-11-27）
+
+- 工程落在 `mcp/proxy/`（Node + TypeScript，`@modelcontextprotocol/client@2.4.0` + `server@2.4.0` + `zod@4.6.7`，TS 5.9.3），可执行名 `logcat-mcp-proxy`。
+- 实现的模块：`config.ts`（校验 / 原子落盘 / `env:VAR` 引用）、`naming.ts` + `registry.ts`（命名空间与对应表）、
+  `upstream.ts`（生命周期 / 时限 / 诊断尾部 / 进程树清理）、`server.ts`（下游服务端）、`management.ts` + `page.ts`（管理面）、
+  `builtins.ts`（`proxy_servers` / `proxy_restart`）、`cli.ts` + `index.ts`（入口）。
+- 测试 **74 条全部通过**（`npm --prefix mcp/proxy test`），覆盖配置、聚合、路由与错误码、时限与取消、
+  上游生命周期、内置工具、管理面访问控制、下游服务端纪律，以及以仓库内 `logcat-mcp` 为真实上游的端到端四条。
+- 实施中修正了两处与设计初稿的偏差：① 停止的上游其工具**保留在对应表里但标记为不活跃**——
+  这样调用被停上游的工具报「上游不可用」而不是「工具不存在」（规范场景要求前者）；
+  ② 上游自己返回的失败结果在管理器层就归一为 `UPSTREAM_TOOL_FAILED` 并保留原文，错误语义只有一处判定。

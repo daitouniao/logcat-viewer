@@ -80,6 +80,41 @@ node mcp/dist/src/index.js
 该进程以标准输入输出承载 MCP 协议消息，标准输出只写协议消息、诊断信息走标准错误；
 标准输入到达文件末尾（客户端断开）时进程随之退出。
 
+### MCP 代理（`mcp/proxy/`，Node）
+
+MCP 代理是另一个独立 Node 工程（不在 `logcat.slnx` 里），把多个标准输入输出的上游
+MCP 服务端聚合到一个下游服务端后面，并带一个本机管理页面。要求 Node ≥ 22.6。
+
+```powershell
+npm --prefix mcp/proxy ci         # 按锁文件安装依赖
+npm --prefix mcp/proxy run build  # 编译：产出 mcp/proxy/dist/（已忽略，不入库）
+```
+
+编译产物入口为 `mcp/proxy/dist/src/index.js`（ESM），可执行名 `logcat-mcp-proxy`：
+
+```powershell
+node mcp/proxy/dist/src/index.js --config <配置路径> --port <管理端口>
+```
+
+- `--config` 缺省取用户配置目录（Windows `%APPDATA%\logcat\mcp-proxy\config.json`，
+  其他平台 `~/.config/logcat/mcp-proxy/config.json`）；仓库内的 `mcp/proxy/config.example.json`
+  只作形状示例，不含真实凭据。
+- `--port` 缺省取**随机空闲端口**；启动时把带令牌的页面地址写到标准错误
+  （标准输出只走下游协议消息）。
+- 上游条目里的环境变量可写 `"env:VAR"` 引用外部环境变量，该形式不落盘。
+
+**与 `mcp/` 的 `npm run harness` 分工**：harness 是**开发期调试单个服务端**的网页工具
+（看工具清单、调工具、看原始 JSON-RPC 流量）；代理是**运行期聚合多个上游**的路由与管理层
+（面向使用者配置与运维）。两者不互相替代，也不共享代码。
+
+端到端用例以仓库内的 `logcat-mcp` 为真实上游，故跑代理测试前须先构建它：
+
+```powershell
+npm --prefix mcp ci
+npm --prefix mcp run build
+npm --prefix mcp/proxy test
+```
+
 ## 三、跑测试
 
 ```powershell
