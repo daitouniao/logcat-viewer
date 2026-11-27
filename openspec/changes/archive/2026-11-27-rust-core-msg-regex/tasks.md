@@ -110,9 +110,10 @@
 
 ## 8. 收口
 
-- [ ] 8.1 wt 合入目标分支：`git merge wt/rust-core-msg-regex` 合入 **`master`**；验证：`git log master` 出现该合并、`git status` 干净；worktree 清除随归档执行（本任务只记合入完成）
+- [x] 8.1 wt 合入目标分支：`git merge wt/rust-core-msg-regex` 合入 **`master`**；验证：`git log master` 出现该合并、`git status` 干净；worktree 清除随归档执行（本任务只记合入完成）
+  - 备注：`wt/rust-core-msg-regex`（实现提交 `305b40a`）已以 `--no-ff` 合入 `master`。合入后主树与已测 wt 树在 `crates` / `tests` / `logcat-*` / `Cargo.lock` / `docs` 上逐字节相同（`git diff` 为空），故 7.1/7.2 的 478/478 与 923/923 口径直接成立；`openspec validate --strict` 在主树复跑仍为 0 warning。
 - [x] 8.2 交付验收材料（本卡无 UI 面，不做 GUI 手测）：汇总 7.1/7.2 的口径数字与 2.2/2.3/2.5/7.4 的四项实测数值，交用户验收；验证：AI 不自行判定「验收通过」，等用户明示
-  - 备注：验收材料已随本轮汇总交付（Rust 串行 478/478、C# 923/923、覆盖率行 92.87%、dll Release 增量 1.54 MiB、整组闸实测、缓存砍掉后的编译占比 0.37%、真实文档三档对照）；本卡无 UI 面。8.1 合入 `master` 与任何 git 写操作均待用户当轮授权，改动尚未提交。
+  - 备注：验收材料已交付（Rust 串行 478/478、C# 923/923、覆盖率行 92.87%、dll Release 增量 1.54 MiB、整组闸实测、缓存砍掉后的编译占比 0.37%、真实文档三档对照）；本卡无 UI 面。
 
 ## Workflow follow-up
 
